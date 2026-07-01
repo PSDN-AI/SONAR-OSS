@@ -36,5 +36,8 @@ jobs:
       #   3. Never commit real secrets to silence a finding; rotate and remove instead.
       #   4. docs/import-gate.md requires a clean full-history gitleaks pass before this
       #      repo goes public, so treat every finding here as blocking until resolved.
-      - name: Run gitleaks
-        run: gitleaks dir . --redact --exit-code 1
+      # `gitleaks git` scans the full commit history (requires fetch-depth: 0 above),
+      # so a secret introduced in any commit is caught even if a later commit removed
+      # it. A working-tree-only scan (`gitleaks dir`) would miss that case.
+      - name: Run gitleaks (full commit history)
+        run: gitleaks git . --redact --exit-code 1

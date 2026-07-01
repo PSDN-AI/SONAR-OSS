@@ -19,7 +19,7 @@ passing run of this gate in its PR description.
 
 - [ ] A full-history secret scan has been run over the import set using the pinned gitleaks
       binary (v8.30.1), the same tool used by the "Secret scan" CI check (`.github/workflows/gitleaks.yml`,
-      `gitleaks dir . --redact --exit-code 1`), and it reports zero findings.
+      `gitleaks git . --redact --exit-code 1`), and it reports zero findings.
 - [ ] No real API keys, tokens, passwords, private keys, session cookies, or credentials of any
       kind are present in file contents, filenames, commit messages, or metadata.
 - [ ] No real `.env` file or real environment values are included. `.env.example` with placeholder

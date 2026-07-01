@@ -98,10 +98,11 @@ Avoid generic titles such as `Update code` or `Fix bug` that don't convey the ty
 
 ## Dependency Updates
 
-- Dependabot opens grouped, weekly pull requests for dependency updates. Review and merge these like any
-  other PR.
-- A `pip-audit` / dependency-vulnerability check is planned but explicitly deferred until the Python
-  packaging manifests (`pyproject.toml`, lockfile) land with the initial code import.
+- Dependabot opens grouped, weekly pull requests for GitHub Actions updates today. Python dependency
+  updates activate once the packaging manifests (`pyproject.toml`, lockfile) land with the initial code
+  import.
+- A `pip-audit` / dependency-vulnerability check is planned but explicitly deferred until those same
+  manifests land.
 
 ## Public Repository Safety
 

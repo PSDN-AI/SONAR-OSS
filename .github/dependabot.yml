@@ -20,21 +20,7 @@ updates:
           - "minor"
           - "patch"
 
-  # Python dependencies declared in pyproject.toml / uv.lock.
-  # This ecosystem activates once those files land with the code import (#8);
-  # until then Dependabot will simply find nothing to update here.
-  - package-ecosystem: "uv"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-    commit-message:
-      prefix: "chore(deps)"
-    groups:
-      # Group minor/patch bumps; majors stay as individual PRs for review.
-      python-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
+  # The Python (uv) ecosystem is intentionally omitted until the code import (#8)
+  # adds pyproject.toml / uv.lock. Dependabot requires a manifest/lock file for an
+  # ecosystem; configuring "uv" without one produces "dependency file not found"
+  # errors, so the Python update config lands together with those manifests.
