@@ -1,0 +1,43 @@
+name: Secret scanning
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          gitleaks version
+
+      # False-positive triage:
+      #   1. Confirm the finding is not a real secret before doing anything else.
+      #   2. If it is a false positive, add a narrowly-scoped rule/allowlist entry to
+      #      .gitleaks.toml (or an inline `gitleaks:allow` comment on that exact line)
+      #      rather than disabling the scan or widening the allowlist broadly.
+      #   3. Never commit real secrets to silence a finding; rotate and remove instead.
+      #   4. docs/import-gate.md requires a clean full-history gitleaks pass before this
+      #      repo goes public, so treat every finding here as blocking until resolved.
+      # `gitleaks git` scans the full commit history (requires fetch-depth: 0 above),
+      # so a secret introduced in any commit is caught even if a later commit removed
+      # it. A working-tree-only scan (`gitleaks dir`) would miss that case.
+      - name: Run gitleaks (full commit history)
+        run: gitleaks git . --redact --exit-code 1

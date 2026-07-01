@@ -1,0 +1,52 @@
+# Pre-commit hooks for SONAR-OSS.
+# Install:  make pre-commit-install
+# Run all:  make pre-commit-run
+
+default_install_hook_types: [pre-commit]
+
+exclude: |
+  (?x)^(
+    \.venv/.*|
+    dist/.*|
+    build/.*|
+    .*\.egg-info/.*
+  )$
+
+repos:
+  # Baseline hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        # TSV fixtures can encode empty trailing columns as `...\t\n`.
+        # Stripping that tab would silently change the parsed row width.
+        exclude: \.tsv$
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        # --enforce-all so `pre-commit run --all-files` checks every file,
+        # not just staged/new ones.
+        args: [--maxkb=5120, --enforce-all]
+      - id: debug-statements
+
+  # Ruff: lint (with --fix) then format.
+  # Keep `rev` aligned with the ruff pin in pyproject.toml
+  # ([project.optional-dependencies].dev). Bump via `pre-commit autoupdate`.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.11
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        types_or: [python, pyi]
+      - id: ruff-format
+        types_or: [python, pyi]
+
+  # Secret scanning: blocks commits that introduce credentials. CI runs a
+  # full-tree gitleaks scan separately (this hook only sees staged changes,
+  # so it is ineffective on a clean CI checkout).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

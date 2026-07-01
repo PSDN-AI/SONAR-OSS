@@ -1,0 +1,56 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv / pip caches
+.uv-cache/
+.cache/
+
+# Linting / formatting / typing caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Test / coverage reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Environment files (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Local results / scratch data / model bundles
+results/
+*.tar.gz
+*.tar
