@@ -1,0 +1,40 @@
+version: 2
+
+updates:
+  # GitHub Actions used by the workflows in .github/workflows/.
+  # Actions are pinned by full commit SHA, so without Dependabot they never
+  # receive CVE patches or version bumps.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      # One PR per week for all non-major action bumps to limit PR volume.
+      github-actions:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Python dependencies declared in pyproject.toml / uv.lock.
+  # This ecosystem activates once those files land with the code import (#8);
+  # until then Dependabot will simply find nothing to update here.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Group minor/patch bumps; majors stay as individual PRs for review.
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
