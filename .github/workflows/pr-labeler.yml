@@ -1,0 +1,80 @@
+name: PR auto-label
+
+# Runs with pull_request_target so labels can be written on pull requests from
+# forks. SECURITY: this workflow never checks out or runs PR head code.
+# actions/labeler only reads the changed-file list through the API and reads
+# .github/labeler.yml from the base branch (the workflow ref), not the PR.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply-path-labels:
+    name: Apply path labels
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Apply labels from changed paths
+        # actions/labeler reads the changed-file list via the API only (no
+        # checkout / no PR code execution) and loads the config from the base ref.
+        # actions/labeler v6.2.0
+        uses: actions/labeler@b8dd2d9be0f68b860e7dae5dae7d772984eacd6d
+        with:
+          # Remove stale labels managed by .github/labeler.yml. The manual
+          # fallback is deliberately absent from that file and is preserved.
+          sync-labels: true
+
+  # Keep this check in the same workflow: labels written with github.token do
+  # not start a separate workflow run.
+  require-area-label:
+    name: Require area label
+    needs: apply-path-labels
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Require successful path labeling
+        if: ${{ needs.apply-path-labels.result != 'success' }}
+        run: |
+          echo "::error::Path label reconciliation did not complete successfully."
+          exit 1
+
+      - name: Check for a track:* area label
+        if: ${{ needs.apply-path-labels.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          labels="$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')"
+
+          if printf '%s\n' "$labels" | grep -qE '^track:'; then
+            echo "Area label present:"
+            printf '%s\n' "$labels" | grep -E '^track:'
+            exit 0
+          fi
+
+          echo "::error::This PR has no 'track:*' area label."
+          cat <<'EOF'
+          No 'track:*' area label found on this pull request.
+
+          One is normally applied automatically by the PR auto-label workflow
+          based on the files you changed. If every changed path is intentionally
+          unmapped, ask a repository maintainer to apply the `track: manual`
+          fallback label. External contributors cannot add repository labels.
+
+          Managed area labels: track: ci, track: security, track: release,
+          track: ops, track: toolkit, track: repro, track: data, track: qa.
+          EOF
+          exit 1
