@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gitleaks:
@@ -35,7 +35,7 @@ jobs:
           archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
           curl --fail --silent --show-error --location \
-            --proto '=https' --tlsv1.2 \
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \
             "$url" --output "$archive"
           printf '%s  %s\n' "$GITLEAKS_SHA256" "$archive" | sha256sum --check -
           tar -xzf "$archive" gitleaks
