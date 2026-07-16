@@ -15,7 +15,8 @@ concurrency:
 jobs:
   validate-pr-title:
     name: Validate PR title
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Validate Conventional Commit PR title
         # amannn/action-semantic-pull-request v6.1.1

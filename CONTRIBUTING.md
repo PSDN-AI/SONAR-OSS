@@ -65,7 +65,10 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-Run these before opening a pull request; the same checks run in CI.
+Run these before opening a pull request. CI runs the stable `Pre-commit baseline` and full-history
+`Secret scan` checks on pull requests and every resulting push to `main`. Product lint, test,
+dependency, packaging, and exact release-SHA checks land with #4, #19, and #24 after the package
+manifests are imported.
 
 ## Pull Request Titles
 
