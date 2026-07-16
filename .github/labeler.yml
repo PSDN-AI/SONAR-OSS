@@ -1,0 +1,79 @@
+# Path-based PR area labels (actions/labeler v6 schema).
+# Each top-level key is an existing repo label; a PR gets every label whose
+# globs match at least one of its changed files. Matching several is expected.
+# Globs for paths that land with the code import (#8) are pre-wired and simply
+# don't match until those files exist.
+# `track: manual` is intentionally absent: automation must never remove it.
+# See CONTRIBUTING.md ("Pull Request Labels") for how these are applied.
+
+"track: ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+          - ".github/labeler.yml"
+          - ".pre-commit-config.yaml"
+          - "pyproject.toml"
+          - "uv.lock"
+          - ".python-version"
+          - "Makefile"
+
+"track: security":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "SECURITY.md"
+          - "docs/import-gate.md"
+          - ".github/workflows/gitleaks.yml"
+
+"track: release":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "LICENSE"
+          - "CHANGELOG.md"
+          - "docs/RELEASE.md"
+
+"track: repro":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "artifacts/**"
+          - "conf/**"
+          - "configs/**"
+          - "docs/reproducibility/**"
+          - "docs/run-manifest.md"
+          - ".github/workflows/public-canary.yml"
+
+"track: data":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "benchmarks/**"
+          - "data/**"
+          - "datasets/**"
+          - "docs/data/**"
+          - "psdn_sonar/data/**"
+
+"track: qa":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "fixtures/**"
+          - "tests/**"
+          - ".github/workflows/golden-regression.yml"
+
+"track: ops":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".gitignore"
+          - "CONTRIBUTING.md"
+          - "CODE_OF_CONDUCT.md"
+          - "README.md"
+          - "docs/**"
+          - ".github/ISSUE_TEMPLATE/**"
+          - ".github/PULL_REQUEST_TEMPLATE.md"
+          - ".github/CODEOWNERS"
+
+"track: toolkit":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "psdn_sonar/**"
+          - "tests/**"
+          - "scripts/**"
+          - "examples/**"
+          - "conf/**"

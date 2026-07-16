@@ -86,6 +86,24 @@ Examples:
 
 Avoid generic titles such as `Update code` or `Fix bug` that don't convey the type or scope of the change.
 
+## Pull Request Labels
+
+Every pull request carries at least one `track:*` area label. The `PR auto-label` workflow first
+reconciles path labels and then runs its `Require area label` check. The check becomes merge-blocking
+only when branch protection requires it.
+
+- Managed `track:*` labels are applied automatically from the current changed paths using
+  `.github/labeler.yml`. A PR that touches several mapped areas gets several labels.
+- Managed labels are reconciled on every update, so labels for paths no longer in the PR are removed.
+- Priority and effort labels are not copied from linked issues; they remain issue-planning metadata.
+
+If every changed path is intentionally unmapped, ask a repository maintainer to apply the
+`track: manual` fallback label. Repository labels require maintainer permissions, so external fork
+contributors cannot apply this label themselves.
+
+`track: manual` is not managed by the path labeler, so reconciliation preserves it. It also signals
+that maintainers should consider a follow-up update to the path map.
+
 ## Pull Request Expectations
 
 - Link the relevant issue when one exists.
