@@ -98,9 +98,11 @@ Avoid generic titles such as `Update code` or `Fix bug` that don't convey the ty
 
 ## Dependency Updates
 
-- Dependabot opens grouped, weekly pull requests for GitHub Actions updates today. Python dependency
-  updates activate once the packaging manifests (`pyproject.toml`, lockfile) land with the initial code
-  import.
+- Third-party GitHub Actions are pinned to full commit SHAs. Maintainers review and update those references
+  manually when needed; automated Dependabot version-update pull requests are intentionally disabled so
+  dependency changes remain deliberate during release-readiness work.
+- Python dependencies will be reviewed through the packaging manifests (`pyproject.toml`, lockfile) once
+  they land with the initial code import.
 - A `pip-audit` / dependency-vulnerability check is planned but explicitly deferred until those same
   manifests land.
 
