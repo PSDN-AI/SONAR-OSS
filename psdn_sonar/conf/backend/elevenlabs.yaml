@@ -1,0 +1,12 @@
+backend:
+  name: elevenlabs
+  type: api
+  api:
+    provider: elevenlabs
+    endpoint: https://api.elevenlabs.io/v1/speech-to-text
+    timeout: 300
+    max_retries: 3
+  preprocessing:
+    format: wav
+    sample_rate: 16000
+    channels: 1

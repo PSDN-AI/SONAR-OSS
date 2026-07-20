@@ -1,0 +1,21 @@
+# Strict validation mode — tight checks, suitable for curated/studio data
+validation:
+  schema:
+    mode: strict
+    allow_missing_fields: false
+    allow_extra_fields: false
+  audio:
+    enabled: true
+    expected_sample_rate: 16000
+    min_duration_seconds: 0.5
+    max_duration_seconds: 60
+    max_silence_ratio: 0.60
+    silence_thresh_db: -40.0
+    max_clipping_ratio: 0.01
+    min_snr_db: 10.0
+  transcript:
+    enabled: true
+    min_length: 2
+    max_length: 5000
+    allow_empty: false
+    check_character_set: true

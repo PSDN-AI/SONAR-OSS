@@ -1,0 +1,12 @@
+backend:
+  name: whisper
+  type: api
+  api:
+    provider: openai
+    model: whisper-1
+    timeout: 300
+    max_retries: 3
+  preprocessing:
+    format: mp3
+    max_file_size_mb: 25
+    sample_rate: 16000

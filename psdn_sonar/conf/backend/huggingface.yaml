@@ -1,0 +1,14 @@
+backend:
+  name: huggingface
+  type: local
+  model:
+    default_bn: bangla-speech-processing/BanglaASR
+    default_ko: kresnik/wav2vec2-large-xlsr-korean
+    default_hi: vasista22/whisper-hindi-large-v2
+    default_en: openai/whisper-base
+  pipeline:
+    task: automatic-speech-recognition
+    device: null
+    batch_size: 1
+  use_fp16: true
+  cache_dir: null

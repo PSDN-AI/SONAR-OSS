@@ -1,0 +1,10 @@
+language:
+  code: en
+  name: English
+
+  normalization:
+    lowercase: true
+    remove_punctuation: true
+    verbalize_numbers: true
+
+  tokenizer: word

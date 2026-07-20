@@ -1,0 +1,21 @@
+# Lenient validation mode — permissive checks, suitable for noisy/real-world data
+validation:
+  schema:
+    mode: lenient
+    allow_missing_fields: true
+    allow_extra_fields: true
+  audio:
+    enabled: true
+    expected_sample_rate: null
+    min_duration_seconds: 0.1
+    max_duration_seconds: 600
+    max_silence_ratio: 0.95
+    silence_thresh_db: -50.0
+    max_clipping_ratio: 0.05
+    min_snr_db: 0.0
+  transcript:
+    enabled: true
+    min_length: 0
+    max_length: 50000
+    allow_empty: true
+    check_character_set: false
