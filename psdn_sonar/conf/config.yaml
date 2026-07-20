@@ -1,0 +1,55 @@
+run:
+  name: null
+  input_dir: null
+  output_dir: ./runs
+  max_samples: 0
+  seed: 42
+
+pipeline:
+  steps:
+    - schema_validation
+    - audio_validation
+    - transcript_validation
+    - audio_preprocessing
+    - transcription
+    - text_preprocessing
+    - scoring
+    - sampling
+  parallel: false
+  cache_results: true
+
+validation:
+  schema:
+    mode: lenient
+    allow_missing_fields: true
+    allow_extra_fields: true
+  audio:
+    enabled: true
+    expected_sample_rate: null
+    min_duration_seconds: 0.5
+    max_duration_seconds: 600
+    max_silence_ratio: 0.80
+    silence_thresh_db: -40.0
+    max_clipping_ratio: 0.01
+    min_snr_db: 5.0
+  transcript:
+    enabled: true
+    min_length: 1
+    max_length: 10000
+    allow_empty: false
+    check_character_set: false
+
+metrics:
+  compute_cer: true
+  compute_wer: true
+  compute_semantic: true
+  compute_poseidon: true
+  poseidon_weights:
+    wer: 0.35
+    cer: 0.20
+    semantic: 0.45
+
+logging:
+  level: INFO
+  format: "%(levelname)s:%(name)s:%(message)s"
+  save_to_file: true

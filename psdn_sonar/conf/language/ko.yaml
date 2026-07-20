@@ -1,0 +1,17 @@
+language:
+  code: ko
+  name: Korean
+  tokenizer: mecab
+  unicode_range: [0xAC00, 0xD7AF]
+  additional_ranges:
+    - [0x1100, 0x11FF]
+    - [0x3130, 0x318F]
+    - [0xA960, 0xA97F]
+    - [0xD7B0, 0xD7FF]
+  normalization:
+    unicode_form: NFC
+    remove_punctuation: true
+    verbalize_numbers: true
+    normalize_spacing: true
+    use_g2p: false
+  semantic_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2

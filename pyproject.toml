@@ -133,12 +133,25 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["psdn_sonar"]
 
+# The loanword caches live outside the package tree (top-level ``config/``)
+# so linguists can review them without touching Python code. Force-include
+# relocates them into the wheel as package resources; at runtime
+# ``psdn_sonar.utils.loanword.get_cache_path`` prefers the repo-root copy
+# during a source checkout and falls back to these packaged resources.
+[tool.hatch.build.targets.wheel.force-include]
+"config/language/bn/loanword_cache.json" = "psdn_sonar/resources/language/bn/loanword_cache.json"
+"config/language/hi/loanword_cache.json" = "psdn_sonar/resources/language/hi/loanword_cache.json"
+"config/language/ko/loanword_cache.json" = "psdn_sonar/resources/language/ko/loanword_cache.json"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Coverage is measured but not gated: --cov reports a baseline without a
 # failing threshold. coverage.xml is consumed by CI; the terminal report
 # is for local runs.
 addopts = "--cov=psdn_sonar --cov-report=term-missing --cov-report=xml"
+markers = [
+    "live_gemini: hits the live Gemini API (network); requires RUN_LIVE_GEMINI_TESTS=1 and an API key — never runs in default CI",
+]
 
 [tool.coverage.run]
 source = ["psdn_sonar"]

@@ -1,0 +1,12 @@
+language:
+  code: hi
+  name: Hindi
+  unicode_range: [0x0900, 0x097F]
+
+  normalization:
+    unicode_form: NFC
+    use_indic_nlp: true
+    verbalize_numbers: true
+    remove_punctuation: true
+
+  tokenizer: indic
