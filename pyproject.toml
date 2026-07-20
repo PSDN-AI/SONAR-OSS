@@ -1,0 +1,160 @@
+[project]
+name = "psdn-sonar"
+version = "0.1.0"
+description = "Multi-language ASR evaluation toolkit — metrics, reporting, and benchmarks"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "PSDN AI"}]
+keywords = ["asr", "speech-recognition", "evaluation", "benchmark", "multilingual"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.24.0",
+    "soundfile>=0.12.0",
+    "librosa>=0.10.0",
+    "numba>=0.57.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "scikit-learn>=1.3.0",
+    "requests>=2.28.0",
+    "nltk>=3.8.0",
+    "num2words>=0.5.12",
+    # ``indic-numtowords`` is in CORE deps (not in the ``[hindi]`` extra)
+    # because Hindi number verbalization is reproducibility-critical for
+    # WER/CER. ``num2words`` does not implement ``lang='hi'``, so without
+    # this package every digit-bearing Hindi reference would normalize
+    # differently across environments. The package itself is small and
+    # pure Python (~44 KB sdist, no transitive heavyweight deps).
+    "indic-numtowords>=1.0.0",
+    "jiwer>=3.0.0",
+    "matplotlib>=3.7.0",
+    # ``scipy`` is used directly by the LLM-judged metrics analysis
+    # script (significance tests). It is already installed transitively
+    # via scikit-learn — declaring it makes the contract explicit.
+    "scipy>=1.10",
+    "pandas>=2.0.0",
+    "plotnine>=0.13.0",
+    "datasets>=2.14.0",
+    "omegaconf>=2.3.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.60.0",
+    "pydub>=0.25.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/PSDN-AI/SONAR-OSS"
+Repository = "https://github.com/PSDN-AI/SONAR-OSS"
+"Bug Tracker" = "https://github.com/PSDN-AI/SONAR-OSS/issues"
+
+[project.optional-dependencies]
+ml-common = [
+    "transformers>=4.33.0,<5.0.0",
+    "sentence-transformers>=3.0.0",
+    "speechmos>=0.0.1",
+    "onnxruntime>=1.10.0",
+]
+ml = [
+    "torch>=2.2.0",
+    "torchaudio>=2.2.0",
+    "transformers>=4.33.0,<5.0.0",
+    "sentence-transformers>=3.0.0",
+    "speechmos>=0.0.1",
+    "onnxruntime>=1.10.0",
+]
+pyannote = [
+    "pyannote.audio>=3.1.0,<4.0.0",
+]
+bengali = [
+    "bnlp_toolkit",
+    "bangla",
+    "indic-transliteration",
+    "banglaspeech2text",
+    "peft",
+]
+korean = [
+    "konlpy>=0.6.0",
+    "soynlp>=0.0.493",
+    "hgtk>=0.1.3",
+    "g2pk>=0.1.0",
+    "jamo>=0.4.1",
+]
+# NOTE on install weight: ``indic-nlp-library`` upstream declares
+# ``sphinx-rtd-theme`` and ``sphinx-argparse`` as RUNTIME dependencies
+# (not docs-only), which transitively pulls Sphinx, docutils, jinja2,
+# and the sphinxcontrib-* family. That's ~30 extra packages. Because of
+# this, ``indic-nlp-library`` is intentionally kept in the optional
+# ``[hindi]`` extra rather than in core dependencies — only users who
+# need Hindi processor unicode normalization / tokenization pay this cost.
+# ``HindiProcessor._normalize_unicode`` and ``_tokenize_indic`` both have
+# graceful try/except fallbacks if the import is unavailable.
+hindi = [
+    "indic-nlp-library>=0.92",
+]
+cloud = [
+    "boto3>=1.28.0",
+]
+# Vendor API clients are optional: most users run WER/CER/POSEIDON without
+# ever calling a hosted ASR/LLM API, and these SDKs pull heavy transitive
+# dependency trees. Code paths that need them raise an explicit
+# "install [apis]" error when the import is missing.
+apis = [
+    "openai>=1.0.0",
+    "elevenlabs",
+    "assemblyai",
+    "google-genai>=1.0.0",
+]
+all = [
+    "psdn-sonar[ml,bengali,hindi,korean,apis,cloud,pyannote]",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.15.11,<0.16",
+    "ty==0.0.31",
+    "moto[s3]>=5.0",
+    "pre-commit>=3.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["psdn_sonar"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Coverage is measured but not gated: --cov reports a baseline without a
+# failing threshold. coverage.xml is consumed by CI; the terminal report
+# is for local runs.
+addopts = "--cov=psdn_sonar --cov-report=term-missing --cov-report=xml"
+
+[tool.coverage.run]
+source = ["psdn_sonar"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.ty.rules]
+# Optional deps behind try/except that ty can't resolve
+unresolved-import = "ignore"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
