@@ -10,10 +10,13 @@ Currently available layers:
   (``conf/`` tree: language, backend, and validation profiles).
 - :mod:`psdn_sonar.registry` — ASR-backend and language-processor registries.
 - :mod:`psdn_sonar.language_codes` — ISO 639-1 language code mappings.
+- :mod:`psdn_sonar.language` — per-language text processors (en, bn, hi, ko).
+- :mod:`psdn_sonar.models` — ASR model registry, base adapter interface, and
+  protocol-aware latency types (``LatencyMetrics``).
 
-Language processors, model backends, dataset loaders, evaluators, reporting,
-and the CLI are imported incrementally in subsequent PRs — see
-docs/import-gate.md for the checklist every import must pass.
+Model adapter implementations (HuggingFace, vendor APIs), dataset loaders,
+evaluators, reporting, and the CLI are imported incrementally in subsequent
+PRs — see docs/import-gate.md for the checklist every import must pass.
 """
 
 __version__ = "0.1.0"
