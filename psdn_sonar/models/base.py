@@ -8,17 +8,10 @@ from typing import Optional, Tuple, Union
 class LatencyMetrics:
     """Protocol-aware latency for a single transcription.
 
-    A single scalar latency conflates two operationally distinct numbers,
-    so we keep them apart:
-
-    - ``complete_s``: total wall-clock from request start to *final*
-      transcript. Defined for **both** batch and streaming protocols.
-    - ``ttft_s``: time-to-first-token — wall-clock until the *first partial*
-      transcript arrives. Defined **only** for streaming protocols; ``None``
-      for batch adapters (which have no notion of a partial result).
-
-    ``complete_s`` is the required field; ``ttft_s`` defaults to ``None`` so
-    batch adapters can construct ``LatencyMetrics(complete_s=x)`` directly.
+    - ``complete_s``: total wall-clock to the final transcript (defined for
+      both batch and streaming protocols).
+    - ``ttft_s``: wall-clock to the first partial transcript; streaming
+      protocols only, ``None`` for batch.
     """
 
     complete_s: float
@@ -37,15 +30,10 @@ def unpack_transcription(
 ) -> Tuple[Optional[str], Optional[LatencyMetrics]]:
     """Normalise a ``transcribe`` return into ``(text, LatencyMetrics | None)``.
 
-    Adapters may return either a bare ``str`` (legacy / batch) or a
-    ``(text, LatencyMetrics)`` tuple (latency-aware). This helper lets callers
-    treat both uniformly:
-
-    - ``(text, metrics)`` tuple → returned as-is.
-    - bare ``str`` / ``None`` → paired with a synthesised ``LatencyMetrics``
-      whose ``complete_s`` is ``fallback_complete_s`` (typically the caller's
-      own wall-clock measurement) and whose ``ttft_s`` is ``None``. If no
-      fallback is supplied, the metrics half is ``None``.
+    ``(text, metrics)`` tuples pass through unchanged. A bare ``str`` /
+    ``None`` is paired with metrics synthesised from ``fallback_complete_s``
+    (typically the caller's own wall-clock measurement), or with ``None``
+    when no fallback is supplied.
     """
     if isinstance(result, tuple):
         text, metrics = result
@@ -58,19 +46,11 @@ def unpack_transcription(
 class ASRModel:
     """Base class for all ASR model adapters. Subclasses must implement ``transcribe``.
 
-    ``supports_latency_metrics`` advertises only that an adapter *may* return a
-    ``(text, LatencyMetrics)`` tuple from :meth:`transcribe` (vs a bare
-    ``str``). It is **not** a promise that ``ttft_s`` is populated: a batch
-    adapter can set this ``True`` and still report ``ttft_s=None`` because batch
-    protocols have no first-partial event. In other words, the flag means
-    "returns a ``LatencyMetrics`` object", not "is TTFT-capable" — whether TTFT
-    is actually measured depends on the adapter's protocol/mode (e.g.
-    ``AssemblyAIAPIModel(streaming=True)``). It is ``False`` by default.
-
-    Callers should not rely on this flag for correctness — use
-    :func:`unpack_transcription`, which normalises both return shapes and
-    leaves ``ttft_s`` as whatever the adapter reported (possibly ``None``). The
-    flag is for reporting / capability display only.
+    ``supports_latency_metrics`` advertises that ``transcribe`` may return a
+    ``(text, LatencyMetrics)`` tuple instead of a bare ``str``. It does NOT
+    promise ``ttft_s`` is populated (batch protocols have no first-partial
+    event). The flag is for capability display only — callers should use
+    :func:`unpack_transcription`, which handles both return shapes.
     """
 
     supports_latency_metrics: bool = False

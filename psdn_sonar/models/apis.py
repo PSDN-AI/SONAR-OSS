@@ -106,10 +106,12 @@ class ElevenLabsAPIModel(ASRModel):
     def supports_word_timestamps(self) -> bool:
         return True
 
-    def _detect_content_type(self, audio_path: str) -> str:
+    @staticmethod
+    def _detect_content_type(audio_path: str) -> str:
         return "audio/mpeg" if audio_path.lower().endswith(".mp3") else "audio/wav"
 
-    def _handle_error(self, e):
+    @staticmethod
+    def _handle_error(e):
         err = getattr(e, "response", None)
         if err is not None:
             try:
@@ -203,29 +205,14 @@ class ElevenLabsAPIModel(ASRModel):
 class AssemblyAIAPIModel(ASRModel):
     """AssemblyAI adapter with optional realtime-streaming TTFT measurement.
 
-    In batch mode (``streaming=False``, the default) this returns the final
-    transcript paired with ``LatencyMetrics(complete_s=…, ttft_s=None)`` — a
-    batch protocol has no partial result, so TTFT is undefined.
-
-    In streaming mode (``streaming=True``) it drives AssemblyAI's realtime
-    transcriber, records the wall-clock to the first non-empty partial as
-    ``ttft_s``, and reports total wall-clock as ``complete_s``. The streaming
-    path is **best-effort and live-only**: it cannot be exercised in CI (it
-    needs a websocket session against the live API), so it is guarded — any
-    failure logs a warning and falls back to the batch path. The TTFT-capture
-    logic is decoupled from the transport via :meth:`_make_realtime_transcriber`
-    and :meth:`_iter_pcm_frames` so it remains unit-testable with a fake
-    transcriber.
-
-    ``supports_latency_metrics`` is always ``True`` because every mode returns
-    a ``LatencyMetrics`` object — but that is distinct from being TTFT-capable.
-    ``ttft_s`` is populated only in streaming mode; in batch mode it is
-    ``None``. Branch on ``self.streaming`` (not on ``supports_latency_metrics``)
-    if you need to know whether TTFT will actually be measured.
+    Batch mode (``streaming=False``, default) returns the final transcript
+    with ``ttft_s=None``. Streaming mode drives the realtime transcriber and
+    records wall-clock to the first non-empty partial as ``ttft_s``; any
+    streaming failure logs a warning and falls back to batch. Branch on
+    ``self.streaming`` (not ``supports_latency_metrics``) to know whether
+    TTFT will actually be measured.
     """
 
-    # NB: advertises "returns LatencyMetrics", not "measures TTFT". TTFT is only
-    # populated when ``streaming=True`` (see class docstring).
     supports_latency_metrics = True
 
     def __init__(self, api_key=None, language_code="bn", streaming: bool = False, sample_rate: int = 16000):
@@ -280,12 +267,9 @@ class AssemblyAIAPIModel(ASRModel):
     def _iter_pcm_frames(self, audio_path: str, frame_ms: int = 300):
         """Yield mono int16 PCM frames from ``audio_path`` at ``self._sample_rate``.
 
-        The realtime transcriber is told the stream is ``self._sample_rate``
-        (see :meth:`_make_realtime_transcriber`), so this MUST emit audio at
-        that rate or the server mis-times every frame — producing garbage
-        partials, inaccurate TTFT, and avoidable fallback to batch. We
-        therefore decode to float, downmix to mono, resample to the configured
-        rate when the file's native rate differs, and frame on the target rate.
+        The realtime transcriber is told the stream rate, so frames MUST be
+        emitted at that rate (downmix to mono, resample when the file's
+        native rate differs) or the server mis-times every frame.
         Overridable in tests.
         """
         import numpy as np

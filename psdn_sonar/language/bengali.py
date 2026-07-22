@@ -1,3 +1,5 @@
+"""Bengali language processor."""
+
 import logging
 import re
 import unicodedata
@@ -11,11 +13,13 @@ logger = logging.getLogger(__name__)
 
 @register_language("bn")
 class BengaliProcessor(LanguageProcessor):
-    """Bengali text normalization and tokenization.
+    """Bengali normalization and tokenization.
 
-    Uses ``bnlp`` (``[bengali]`` extra) for cleaning and word tokenization
-    when available, degrading gracefully to Unicode normalization and
-    whitespace splitting when it is not.
+    Overrides :meth:`normalize` with a Bengali-specific pipeline (digit
+    verbalization first, ``bnlp`` cleaning, punctuation-only strip) rather
+    than the shared template. Uses ``bnlp`` (``[bengali]`` extra) when
+    available, degrading gracefully to Unicode normalization and whitespace
+    splitting.
 
     Note: WER scoring for Bengali normally goes through the canonical
     pipeline in ``psdn_sonar.utils.text_processing.normalize_bengali_for_wer``
@@ -35,7 +39,15 @@ class BengaliProcessor(LanguageProcessor):
 
         norm_form = self.config.language.normalization.unicode_form
         text = unicodedata.normalize(norm_form, text)
+        text = self._clean_with_bnlp(text, norm_form)
 
+        if self.config.language.normalization.remove_punctuation:
+            text = self._remove_punctuation(text)
+
+        return re.sub(r"\s+", " ", text).strip()
+
+    @staticmethod
+    def _clean_with_bnlp(text: str, norm_form: str) -> str:
         try:
             from bnlp import CleanText
 
@@ -50,46 +62,38 @@ class BengaliProcessor(LanguageProcessor):
                 remove_digits=False,
                 remove_punct=False,
             )
-            text = cleaner(text)
+            return cleaner(text)
         except Exception:
             logger.debug("bnlp CleanText failed in BengaliProcessor, using fallback", exc_info=True)
-
-        if self.config.language.normalization.remove_punctuation:
-            text = self._remove_punctuation(text)
-
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
+            return text
 
     def tokenize(self, text: str) -> List[str]:
         """Tokenize with bnlp's word tokenizer, char mode, or whitespace,
-        per ``config.language.tokenizer`` ("bnlp" / "char" / anything else)."""
+        per ``config.language.tokenizer``."""
         tokenizer_type = self.config.language.tokenizer
 
         if tokenizer_type == "bnlp":
             try:
                 from bnlp.tokenize import Tokenizer
 
-                tokenizer = Tokenizer()
-                return tokenizer.word_tokenize(text)
+                return Tokenizer().word_tokenize(text)
             except Exception:
                 pass
         elif tokenizer_type == "char":
             return list(text.replace(" ", ""))
-
         return text.split()
 
     def verbalize_numbers(self, text: str) -> str:
-        """Convert digit runs to Bengali words (Bengali numerals first
-        mapped to ASCII via the configured ``numeral_map``)."""
+        """Convert digit runs to Bengali words (Bengali numerals first mapped
+        to ASCII via the configured ``numeral_map``)."""
         text = self._convert_bengali_digits(text)
 
         try:
             from num2words import num2words
 
-            def replace_match(match):
+            def replace_match(match: re.Match) -> str:
                 try:
-                    number = int(match.group())
-                    return num2words(number, lang="bn")
+                    return num2words(int(match.group()), lang="bn")
                 except Exception:
                     return match.group()
 
@@ -98,20 +102,17 @@ class BengaliProcessor(LanguageProcessor):
             return text
 
     def _convert_bengali_digits(self, text: str) -> str:
-        numeral_map = self.config.language.numeral_map
-        for bn_digit, en_digit in numeral_map.items():
+        for bn_digit, en_digit in self.config.language.numeral_map.items():
             text = text.replace(bn_digit, en_digit)
         return text
 
-    def _remove_punctuation(self, text: str) -> str:
+    @staticmethod
+    def _remove_punctuation(text: str) -> str:
+        # Bengali strips only P* (keeps S*), unlike the shared pipeline.
         return "".join(c for c in text if not unicodedata.category(c).startswith("P"))
 
     def validate_text(self, text: str) -> bool:
-        """Accept text containing at least one code point in the configured
-        Bengali Unicode range."""
         if not text:
             return False
-        unicode_range = self.config.language.unicode_range
-        min_code, max_code = unicode_range
-        bengali_chars = sum(1 for c in text if min_code <= ord(c) <= max_code)
-        return bengali_chars > 0
+        min_code, max_code = self.config.language.unicode_range
+        return any(min_code <= ord(c) <= max_code for c in text)
