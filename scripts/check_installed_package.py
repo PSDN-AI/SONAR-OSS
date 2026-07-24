@@ -44,15 +44,20 @@ def main() -> None:
         if not isinstance(yaml.safe_load(installed_config.read_text(encoding="utf-8")), dict):
             raise RuntimeError(f"Installed configuration is not a YAML mapping: {relative_path}")
 
-    for language in ("bn", "hi", "ko"):
-        source_cache = source_root / "config" / "language" / language / "loanword_cache.json"
+    source_cache_root = source_root / "config" / "language"
+    source_caches = sorted(source_cache_root.glob("*/loanword_cache.json"))
+    if not source_caches:
+        raise RuntimeError(f"No source loanword caches found under {source_cache_root}")
+
+    for source_cache in source_caches:
+        language = source_cache.parent.name
         installed_cache = package_root / "resources" / "language" / language / "loanword_cache.json"
         if not installed_cache.is_file():
             raise RuntimeError(f"Installed wheel is missing the {language} loanword cache")
         if installed_cache.read_bytes() != source_cache.read_bytes():
             raise RuntimeError(f"Installed {language} loanword cache differs from source")
         cache = json.loads(installed_cache.read_text(encoding="utf-8"))
-        if not cache or not all(isinstance(key, str) and isinstance(value, str) for key, value in cache.items()):
+        if not isinstance(cache, dict) or not cache or not all(isinstance(value, str) for value in cache.values()):
             raise RuntimeError(f"Installed {language} loanword cache is invalid")
 
     config = ConfigManager().load(language="bn", backend="huggingface", validation="strict")
@@ -65,7 +70,7 @@ def main() -> None:
 
     print(
         f"Verified psdn-sonar {installed_version} at {package_root}: "
-        f"{len(source_configs)} YAML configs and 3 loanword caches"
+        f"{len(source_configs)} YAML configs and {len(source_caches)} loanword caches"
     )
 
 
