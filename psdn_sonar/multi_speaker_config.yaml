@@ -1,0 +1,19 @@
+# Preprocessing methods for multi-speaker evaluation
+# Comment out or remove methods you don't want to run
+
+methods:
+  - no_trim
+
+# Audio preprocessing settings
+silence:
+  max_silence_ms: 400
+  min_silence_len: 500
+  silence_thresh: -40
+
+timestamp:
+  padding_ms: 100
+
+pyannote:
+  vad_min_duration_on: 0.3
+  vad_min_duration_off: 0.3
+  vad_gap_ms: 400
