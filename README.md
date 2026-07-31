@@ -32,6 +32,11 @@ pip install -e ".[dev]"
 Copy `.env.example` to `.env` and fill in only the values you need (API keys
 are required only for optional hosted-model backends).
 
+## Usage
+
+See [`docs/USAGE.md`](docs/USAGE.md) for a short quickstart with runnable
+examples (scoring a pair, evaluating a model over a dataset, listing models).
+
 ## Development
 
 ```bash
