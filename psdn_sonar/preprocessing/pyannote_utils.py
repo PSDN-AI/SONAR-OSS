@@ -12,13 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 def _import_pyannote() -> bool:
-    """Import ``pyannote.audio`` under a scoped ``torch.load`` compatibility patch.
-
-    PyTorch 2.6 changed ``torch.load`` to ``weights_only=True`` by default,
-    which breaks pyannote/lightning checkpoint loading. ``torch.load`` is
-    restored after the import so safe loading is not disabled globally; the
-    lightning loader stays patched because checkpoints load later, when the
-    pipelines are first created.
+    """Import ``pyannote.audio``, working around PyTorch 2.6's ``weights_only=True``
+    default that breaks pyannote/lightning checkpoint loading. ``torch.load`` is
+    restored after import; the lightning loader stays patched for lazy loads.
     """
     try:
         import torch
@@ -178,12 +174,8 @@ def run_diarization(audio_path: Path, num_speakers: int = 2) -> list:
 
 
 def assign_words_to_speakers(words: list, diar_segments: list) -> dict:
-    """Assign word-level timestamps to diarization speakers.
-
-    Each word goes to the segment containing its midpoint, falling back to
-    maximum time overlap, then to ``"unknown"``. Words and segments are dicts
-    with ``start``/``end`` (words also ``text``, segments also ``speaker``).
-    Returns ``{speaker_id: concatenated text}``.
+    """Assign each word to the speaker segment containing its midpoint, falling
+    back to max time overlap, then ``"unknown"``. Returns ``{speaker_id: text}``.
     """
     speaker_texts: dict = {}
     for word in words:

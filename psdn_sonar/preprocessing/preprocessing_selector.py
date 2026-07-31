@@ -1,14 +1,9 @@
 """Preprocessing method selection for multi-speaker evaluation.
 
-Default (auto): All per-channel methods run in parallel (~50ms total via pydub).
-  Each output is scored by audio-signal quality — no ASR, no ground truth needed.
-  The best-scoring version is sent to ASR exactly once per speaker.
-  Zero oracle bias.
-
---method <name>: Use one explicit method for all clips (skips scoring).
-
---sweep: Oracle mode — all methods run with ASR + ground-truth scoring.
-  Inflates metrics; use only for ablation studies.
+- auto (default): all per-channel methods run in parallel, scored by audio-signal
+  quality (no ASR, no ground truth); the best is sent to ASR once per speaker.
+- ``--method <name>``: use one explicit method for all clips (skips scoring).
+- ``--sweep``: oracle mode — ground-truth scoring; inflates metrics, ablation only.
 """
 
 import logging
@@ -79,14 +74,10 @@ def _preprocess_only(
 
 
 def _score_preprocessed(processed_path, orig_dur: float, trim_dur: float) -> float:
-    """Score a preprocessed audio file using pydub-based silence detection.
+    """Score preprocessed audio: ``(1 - silence_ratio) × (1 - duration_change)``.
 
-    score = speech_density × content_preservation
-          = (1 - silence_ratio_after) × (1 - duration_change)
-
-    Higher is better. Removing more than ``_MAX_TRIM_RATIO`` of the original
-    duration is considered a failure and scores 0. A neutral silence ratio of
-    0.5 is assumed when the file cannot be analysed.
+    Higher is better. Trimming more than ``_MAX_TRIM_RATIO`` of the original
+    duration scores 0; an unanalysable file assumes a 0.5 silence ratio.
     """
     if orig_dur <= 0:
         return 0.0
@@ -207,16 +198,11 @@ def run_single_method(
 ) -> tuple:
     """Select preprocessing and transcribe once per speaker.
 
-    When *method_name* is ``None``, all per-channel methods run in parallel and
-    are scored by audio-signal quality; the best result is sent to ASR exactly
-    once per speaker. When *method_name* is given, that method is used directly.
-    Per-clip (diarization) methods run only when explicitly requested or when
-    no per-channel method is active.
-
-    The returned results carry ``cer``/``wer``/``similarity`` as ``None``:
-    selection never sees ground truth, and final metrics are computed by the
-    caller. Returns ``(all_results, best_a, best_b)`` — same shape as
-    :func:`run_sweep`.
+    ``method_name=None`` scores all per-channel methods and sends the best to
+    ASR; a given *method_name* is used directly. Per-clip (diarization) methods
+    run only when explicitly requested or no per-channel method is active.
+    Metrics are left ``None`` (selection never sees ground truth; the caller
+    scores). Returns ``(all_results, best_a, best_b)`` like :func:`run_sweep`.
     """
     silence_settings = silence_settings or {}
     timestamp_settings = timestamp_settings or {}
@@ -306,9 +292,8 @@ def run_single_method(
 
 
 def _heuristic(cer, wer, sim):
-    """Oracle selection heuristic: avg((1-cer) + (1-wer) + sim) / 3.
-
-    Uses ground truth — only valid for sweep/ablation mode.
+    """Oracle heuristic ``((1-cer) + (1-wer) + sim) / 3`` — ground-truth-based,
+    sweep/ablation mode only.
     """
     cer = cer if cer is not None else 1.0
     wer = wer if wer is not None else 1.0
@@ -332,13 +317,11 @@ def run_sweep(
     timestamp_settings: Optional[dict] = None,
     pyannote_settings: Optional[dict] = None,
 ) -> tuple:
-    """Run all methods with oracle selection (ground-truth-based scoring).
+    """Run all methods with oracle (ground-truth) selection.
 
-    WARNING: Uses ground truth to select the winning method — inflates all
-    reported metrics. Use only via the --sweep flag for ablation studies.
-
-    Returns ``(all_results, best_a, best_b)`` — same shape as
-    :func:`run_single_method`.
+    WARNING: selecting the winner by ground truth inflates all reported metrics;
+    use only via ``--sweep`` for ablation. Returns ``(all_results, best_a,
+    best_b)`` like :func:`run_single_method`.
     """
     silence_settings = silence_settings or {}
     timestamp_settings = timestamp_settings or {}
