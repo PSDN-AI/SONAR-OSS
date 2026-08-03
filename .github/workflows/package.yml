@@ -42,7 +42,7 @@ jobs:
         run: uv build --clear --no-sources --out-dir "$RUNNER_TEMP/package-dist"
 
       - name: Validate distribution metadata
-        run: uvx --from twine==6.2.0 twine check --strict "$RUNNER_TEMP"/package-dist/*
+        run: uvx --from twine==7.0.0 twine check --strict "$RUNNER_TEMP"/package-dist/*
 
       - name: Verify clean wheel installation
         env:
