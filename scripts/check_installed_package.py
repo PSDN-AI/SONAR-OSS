@@ -11,6 +11,7 @@ import yaml
 
 import psdn_sonar
 from psdn_sonar.config_loader import ConfigManager
+from psdn_sonar.preprocessing import load_multi_speaker_config
 
 
 def main() -> None:
@@ -29,14 +30,17 @@ def main() -> None:
             f"Version mismatch: psdn_sonar.__version__={psdn_sonar.__version__!r}, metadata={installed_version!r}"
         )
 
-    source_config_root = source_root / "psdn_sonar" / "conf"
-    source_configs = sorted(source_config_root.rglob("*.yaml"))
+    # Every runtime YAML in the package tree, not just conf/: files like
+    # psdn_sonar/multi_speaker_config.yaml have silent-fallback loaders, so
+    # a wheel that drops them still imports fine but changes behavior.
+    source_package_root = source_root / "psdn_sonar"
+    source_configs = sorted(path for pattern in ("*.yaml", "*.yml") for path in source_package_root.rglob(pattern))
     if not source_configs:
-        raise RuntimeError(f"No source YAML configuration found under {source_config_root}")
+        raise RuntimeError(f"No source YAML configuration found under {source_package_root}")
 
     for source_config in source_configs:
-        relative_path = source_config.relative_to(source_config_root)
-        installed_config = package_root / "conf" / relative_path
+        relative_path = source_config.relative_to(source_package_root)
+        installed_config = package_root / relative_path
         if not installed_config.is_file():
             raise RuntimeError(f"Installed wheel is missing configuration: {relative_path}")
         if installed_config.read_bytes() != source_config.read_bytes():
@@ -67,6 +71,19 @@ def main() -> None:
         or config.validation.schema.mode != "strict"
     ):
         raise RuntimeError("Installed package could not load the expected merged configuration")
+
+    # Behavioral check: load_multi_speaker_config falls back to defaults with
+    # only a log warning when its YAML is missing, so byte-comparison alone is
+    # not enough — assert the installed loader returns what the file declares.
+    declared_methods = yaml.safe_load((package_root / "multi_speaker_config.yaml").read_text(encoding="utf-8"))[
+        "methods"
+    ]
+    loaded_methods = load_multi_speaker_config()["methods"]
+    if loaded_methods != declared_methods:
+        raise RuntimeError(
+            f"Installed multi-speaker config loaded methods {loaded_methods}, "
+            f"expected {declared_methods} — the loader fell back to defaults"
+        )
 
     print(
         f"Verified psdn-sonar {installed_version} at {package_root}: "
