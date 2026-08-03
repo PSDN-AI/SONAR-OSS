@@ -406,7 +406,42 @@ jobs:
 
       # Dynamic values enter through env only — never ${{ }} inside run —
       # so a crafted tag name cannot inject into this contents:write job.
-      - name: Create GitHub Release
+      #
+      # --verify-tag below only proves the tag exists; this step proves it
+      # still targets the commit the artifacts were built from. No tag
+      # ruleset can enforce immutability yet (private free-plan repo), so
+      # a tag force-moved mid-run would otherwise bind this Release (and
+      # its source archives) to a commit the wheel was never built from.
+      - name: Verify tag still points at the built commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
+        run: |
+          set -euo pipefail
+
+          ref_json="$(gh api "repos/$GH_REPO/git/ref/tags/$GITHUB_REF_NAME")"
+          sha="$(jq -r '.object.sha' <<<"$ref_json")"
+          otype="$(jq -r '.object.type' <<<"$ref_json")"
+          # Annotated tags point at a tag object; dereference to the commit.
+          attempts=0
+          while [ "$otype" = "tag" ] && [ "$attempts" -lt 5 ]; do
+            tag_json="$(gh api "repos/$GH_REPO/git/tags/$sha")"
+            sha="$(jq -r '.object.sha' <<<"$tag_json")"
+            otype="$(jq -r '.object.type' <<<"$tag_json")"
+            attempts=$((attempts + 1))
+          done
+          if [ "$otype" != "commit" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not resolve to a commit (got: $otype)"
+            exit 1
+          fi
+          if [ "$sha" != "$SOURCE_COMMIT" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME now points at $sha but the artifacts were built from $SOURCE_COMMIT — refusing to create a mismatched release"
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME still points at $SOURCE_COMMIT"
+
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -426,7 +461,27 @@ jobs:
             printf '```\n'
           } > "$RUNNER_TEMP/notes.md"
 
-          gh release create "$GITHUB_REF_NAME" dist/* SHA256SUMS.txt \
-            --verify-tag \
-            --title "psdn-sonar $VERSION" \
-            --notes-file "$RUNNER_TEMP/notes.md"
+          # dev/a/b/rc versions must never become the repo's "Latest
+          # release" (.postN alone is a full release and gets no flag).
+          prerelease_args=()
+          if printf '%s' "$VERSION" | grep -Eq '((a|b|rc)[0-9]+|\.dev[0-9]+)'; then
+            prerelease_args=(--prerelease --latest=false)
+          fi
+
+          # Create-or-update: "re-run failed jobs" re-runs this job together
+          # with a failed smoke test, so a plain `create` would collide with
+          # the existing release and strand the stale smoke result in its
+          # body. Editing refreshes the notes; --clobber refreshes assets.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "psdn-sonar $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              "${prerelease_args[@]}"
+            gh release upload "$GITHUB_REF_NAME" dist/* SHA256SUMS.txt --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* SHA256SUMS.txt \
+              --verify-tag \
+              --title "psdn-sonar $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              "${prerelease_args[@]}"
+          fi

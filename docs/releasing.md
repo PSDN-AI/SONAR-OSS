@@ -14,15 +14,25 @@ job lands with M3-REL-02c.
 
 - `scripts/check_installed_package.py` must exist on the tagged commit — the
   pre-publish verification job runs it.
-- The version must be identical in **both** declaration sites:
-  `pyproject.toml` (`[project].version`) and `psdn_sonar/__init__.py`
-  (`__version__`). The workflow refuses to build if they drift.
+- The version lives in **three** files that must agree: `pyproject.toml`
+  (`[project].version`), `uv.lock` (it records the project's own version),
+  and `psdn_sonar/__init__.py` (`__version__`). The workflow refuses to
+  build on drift — `uv lock --check` catches a stale lockfile, the release
+  gate catches `__init__.py`.
 - The person pushing the tag needs push access to `v*` refs.
 
 ## Cutting a release
 
-1. Open a version-bump PR that updates `pyproject.toml` and
-   `psdn_sonar/__init__.py` together, and merge it.
+1. Open a version-bump PR and merge it. Let `uv` keep the first two files
+   in sync, then mirror the string into `__init__.py` by hand:
+
+   ```bash
+   uv version 0.1.0.dev1 --no-sync   # updates pyproject.toml AND uv.lock
+   # then set __version__ = "0.1.0.dev1" in psdn_sonar/__init__.py
+   ```
+
+   Editing `pyproject.toml` by hand without regenerating the lockfile makes
+   `uv lock --check` fail the release build.
 2. Tag the merge commit with an annotated tag and push it:
 
    ```bash
@@ -57,6 +67,8 @@ verifies the wheel but never publishes, regardless of the ref it targets.
   gate and the pre-publish verification exist.
 - Use `.devN` versions (`0.1.0.dev1`) for rehearsals so the plain version
   stays available: `pip` ignores dev releases unless explicitly requested.
+- dev/alpha/beta/rc versions are created as GitHub **prereleases** and never
+  become the repository's "Latest release"; plain and `.postN` versions do.
 - The first tag push also **creates** the `psdn-sonar` project on TestPyPI and
   converts the pending Trusted Publisher registered there. Registration alone
   does not reserve the name — only the first successful publish claims it.
@@ -65,7 +77,10 @@ verifies the wheel but never publishes, regardless of the ref it targets.
 
 - **Smoke test times out waiting for the release:** TestPyPI index propagation
   is usually seconds, occasionally minutes. Re-run failed jobs — publish is
-  already done and `skip-existing: true` makes a full re-run harmless.
+  already done and `skip-existing: true` makes a full re-run harmless. The
+  GitHub Release job is create-or-update: a re-run refreshes the existing
+  release's notes (including the smoke result) and re-uploads assets in
+  place, so re-running never collides with the release it already made.
 - **Partial upload (one file failed):** re-run the workflow from the same tag;
   already-uploaded files are skipped, missing ones are uploaded. (This is why
   the TestPyPI job sets `skip-existing: true`. The production job must not.)
