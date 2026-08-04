@@ -10,6 +10,52 @@ wrong with the process.
 Current scope: releases go to **TestPyPI** (M3-REL-02b). The production PyPI
 job lands with M3-REL-02c.
 
+## When to cut a release
+
+A change needs a new package version when delivering it changes what users
+receive from `pip install psdn-sonar`: installed behavior or results, public
+interfaces, runtime dependencies, install metadata, or packaged resources.
+
+Needing a new version does not mean every qualifying merge must be published
+immediately. Qualifying changes may be grouped into the next planned release.
+Security fixes and urgent correctness fixes should be published promptly.
+
+A new package version is required to deliver:
+
+- runtime behavior changes, including bug fixes and new features;
+- public API, CLI, configuration-schema, or output-format changes;
+- runtime dependency, optional-extra, or supported-Python-version changes;
+- packaged runtime configuration, defaults, or other resources; and
+- packaged loanword cache changes, because they can change normalization and
+  WER/CER results.
+
+A standalone production package release is normally not required for
+documentation-only, test-only, CI/GitHub Actions, repository-settings, or
+behavior-preserving internal-refactor changes. They may ride with the next
+package release.
+
+Use the following version guidance:
+
+- **Patch:** compatible bug fixes, limited configuration corrections, and small
+  loanword cache corrections or additions.
+- **Minor:** new compatible features, languages, metrics, or substantial
+  resource changes expected to change results materially.
+- **Breaking:** incompatible public API, configuration, output, or installation
+  changes use a major version after `1.0`; while the project is on `0.x`, bump
+  the minor version and call out the break explicitly.
+- **Development or release candidate:** use `.devN` for development/TestPyPI
+  rehearsals and `rcN` for release candidates.
+
+Maintainers choose patch or minor based on the expected user and result impact.
+
+For a loanword cache change, the version-bump PR and production release notes
+must identify the affected languages, describe whether entries were corrected,
+added, removed, or broadly refreshed, and state the expected normalization or
+scoring impact.
+
+Long-term supported-version, release-cadence, SBOM, extras-matrix, and rollback
+policy remains tracked in [M3-REL-02d](https://github.com/PSDN-AI/SONAR-OSS/issues/52).
+
 ## Prerequisites
 
 - `scripts/check_installed_package.py` must exist on the tagged commit — the
