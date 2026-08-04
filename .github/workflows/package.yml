@@ -1,0 +1,58 @@
+name: Package artifacts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Deduplicate superseded PR runs, but keep every push/dispatch run as evidence.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  package:
+    name: Package artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.10"
+
+      - name: Verify uv.lock is in sync with pyproject.toml
+        run: uv lock --check
+
+      - name: Build wheel and source distribution
+        run: uv build --clear --no-sources --out-dir "$RUNNER_TEMP/package-dist"
+
+      - name: Validate distribution metadata
+        run: uvx --from twine==7.0.0 twine check --strict "$RUNNER_TEMP"/package-dist/*
+
+      - name: Verify clean wheel installation
+        env:
+          SONAR_SOURCE_ROOT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+
+          smoke_dir="$RUNNER_TEMP/package-smoke"
+          uv venv --python 3.10 "$smoke_dir"
+          uv pip install --python "$smoke_dir/bin/python" "$RUNNER_TEMP"/package-dist/*.whl
+
+          cd "$RUNNER_TEMP"
+          "$smoke_dir/bin/python" "$GITHUB_WORKSPACE/scripts/check_installed_package.py"
