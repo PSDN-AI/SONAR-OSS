@@ -12,6 +12,7 @@ import yaml
 import psdn_sonar
 from psdn_sonar.config_loader import ConfigManager
 from psdn_sonar.preprocessing import load_multi_speaker_config
+from psdn_sonar.utils.loanword import get_cache_path, load_cache
 
 
 def main() -> None:
@@ -63,6 +64,8 @@ def main() -> None:
         cache = json.loads(installed_cache.read_text(encoding="utf-8"))
         if not isinstance(cache, dict) or not cache or not all(isinstance(value, str) for value in cache.values()):
             raise RuntimeError(f"Installed {language} loanword cache is invalid")
+        if load_cache(get_cache_path(language)) != cache:
+            raise RuntimeError(f"Installed {language} loanword cache does not load through the runtime resolver")
 
     config = ConfigManager().load(language="bn", backend="huggingface", validation="strict")
     if (
