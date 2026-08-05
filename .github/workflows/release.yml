@@ -1,0 +1,357 @@
+name: Release
+
+# Tag-triggered TestPyPI release via Trusted Publishing (OIDC) — no stored
+# token anywhere. The workflow filename and the `testpypi` environment name
+# are load-bearing: both are registered in the index-side Trusted Publisher
+# and must match exactly (M3-REL-02a). Production PyPI is M3-REL-02c.
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  # Never cancel an in-progress release for the same tag.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Forks keep the workflow file but must never attempt a release.
+    if: github.repository == 'PSDN-AI/SONAR-OSS'
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.gate.outputs.version }}
+      source-commit: ${{ steps.gate.outputs.source-commit }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          # Pinned (unlike CI): uv resolves and builds the artifact that gets
+          # signed and published, so the release toolchain must not float.
+          version: "0.12.1"
+          # No cache on the release path: a poisoned Actions cache must not
+          # be able to reach the published artifact (zizmor: cache-poisoning).
+          enable-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.10"
+
+      - name: Verify uv.lock is in sync with pyproject.toml
+        run: uv lock --check
+
+      # The version is declared in two places (pyproject.toml and
+      # psdn_sonar/__init__.py). An index rejects a re-upload of any
+      # version it has ever seen, so every mismatch caught here is an
+      # unburnable version number saved. The tag must match both.
+      - name: Release gate (tag ↔ version consistency)
+        id: gate
+        run: |
+          set -euo pipefail
+
+          PYPROJECT_VERSION="$(uv version --short --frozen)"
+          INIT_VERSION="$(python - <<'EOF'
+          import ast
+          import pathlib
+
+          tree = ast.parse(pathlib.Path("psdn_sonar/__init__.py").read_text(encoding="utf-8"))
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Assign):
+                  for target in node.targets:
+                      if getattr(target, "id", None) == "__version__":
+                          print(ast.literal_eval(node.value))
+                          raise SystemExit(0)
+          raise SystemExit("psdn_sonar/__init__.py does not define __version__")
+          EOF
+          )"
+
+          if [ "$PYPROJECT_VERSION" != "$INIT_VERSION" ]; then
+            echo "::error::Version drift: pyproject.toml=$PYPROJECT_VERSION psdn_sonar/__init__.py=$INIT_VERSION"
+            exit 1
+          fi
+
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Tag version $TAG_VERSION does not match declared version $PYPROJECT_VERSION"
+            exit 1
+          fi
+
+          # rev-list dereferences annotated tags; GITHUB_SHA is not
+          # specified for that case, so record the dereferenced commit.
+          SOURCE_COMMIT="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          if [ "$SOURCE_COMMIT" != "$GITHUB_SHA" ]; then
+            echo "::warning::Dereferenced tag commit $SOURCE_COMMIT differs from GITHUB_SHA $GITHUB_SHA (annotated tag)"
+          fi
+
+          echo "version=$PYPROJECT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "source-commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Build wheel and source distribution
+        run: uv build --clear --no-sources --out-dir dist
+
+      - name: Validate distribution metadata
+        run: uvx --from twine==6.2.0 twine check --strict dist/*
+
+      # Same gate as package.yml runs on every PR, executed here against
+      # the exact artifact about to be published.
+      - name: Verify clean wheel installation
+        env:
+          SONAR_SOURCE_ROOT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+
+          verify_dir="$RUNNER_TEMP/verify-venv"
+          uv venv --python 3.10 "$verify_dir"
+          uv pip install --python "$verify_dir/bin/python" dist/*.whl
+
+          cd "$RUNNER_TEMP"
+          "$verify_dir/bin/python" "$GITHUB_WORKSPACE/scripts/check_installed_package.py"
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/psdn-sonar/
+    permissions:
+      # OIDC token for Trusted Publishing + PEP 740 attestations. Nothing
+      # else: this job intentionally has no checkout and no contents scope.
+      id-token: write
+    steps:
+      - name: Download built distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Record artifact checksums
+        run: (cd dist && sha256sum -- *) > "$RUNNER_TEMP/SHA256SUMS.txt"
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # TestPyPI only: twine uploads files sequentially, so a transient
+          # failure between wheel and sdist would otherwise wedge the tag
+          # (the uploaded filename is taken forever and every retry fails).
+          # The production PyPI job (M3-REL-02c) must set this to false —
+          # there a silent skip would mask a real problem.
+          skip-existing: true
+
+      # TestPyPI uploads files sequentially and its JSON response can lag or
+      # briefly expose only part of a release. Do not report publish success
+      # until the index serves the exact files produced by the build job.
+      - name: Verify TestPyPI serves the built artifacts
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            if curl -fsS --connect-timeout 3 --max-time 5 \
+              -H 'Cache-Control: no-cache' \
+              "https://test.pypi.org/pypi/psdn-sonar/$VERSION/json" \
+              -o "$RUNNER_TEMP/release.json" &&
+              python3 - <<'EOF'
+          import json
+          import os
+          import pathlib
+
+          release = json.loads(pathlib.Path(os.environ["RUNNER_TEMP"], "release.json").read_text(encoding="utf-8"))
+          published = {url["filename"]: url["digests"]["sha256"] for url in release["urls"]}
+
+          expected = {}
+          checksum_file = pathlib.Path(os.environ["RUNNER_TEMP"], "SHA256SUMS.txt")
+          for line in checksum_file.read_text(encoding="utf-8").splitlines():
+              digest, name = line.split(maxsplit=1)
+              expected[name.strip().lstrip("*")] = digest
+
+          if published != expected:
+              print(f"TestPyPI not ready: {published}")
+              print(f"Expected:           {expected}")
+              raise SystemExit(1)
+          EOF
+            then
+              echo "Published artifacts verified after $attempt attempt(s)"
+              exit 0
+            fi
+            if [ "$attempt" -lt 60 ]; then
+              sleep 20
+            fi
+          done
+          echo "::error::TestPyPI did not serve the exact build artifacts after 60 attempts"
+          exit 1
+
+  smoke-test:
+    name: Smoke test from TestPyPI
+    needs: [build, publish-testpypi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: {}
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.10"
+
+      # Download only the package wheel from TestPyPI, then install that
+      # local wheel with dependencies resolved only from real PyPI.
+      - name: Install published package in a clean environment
+        run: |
+          set -euo pipefail
+
+          python -m venv "$RUNNER_TEMP/smoke"
+          PIP="$RUNNER_TEMP/smoke/bin/pip"
+
+          mkdir "$RUNNER_TEMP/testpypi"
+          "$PIP" download --index-url https://test.pypi.org/simple/ \
+            --no-deps --only-binary :all: --no-cache-dir \
+            --dest "$RUNNER_TEMP/testpypi" "psdn-sonar==$VERSION"
+          "$PIP" install --index-url https://pypi.org/simple/ --no-cache-dir \
+            "$RUNNER_TEMP"/testpypi/*.whl
+          "$PIP" check
+
+      # Run from RUNNER_TEMP so the import cannot resolve to a source tree.
+      - name: Import the installed package
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/smoke/bin/python" - <<'EOF'
+          import os
+          from importlib.metadata import version
+
+          import psdn_sonar
+
+          expected = os.environ["VERSION"]
+          installed = version("psdn-sonar")
+          if installed != expected:
+              raise SystemExit(f"Metadata version {installed!r} != tag version {expected!r}")
+          if psdn_sonar.__version__ != expected:
+              raise SystemExit(f"psdn_sonar.__version__ {psdn_sonar.__version__!r} != tag version {expected!r}")
+
+          print(f"Smoke OK: psdn-sonar {installed} imported from {psdn_sonar.__file__}")
+          EOF
+
+  github-release:
+    name: Create GitHub Release
+    needs: [build, publish-testpypi, smoke-test]
+    # Runs even when the smoke test fails: a published version with no
+    # Release (no recorded hashes, no commit binding) is exactly the
+    # inconsistency this workflow exists to prevent. The smoke result is
+    # recorded in the release body instead.
+    if: ${{ !cancelled() && needs.publish-testpypi.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download built distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Record artifact checksums
+        run: (cd dist && sha256sum -- *) > SHA256SUMS.txt
+
+      # Dynamic values enter through env only — never ${{ }} inside run —
+      # so a crafted tag name cannot inject into this contents:write job.
+      #
+      # --verify-tag below only proves the tag exists; this step proves it
+      # still targets the commit the artifacts were built from. No tag
+      # ruleset can enforce immutability yet (private free-plan repo), so
+      # a tag force-moved mid-run would otherwise bind this Release (and
+      # its source archives) to a commit the wheel was never built from.
+      - name: Verify tag still points at the built commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
+        run: |
+          set -euo pipefail
+
+          ref_json="$(gh api "repos/$GH_REPO/git/ref/tags/$GITHUB_REF_NAME")"
+          sha="$(jq -r '.object.sha' <<<"$ref_json")"
+          otype="$(jq -r '.object.type' <<<"$ref_json")"
+          # Annotated tags point at one tag object; dereference it.
+          if [ "$otype" = "tag" ]; then
+            tag_json="$(gh api "repos/$GH_REPO/git/tags/$sha")"
+            sha="$(jq -r '.object.sha' <<<"$tag_json")"
+            otype="$(jq -r '.object.type' <<<"$tag_json")"
+          fi
+          if [ "$otype" != "commit" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not resolve to a commit (got: $otype)"
+            exit 1
+          fi
+          if [ "$sha" != "$SOURCE_COMMIT" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME now points at $sha but the artifacts were built from $SOURCE_COMMIT — refusing to create a mismatched release"
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME still points at $SOURCE_COMMIT"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
+          SMOKE_RESULT: ${{ needs.smoke-test.result }}
+        run: |
+          set -euo pipefail
+
+          {
+            printf '## psdn-sonar %s (TestPyPI)\n\n' "$VERSION"
+            printf -- '- **Source commit:** %s\n' "$SOURCE_COMMIT"
+            printf -- '- **TestPyPI:** https://test.pypi.org/project/psdn-sonar/%s/\n' "$VERSION"
+            printf -- '- **Smoke test:** %s\n\n' "$SMOKE_RESULT"
+            printf '### SHA-256 checksums\n\n```\n'
+            cat SHA256SUMS.txt
+            printf '```\n'
+          } > "$RUNNER_TEMP/notes.md"
+
+          # dev/a/b/rc versions must never become the repo's "Latest
+          # release" (.postN alone is a full release and gets no flag).
+          prerelease_args=()
+          if printf '%s' "$VERSION" | grep -Eq '((a|b|rc)[0-9]+|\.dev[0-9]+)'; then
+            prerelease_args=(--prerelease --latest=false)
+          fi
+
+          # Create-or-update: "re-run failed jobs" re-runs this job together
+          # with a failed smoke test, so a plain `create` would collide with
+          # the existing release and strand the stale smoke result in its
+          # body. Editing refreshes the notes; --clobber refreshes assets.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "psdn-sonar $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              "${prerelease_args[@]}"
+            gh release upload "$GITHUB_REF_NAME" dist/* SHA256SUMS.txt --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* SHA256SUMS.txt \
+              --verify-tag \
+              --title "psdn-sonar $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              "${prerelease_args[@]}"
+          fi
