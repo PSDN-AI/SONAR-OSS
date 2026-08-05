@@ -21,17 +21,20 @@ Broader release policy remains tracked in
   (`[project].version`), `uv.lock` (it records the project's own version),
   and `psdn_sonar/__init__.py` (`__version__`). The workflow refuses to
   build on drift — `uv lock --check` catches a stale lockfile, the release
-  gate catches `__init__.py`.
+  gate catches `__init__.py`. `tests/test_version.py` is not a version
+  source, but its pinned expectation must change in the same version-bump PR.
 - The person pushing the tag needs push access to `v*` refs.
 
 ## Cutting a release
 
-1. Open a version-bump PR and merge it. Let `uv` keep the first two files
-   in sync, then mirror the string into `__init__.py` by hand:
+1. Open a version-bump PR and merge it. Update exactly four paths:
+   `pyproject.toml`, generated `uv.lock`, `psdn_sonar/__init__.py`, and the
+   expected value in `tests/test_version.py`:
 
    ```bash
    uv version 0.1.0.dev1 --no-sync   # updates pyproject.toml AND uv.lock
-   # then set __version__ = "0.1.0.dev1" in psdn_sonar/__init__.py
+   # then update __version__ in psdn_sonar/__init__.py
+   # and the expected value in tests/test_version.py
    ```
 
    Editing `pyproject.toml` by hand without regenerating the lockfile makes
