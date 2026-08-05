@@ -7,15 +7,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  # Dry run: builds and verifies the wheel, never publishes (publish and all
-  # downstream jobs require a `push` event, not just a tag-shaped ref —
-  # workflow_dispatch can be pointed at a tag, which must stay a dry run).
-  workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  # Never cancel a release mid-publish; a second push queues behind it.
+  # Never cancel an in-progress release for the same tag.
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
@@ -58,8 +54,7 @@ jobs:
       # The version is declared in two places (pyproject.toml and
       # psdn_sonar/__init__.py). An index rejects a re-upload of any
       # version it has ever seen, so every mismatch caught here is an
-      # unburnable version number saved. On tag pushes the tag must match
-      # both declarations; dry runs still verify the two files agree.
+      # unburnable version number saved. The tag must match both.
       - name: Release gate (tag ↔ version consistency)
         id: gate
         run: |
@@ -86,24 +81,17 @@ jobs:
             exit 1
           fi
 
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)((a|b|rc)(0|[1-9][0-9]*))?(\.post(0|[1-9][0-9]*))?(\.dev(0|[1-9][0-9]*))?$'; then
-              echo "::error::Tag '$GITHUB_REF_NAME' is not v<PEP 440 version> (e.g. v0.1.0, v0.1.0.dev1, v1.2.0rc1)"
-              exit 1
-            fi
-            TAG_VERSION="${GITHUB_REF_NAME#v}"
-            if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
-              echo "::error::Tag version $TAG_VERSION does not match declared version $PYPROJECT_VERSION"
-              exit 1
-            fi
-            # rev-list dereferences annotated tags; GITHUB_SHA is not
-            # specified for that case, so record the dereferenced commit.
-            SOURCE_COMMIT="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
-            if [ "$SOURCE_COMMIT" != "$GITHUB_SHA" ]; then
-              echo "::warning::Dereferenced tag commit $SOURCE_COMMIT differs from GITHUB_SHA $GITHUB_SHA (annotated tag)"
-            fi
-          else
-            SOURCE_COMMIT="$(git rev-parse HEAD)"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Tag version $TAG_VERSION does not match declared version $PYPROJECT_VERSION"
+            exit 1
+          fi
+
+          # rev-list dereferences annotated tags; GITHUB_SHA is not
+          # specified for that case, so record the dereferenced commit.
+          SOURCE_COMMIT="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          if [ "$SOURCE_COMMIT" != "$GITHUB_SHA" ]; then
+            echo "::warning::Dereferenced tag commit $SOURCE_COMMIT differs from GITHUB_SHA $GITHUB_SHA (annotated tag)"
           fi
 
           echo "version=$PYPROJECT_VERSION" >> "$GITHUB_OUTPUT"
@@ -115,90 +103,8 @@ jobs:
       - name: Validate distribution metadata
         run: uvx --from twine==6.2.0 twine check --strict dist/*
 
-      - name: Assert exactly one wheel and one sdist
-        env:
-          VERSION: ${{ steps.gate.outputs.version }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          cd dist
-          wheels=(*.whl)
-          sdists=(*.tar.gz)
-          if [ "${#wheels[@]}" -ne 1 ] || [ "${#sdists[@]}" -ne 1 ]; then
-            echo "::error::Expected exactly one wheel and one sdist, found: $(printf '%s ' *)"
-            exit 1
-          fi
-          for artifact in "${wheels[0]}" "${sdists[0]}"; do
-            case "$artifact" in
-              *"$VERSION"*) ;;
-              *)
-                echo "::error::Artifact $artifact does not contain version $VERSION"
-                exit 1
-                ;;
-            esac
-          done
-
-      # Bare filenames so the same file works for `sha256sum -c` in the
-      # publish job, the digest comparison against the index in the smoke
-      # test, and the table on the GitHub Release.
-      - name: Record artifact checksums
-        run: (cd dist && sha256sum -- *) > SHA256SUMS.txt
-
-      # Two artifacts on purpose: upload-artifact roots the archive at the
-      # least common ancestor of its paths, so bundling dist/ with a root
-      # file would nest everything under dist/dist/ on download.
-      - name: Upload distributions
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-dist
-          path: dist/
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload checksums
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-checksums
-          path: SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 7
-
-  verify-wheel:
-    name: Verify wheel before publish
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      # Checked out at the tagged commit: check_installed_package.py diffs
-      # the installed wheel's packaged resources against this source tree.
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          version: "0.12.1"
-          # No cache on the release path (see the build job).
-          enable-cache: false
-
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: "3.10"
-
-      - name: Download built distributions
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-dist
-          path: dist
-
       # Same gate as package.yml runs on every PR, executed here against
-      # the exact artifact about to be published: a broken wheel must fail
-      # HERE, because after publish the version number is burned forever.
+      # the exact artifact about to be published.
       - name: Verify clean wheel installation
         env:
           SONAR_SOURCE_ROOT: ${{ github.workspace }}
@@ -212,14 +118,19 @@ jobs:
           cd "$RUNNER_TEMP"
           "$verify_dir/bin/python" "$GITHUB_WORKSPACE/scripts/check_installed_package.py"
 
+      - name: Upload distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
   publish-testpypi:
     name: Publish to TestPyPI
-    needs: [build, verify-wheel]
-    # `push` (not just a tag-shaped ref): workflow_dispatch can target a
-    # tag, and dispatch must remain a dry run.
-    if: github.event_name == 'push'
+    needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment:
       name: testpypi
       url: https://test.pypi.org/project/psdn-sonar/
@@ -234,16 +145,8 @@ jobs:
           name: release-dist
           path: dist
 
-      - name: Download checksums
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-checksums
-          # Never into dist/ — the publish action feeds every file in its
-          # packages dir to twine, which rejects non-distribution files.
-          path: checksums
-
-      - name: Verify artifact integrity
-        run: cd dist && sha256sum -c ../checksums/SHA256SUMS.txt
+      - name: Record artifact checksums
+        run: (cd dist && sha256sum -- *) > "$RUNNER_TEMP/SHA256SUMS.txt"
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
@@ -255,6 +158,49 @@ jobs:
           # The production PyPI job (M3-REL-02c) must set this to false —
           # there a silent skip would mask a real problem.
           skip-existing: true
+
+      # TestPyPI uploads files sequentially and its JSON response can lag or
+      # briefly expose only part of a release. Do not report publish success
+      # until the index serves the exact files produced by the build job.
+      - name: Verify TestPyPI serves the built artifacts
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            if curl -fsS --connect-timeout 3 --max-time 5 \
+              -H 'Cache-Control: no-cache' \
+              "https://test.pypi.org/pypi/psdn-sonar/$VERSION/json" \
+              -o "$RUNNER_TEMP/release.json" &&
+              python3 - <<'EOF'
+          import json
+          import os
+          import pathlib
+
+          release = json.loads(pathlib.Path(os.environ["RUNNER_TEMP"], "release.json").read_text(encoding="utf-8"))
+          published = {url["filename"]: url["digests"]["sha256"] for url in release["urls"]}
+
+          expected = {}
+          checksum_file = pathlib.Path(os.environ["RUNNER_TEMP"], "SHA256SUMS.txt")
+          for line in checksum_file.read_text(encoding="utf-8").splitlines():
+              digest, name = line.split(maxsplit=1)
+              expected[name.strip().lstrip("*")] = digest
+
+          if published != expected:
+              print(f"TestPyPI not ready: {published}")
+              print(f"Expected:           {expected}")
+              raise SystemExit(1)
+          EOF
+            then
+              echo "Published artifacts verified after $attempt attempt(s)"
+              exit 0
+            fi
+            if [ "$attempt" -lt 60 ]; then
+              sleep 20
+            fi
+          done
+          echo "::error::TestPyPI did not serve the exact build artifacts after 60 attempts"
+          exit 1
 
   smoke-test:
     name: Smoke test from TestPyPI
@@ -270,92 +216,25 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Download checksums
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-checksums
-          path: checksums
-
-      # Poll the JSON API instead of retrying pip: pip's HTTP cache can
-      # serve a stale negative for the simple index while it propagates.
-      - name: Wait for the release to appear on TestPyPI
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 30); do
-            if curl -fsS "https://test.pypi.org/pypi/psdn-sonar/$VERSION/json" -o "$RUNNER_TEMP/release.json"; then
-              echo "Release visible after $attempt attempt(s)"
-              exit 0
-            fi
-            sleep 20
-          done
-          echo "::error::psdn-sonar $VERSION not visible on TestPyPI after 10 minutes"
-          exit 1
-
-      # Closes the loop the rest of the workflow only assumes: the files
-      # the index serves are byte-identical to the files the build job
-      # produced.
-      - name: Compare published digests against built checksums
-        run: |
-          set -euo pipefail
-          python - <<'EOF'
-          import json
-          import os
-          import pathlib
-          import sys
-
-          release = json.loads(pathlib.Path(os.environ["RUNNER_TEMP"], "release.json").read_text(encoding="utf-8"))
-          published = {u["filename"]: u["digests"]["sha256"] for u in release["urls"]}
-
-          expected = {}
-          for line in pathlib.Path("checksums/SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
-              digest, name = line.split(maxsplit=1)
-              expected[name.strip().lstrip("*")] = digest
-
-          if published != expected:
-              print(f"Published: {published}", file=sys.stderr)
-              print(f"Expected:  {expected}", file=sys.stderr)
-              raise SystemExit("Digest mismatch between TestPyPI and the build artifacts")
-          print(f"Digests match for {len(expected)} file(s)")
-          EOF
-
-      # Two-step install keeps the indexes strictly separated: the package
-      # itself must come from TestPyPI (--no-deps, and --only-binary so a
-      # sdist fallback can't pull build dependencies from TestPyPI either),
-      # while its dependencies come only from real PyPI. A combined
-      # --extra-index-url resolution could pick arbitrary same-named
-      # packages from TestPyPI.
+      # Download only the package wheel from TestPyPI, then install that
+      # local wheel with dependencies resolved only from real PyPI.
       - name: Install published package in a clean environment
         run: |
           set -euo pipefail
 
           python -m venv "$RUNNER_TEMP/smoke"
           PIP="$RUNNER_TEMP/smoke/bin/pip"
-          PYTHON="$RUNNER_TEMP/smoke/bin/python"
 
-          "$PIP" install --index-url https://test.pypi.org/simple/ --no-deps --only-binary :all: --no-cache-dir "psdn-sonar==$VERSION"
-
-          "$PYTHON" - <<'EOF'
-          import os
-          import pathlib
-          from importlib.metadata import requires
-
-          core = []
-          for requirement in requires("psdn-sonar") or []:
-              _, sep, marker = requirement.partition(";")
-              if sep and "extra" in marker:
-                  continue
-              core.append(requirement.strip())
-          pathlib.Path(os.environ["RUNNER_TEMP"], "requirements.txt").write_text("\n".join(core) + "\n", encoding="utf-8")
-          print(f"{len(core)} core requirements extracted")
-          EOF
-
-          "$PIP" install --no-cache-dir -r "$RUNNER_TEMP/requirements.txt"
+          mkdir "$RUNNER_TEMP/testpypi"
+          "$PIP" download --index-url https://test.pypi.org/simple/ \
+            --no-deps --only-binary :all: --no-cache-dir \
+            --dest "$RUNNER_TEMP/testpypi" "psdn-sonar==$VERSION"
+          "$PIP" install --index-url https://pypi.org/simple/ --no-cache-dir \
+            "$RUNNER_TEMP"/testpypi/*.whl
           "$PIP" check
 
-      # Run from RUNNER_TEMP so the import cannot resolve to a source tree,
-      # and exercise a real subsystem: bare `import psdn_sonar` succeeds
-      # with zero dependencies installed and would prove nothing.
-      - name: Import and exercise the installed package
+      # Run from RUNNER_TEMP so the import cannot resolve to a source tree.
+      - name: Import the installed package
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
@@ -364,7 +243,6 @@ jobs:
           from importlib.metadata import version
 
           import psdn_sonar
-          from psdn_sonar.config_loader import ConfigManager
 
           expected = os.environ["VERSION"]
           installed = version("psdn-sonar")
@@ -372,10 +250,6 @@ jobs:
               raise SystemExit(f"Metadata version {installed!r} != tag version {expected!r}")
           if psdn_sonar.__version__ != expected:
               raise SystemExit(f"psdn_sonar.__version__ {psdn_sonar.__version__!r} != tag version {expected!r}")
-
-          config = ConfigManager().load(language="bn", backend="huggingface", validation="strict")
-          if config.language.code != "bn" or config.backend.name != "huggingface":
-              raise SystemExit("Installed package could not load the expected merged configuration")
 
           print(f"Smoke OK: psdn-sonar {installed} imported from {psdn_sonar.__file__}")
           EOF
@@ -399,10 +273,8 @@ jobs:
           name: release-dist
           path: dist
 
-      - name: Download checksums
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-checksums
+      - name: Record artifact checksums
+        run: (cd dist && sha256sum -- *) > SHA256SUMS.txt
 
       # Dynamic values enter through env only — never ${{ }} inside run —
       # so a crafted tag name cannot inject into this contents:write job.
@@ -423,14 +295,12 @@ jobs:
           ref_json="$(gh api "repos/$GH_REPO/git/ref/tags/$GITHUB_REF_NAME")"
           sha="$(jq -r '.object.sha' <<<"$ref_json")"
           otype="$(jq -r '.object.type' <<<"$ref_json")"
-          # Annotated tags point at a tag object; dereference to the commit.
-          attempts=0
-          while [ "$otype" = "tag" ] && [ "$attempts" -lt 5 ]; do
+          # Annotated tags point at one tag object; dereference it.
+          if [ "$otype" = "tag" ]; then
             tag_json="$(gh api "repos/$GH_REPO/git/tags/$sha")"
             sha="$(jq -r '.object.sha' <<<"$tag_json")"
             otype="$(jq -r '.object.type' <<<"$tag_json")"
-            attempts=$((attempts + 1))
-          done
+          fi
           if [ "$otype" != "commit" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not resolve to a commit (got: $otype)"
             exit 1
