@@ -111,7 +111,19 @@ benchmarks:
     preprocessing:
       name: psdn_sonar.export_tsv
       version: "1"
-    expected_fingerprints: {}
+    expected_fingerprints:
+      af_za::train: sha256:ba743a5fc9c0ab78c3a05916f7a7ab91d9ac8b4d00e1dbc4d330310852fe3186
+      af_za::validation: sha256:6f3f228e1dfd4621ac01ae746b2dbad9d8258a6d63059429954af4afb554c0ed
+      af_za::test: sha256:1eca03e55c63a5cc80b2c4c7f732962369fd878621d7a70c79a814888f63347f
+      ur_pk::train: sha256:16640f8d5df26fe767d075593443bf426f62053c93101911e4bf73d8deb72230
+      ur_pk::validation: sha256:537b77ec1ee6d0fc109b99f02d3a870904a5c852d449bb3ab09ea3c561c321b0
+      ur_pk::test: sha256:9dddbfbcd666506f59082d6243d9bd5d699065a66e7ea555834f1217f9ae4aae
+      ar_eg::train: sha256:0403e8b43343110d8013471f851ec1907d2165569ecd3b2ef42b58575bbb0956
+      ar_eg::validation: sha256:8c3ed285620d0387fb3b1d19abe3918884f426a3a59734404bfe33a0f4373458
+      ar_eg::test: sha256:9b373ac506dcf1534f3853e59524c88cd2c32fb2c3afa5b16fe0ebf008303d56
+      bn_in::train: sha256:1c18d9da45058960b41ec2fc52ea72d5cb6826c5df7c628d80526f20b81f2811
+      bn_in::validation: sha256:1b282a1522d7c947500d6f7be9473517d359ea4f32f8a502e12f945bc236a762
+      bn_in::test: sha256:e4d17eda5eac15e179a848549e87716b7ec68e887b2868fd518f78469efda9c3
     public_default: false
     rights_approval:
       status: pending
@@ -150,7 +162,9 @@ benchmarks:
     preprocessing:
       name: psdn_sonar.export_tsv
       version: "1"
-    expected_fingerprints: {}
+    expected_fingerprints:
+      _default::train: sha256:dde401c5659fd7705d38ffe4671a96afe268005136d7e8d3fc07324f71c9709a
+      _default::test: sha256:6656b026003552dc15020edf1f47a5a6dd5d6d2322241613d157a16a32408534
     public_default: false
     rights_approval:
       status: pending

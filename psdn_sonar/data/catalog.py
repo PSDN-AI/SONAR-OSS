@@ -508,8 +508,40 @@ def fingerprint_records(records: Iterable[Mapping[str, Any]]) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _fingerprint_command(argv: list[str]) -> int:
+    """``fingerprint <benchmark> [--config ...] [--split ...]``: hash live Hugging Face data."""
+    parser = ArgumentParser(description="Print reference data fingerprints from live Hugging Face data")
+    parser.add_argument("benchmark")
+    parser.add_argument("--config")
+    parser.add_argument("--split")
+    args = parser.parse_args(argv)
+
+    from datasets import Audio, load_dataset
+
+    benchmark = load_catalog().get(args.benchmark)
+    configs = [args.config] if args.config else list(benchmark.allowed_configs) or [None]
+    splits = [args.split] if args.split else list(benchmark.splits)
+    for config in configs:
+        for split in splits:
+            ds = load_dataset(benchmark.source.identifier, config, split=split, revision=benchmark.source.revision)
+            ds = ds.cast_column(benchmark.audio_column, Audio(decode=False))
+            records = (
+                {
+                    "text": row[benchmark.text_column],
+                    "audio_sha256": hashlib.sha256(row[benchmark.audio_column]["bytes"]).hexdigest(),
+                }
+                for row in ds
+            )
+            print(f"{args.benchmark} {config or '_default'} {split} {fingerprint_records(records)}")
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
-    """Offline ``python -m psdn_sonar.data.catalog`` validator."""
+    """Offline ``python -m psdn_sonar.data.catalog`` validator and fingerprint tool."""
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["fingerprint"]:
+        return _fingerprint_command(argv[1:])
+
     parser = ArgumentParser(description="Validate the SONAR benchmark catalog offline")
     parser.add_argument("path", nargs="?", help="Catalog YAML path (defaults to the bundled catalog)")
     args = parser.parse_args(argv)
