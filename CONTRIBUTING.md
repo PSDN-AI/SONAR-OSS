@@ -22,32 +22,42 @@ Useful contributions usually include one of the following:
 
 ## Local Setup
 
-This project uses [`uv`](https://docs.astral.sh/uv/) for dependency management.
+This project uses [`uv`](https://docs.astral.sh/uv/) for dependency management. Contributor
+environments install the committed lockfile exactly (this is what CI runs):
 
 ```bash
-uv sync
+uv sync --frozen --extra dev
 ```
 
-`uv sync` installs the core toolkit. Install additional extras as needed for the parts you are working on:
+This installs the core toolkit plus dev tooling. Add extras as needed for the parts you are
+working on:
 
 | Extra | Purpose |
 | --- | --- |
+| `[ml-common]` | Transformers, sentence-transformers, and MOS scoring without a pinned torch |
+| `[ml]` | Full local-model stack: torch, torchaudio, transformers, MOS scorers |
+| `[pyannote]` | Speaker diarization via pyannote.audio |
 | `[bengali]` | Bengali-language text normalization and tokenization support |
-| `[korean]` | Korean-language text normalization and tokenization support |
+| `[korean]` | Korean-language text normalization and tokenization support (needs a Java runtime) |
+| `[hindi]` | Hindi unicode normalization and tokenization support |
 | `[apis]` | Optional integrations with third-party ASR/model APIs |
+| `[cloud]` | S3-compatible dataset download support |
 | `[dev]` | Linting, formatting, pre-commit, and test tooling |
 
 For example, to work on Korean-language evaluation with the full dev toolchain:
 
 ```bash
-uv sync --extra korean --extra dev
+uv sync --frozen --extra korean --extra dev
 ```
 
 Or install everything at once with `[all]`:
 
 ```bash
-uv sync --extra all
+uv sync --frozen --extra all --extra dev
 ```
+
+If `uv sync --frozen` fails because `uv.lock` is out of date, do not resolve around it: update the
+lockfile deliberately (see "Dependency Updates" below) so the change is reviewed.
 
 ### Running Checks Locally
 
@@ -65,10 +75,11 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-Run these before opening a pull request. CI runs the stable `Pre-commit baseline` and full-history
-`Secret scan` checks on pull requests and every resulting push to `main`. Product lint, test,
-dependency, packaging, and exact release-SHA checks land with #4, #19, and #24 after the package
-manifests are imported.
+Run these before opening a pull request. CI runs on pull requests and every resulting push to
+`main`: `Pre-commit baseline`, full-history `Secret scan`, `Internal-reference gate`,
+`Lint and type check` (ruff + ty after a frozen install), `Tests (Python 3.10/3.11/3.12)`, and
+`Package artifacts` (wheel/sdist build, metadata validation, clean-install smoke test, and
+runtime-extras verification).
 
 ## Pull Request Titles
 

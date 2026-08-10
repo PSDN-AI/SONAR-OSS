@@ -14,20 +14,34 @@ reporting, and benchmarks. Distributed as the `psdn-sonar` Python package.
 - Python 3.10–3.12
 - [`uv`](https://docs.astral.sh/uv/) (recommended) or `pip`
 
+**Supported environments.** CI validates Linux x86_64 with CPython 3.10, 3.11,
+and 3.12. macOS and Windows are expected to work for the core package but are
+not CI-validated; some optional extras have platform-sensitive dependencies
+(`[korean]` needs a Java runtime at runtime, `[ml]`/`[pyannote]` pull large
+PyTorch trees). Open an issue if an install fails on a supported Python.
+
 ## Installation
+
+Contributors install the frozen, locked environment (exactly what CI runs):
 
 ```bash
 git clone https://github.com/PSDN-AI/SONAR-OSS.git
 cd SONAR-OSS
-make setup            # creates .venv and installs with dev extras via uv
+make setup            # uv sync --frozen with dev extras
 source .venv/bin/activate
 ```
 
-Or with plain pip:
+Or with plain pip (editable, freshly resolved):
 
 ```bash
 pip install -e ".[dev]"
 ```
+
+Note that `pip` does not read `uv.lock`: pip installs resolve dependency
+versions fresh from PyPI within the ranges in `pyproject.toml`, so they are
+not byte-for-byte reproducible the way `uv sync --frozen` is. This is the
+normal contract for downstream package installs; use `uv` when you need the
+locked contributor environment.
 
 Copy `.env.example` to `.env` and fill in only the values you need (API keys
 are required only for optional hosted-model backends).

@@ -56,3 +56,32 @@ jobs:
 
           cd "$RUNNER_TEMP"
           "$smoke_dir/bin/python" "$GITHUB_WORKSPACE/scripts/check_installed_package.py"
+
+      # Lightweight extras are installed for real in a clean environment;
+      # a broken extra name or unsatisfiable constraint fails here.
+      - name: Verify light runtime extras install from the wheel
+        run: |
+          set -euo pipefail
+
+          wheel="$(echo "$RUNNER_TEMP"/package-dist/*.whl)"
+          extras_dir="$RUNNER_TEMP/package-extras"
+          uv venv --python 3.10 "$extras_dir"
+          uv pip install --python "$extras_dir/bin/python" "psdn-sonar[cloud,apis,hindi] @ file://$wheel"
+          uv pip check --python "$extras_dir/bin/python"
+
+      # Heavy ML extras (multi-GB torch/pyannote trees) are verified by full
+      # dependency resolution from the built wheel instead of installation,
+      # which still catches broken extra names and unsatisfiable constraints.
+      - name: Verify heavy runtime extras resolve from the wheel
+        run: |
+          set -euo pipefail
+
+          wheel="$(echo "$RUNNER_TEMP"/package-dist/*.whl)"
+          resolve_dir="$RUNNER_TEMP/package-resolve"
+          uv venv --python 3.10 "$resolve_dir"
+          for extra in ml-common ml pyannote bengali korean all; do
+            echo "::group::Resolving extra [$extra]"
+            uv pip install --python "$resolve_dir/bin/python" --dry-run \
+              "psdn-sonar[$extra] @ file://$wheel"
+            echo "::endgroup::"
+          done
