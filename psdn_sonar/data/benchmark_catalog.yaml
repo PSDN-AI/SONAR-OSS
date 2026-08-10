@@ -25,14 +25,11 @@ benchmarks:
       decision: pending_human_approval
       rationale: The former Hugging Face source is retired; an MDC access and no-rehosting decision is pending.
     attribution: Mozilla Common Voice contributors.
-    expected_schema:
-      format: archive
-      columns:
-        release_metadata: json
+    text_column: sentence
+    audio_column: audio
     selection:
       name: ordered_upstream_split
       version: "1"
-      parameters: {}
     preprocessing:
       name: psdn_sonar.export_tsv
       version: "1"
@@ -103,15 +100,11 @@ benchmarks:
       decision: pending_human_approval
       rationale: License evidence is recorded; project-specific redistribution approval is still pending.
     attribution: Conneau et al., FLEURS; Google LLC.
-    expected_schema:
-      format: huggingface
-      columns:
-        audio: audio
-        transcription: string
+    text_column: transcription
+    audio_column: audio
     selection:
       name: ordered_upstream_split
       version: "1"
-      parameters: {}
     preprocessing:
       name: psdn_sonar.export_tsv
       version: "1"
@@ -146,15 +139,11 @@ benchmarks:
       decision: pending_human_approval
       rationale: License evidence is recorded; mirror and redistribution approval is still pending.
     attribution: Zeroth Project contributors and the Bingsu Hugging Face mirror maintainer.
-    expected_schema:
-      format: huggingface
-      columns:
-        audio: audio
-        text: string
+    text_column: text
+    audio_column: audio
     selection:
       name: ordered_upstream_split
       version: "1"
-      parameters: {}
     preprocessing:
       name: psdn_sonar.export_tsv
       version: "1"
@@ -189,15 +178,11 @@ benchmarks:
       decision: pending_human_approval
       rationale: The dataset card references both CC0 and European Parliament source terms; review is pending.
     attribution: Wang et al., VoxPopuli; European Parliament source recordings.
-    expected_schema:
-      format: huggingface
-      columns:
-        audio: audio
-        raw_text: string
+    text_column: raw_text
+    audio_column: audio
     selection:
       name: ordered_upstream_split
       version: "1"
-      parameters: {}
     preprocessing:
       name: psdn_sonar.export_tsv
       version: "1"
@@ -232,15 +217,11 @@ benchmarks:
       decision: pending_human_approval
       rationale: License evidence is recorded; project-specific redistribution approval is still pending.
     attribution: Pratap et al., Multilingual LibriSpeech; LibriVox contributors.
-    expected_schema:
-      format: huggingface
-      columns:
-        audio: audio
-        transcript: string
+    text_column: transcript
+    audio_column: audio
     selection:
       name: ordered_upstream_split
       version: "1"
-      parameters: {}
     preprocessing:
       name: psdn_sonar.export_tsv
       version: "1"
@@ -276,15 +257,11 @@ benchmarks:
       decision: pending_human_approval
       rationale: The manifest is SHA-256 pinned; archive checks use upstream MD5 and redistribution review is pending.
     attribution: Google Bengali TTS corpus; Sodimana et al. (SLTU 2018).
-    expected_schema:
-      format: archive
-      columns:
-        audio: wav
-        transcription: string
+    text_column: transcription
+    audio_column: audio
     selection:
       name: sorted_archive_members
       version: "1"
-      parameters: {}
     preprocessing:
       name: psdn_sonar.local_loader
       version: "1"
@@ -320,15 +297,11 @@ benchmarks:
       decision: pending_human_approval
       rationale: The manifest is SHA-256 pinned; archive checks use upstream MD5 and redistribution review is pending.
     attribution: Google Bengali TTS corpus; Sodimana et al. (SLTU 2018).
-    expected_schema:
-      format: archive
-      columns:
-        audio: wav
-        transcription: string
+    text_column: transcription
+    audio_column: audio
     selection:
       name: sorted_archive_members
       version: "1"
-      parameters: {}
     preprocessing:
       name: psdn_sonar.local_loader
       version: "1"
@@ -380,15 +353,11 @@ benchmarks:
       decision: pending_human_approval
       rationale: The manifest is SHA-256 pinned; shard checks use upstream MD5 and redistribution review is pending.
     attribution: Google Bengali ASR corpus; Kjartansson et al. (SLTU 2018).
-    expected_schema:
-      format: archive
-      columns:
-        audio: flac
-        transcription: string
+    text_column: transcription
+    audio_column: audio
     selection:
       name: sorted_archive_members
       version: "1"
-      parameters: {}
     preprocessing:
       name: psdn_sonar.local_loader
       version: "1"

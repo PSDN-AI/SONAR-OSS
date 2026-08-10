@@ -101,6 +101,8 @@ def _hf_dataset_spec(name: str, **kwargs) -> DatasetSpec:
     return DatasetSpec(
         hf_id=benchmark.source.identifier,
         config_template=benchmark.config_template,
+        text_column=benchmark.text_column,
+        audio_column=benchmark.audio_column,
         revision=benchmark.source.revision,
         enabled=benchmark.runtime == "enabled" and benchmark.availability == "active",
         splits=benchmark.splits,
@@ -119,27 +121,10 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         text_column="sentence",
         audio_column="audio",
     ),
-    "fleurs": _hf_dataset_spec(
-        "fleurs",
-        text_column="transcription",
-        audio_column="audio",
-    ),
-    "zeroth": _hf_dataset_spec(
-        "zeroth",
-        text_column="text",
-        audio_column="audio",
-        no_config_langs=frozenset({"ko"}),
-    ),
-    "voxpopuli": _hf_dataset_spec(
-        "voxpopuli",
-        text_column="raw_text",
-        audio_column="audio",
-    ),
-    "multilingual_librispeech": _hf_dataset_spec(
-        "multilingual_librispeech",
-        text_column="transcript",
-        audio_column="audio",
-    ),
+    "fleurs": _hf_dataset_spec("fleurs"),
+    "zeroth": _hf_dataset_spec("zeroth", no_config_langs=frozenset({"ko"})),
+    "voxpopuli": _hf_dataset_spec("voxpopuli"),
+    "multilingual_librispeech": _hf_dataset_spec("multilingual_librispeech"),
 }
 
 VOXPOPULI_LANGS = frozenset(

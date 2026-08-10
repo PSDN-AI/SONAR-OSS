@@ -11,7 +11,6 @@ from psdn_sonar.data import (
     fingerprint_records,
     load_catalog,
     validate_catalog_document,
-    validate_catalog_schema_sync,
 )
 
 DATA_FINGERPRINT = "sha256:" + "1" * 64
@@ -24,20 +23,12 @@ def test_bundled_catalog_and_generated_schema_validate_offline(monkeypatch):
     monkeypatch.setattr("socket.create_connection", network_forbidden)
 
     catalog = load_catalog()
-    validate_catalog_schema_sync()
 
     assert catalog.schema_version == 1
     assert catalog.catalog_version >= 1
     assert catalog.get("common_voice").runtime == "disabled"
-    assert catalog.get("multilingual_librispeech").expected_schema.columns["transcript"] == "string"
+    assert catalog.get("multilingual_librispeech").text_column == "transcript"
     assert len(catalog.get("openslr53").source.artifacts) == 17
-
-
-def test_schema_sync_rejects_a_stale_committed_schema(monkeypatch):
-    monkeypatch.setattr("psdn_sonar.data.catalog.load_catalog_schema", lambda: {"type": "object"})
-
-    with pytest.raises(CatalogValidationError, match="schema.json is stale"):
-        validate_catalog_schema_sync()
 
 
 def test_duplicate_yaml_keys_are_rejected(tmp_path):
@@ -103,23 +94,9 @@ def test_each_identity_dimension_changes_the_cache_key():
             split="test",
             data_fingerprint=DATA_FINGERPRINT,
         ),
-        catalog.identity(
-            "fleurs",
-            resolved_config="en_us",
-            split="test",
-            data_fingerprint=DATA_FINGERPRINT,
-            selection={"name": "ordered_upstream_split", "version": "2", "parameters": {}},
-        ),
-        catalog.identity(
-            "fleurs",
-            resolved_config="en_us",
-            split="test",
-            data_fingerprint=DATA_FINGERPRINT,
-            preprocessing={"name": "psdn_sonar.export_tsv", "version": "2"},
-        ),
     ]
 
-    keys = {base.identity_key, *(identity.identity_key for identity in variants)}
+    keys = {base.fingerprint, *(identity.fingerprint for identity in variants)}
     assert len(keys) == 1 + len(variants)
 
 

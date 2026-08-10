@@ -24,11 +24,9 @@ from yaml.resolver import BaseResolver
 
 IDENTITY_SCHEMA_VERSION = 1
 _DEFAULT_CATALOG_RESOURCE = "benchmark_catalog.yaml"
-_DEFAULT_SCHEMA_RESOURCE = "benchmark_catalog.schema.json"
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MD5_RE = re.compile(r"^md5:[0-9a-f]{32}$")
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-_STRONG_ETAG_RE = re.compile(r"^etag:[A-Za-z0-9._:-]+$")
 
 
 class CatalogValidationError(ValueError):
@@ -97,10 +95,8 @@ class SourceSpec(_StrictModel):
             validate_huggingface_revision(revision)
         if self.kind == "archive" and not _SHA256_RE.fullmatch(revision):
             raise ValueError("archive revisions must be sha256 content digests")
-        if self.kind == "openslr" and not (
-            _SHA256_RE.fullmatch(revision) or _MD5_RE.fullmatch(revision) or _STRONG_ETAG_RE.fullmatch(revision)
-        ):
-            raise ValueError("OpenSLR revisions must be content digests or pinned strong ETags")
+        if self.kind == "openslr" and not (_SHA256_RE.fullmatch(revision) or _MD5_RE.fullmatch(revision)):
+            raise ValueError("OpenSLR revisions must be content digests")
         for name, digest in self.artifacts.items():
             if not name.strip():
                 raise ValueError("source artifact names must not be empty")
@@ -165,26 +161,11 @@ class RightsApproval(_StrictModel):
         return self
 
 
-class ExpectedSchema(_StrictModel):
-    """Columns expected from the pinned upstream dataset."""
-
-    format: Literal["huggingface", "tsv", "archive"]
-    columns: dict[str, str] = Field(min_length=1)
-
-    @field_validator("columns")
-    @classmethod
-    def _columns_are_named(cls, value: dict[str, str]) -> dict[str, str]:
-        if any(not str(key).strip() or not str(column_type).strip() for key, column_type in value.items()):
-            raise ValueError("expected schema column names and types must not be empty")
-        return value
-
-
 class SelectionSpec(_StrictModel):
     """Versioned rule that determines the ordered sample set."""
 
     name: str
     version: str
-    parameters: dict[str, Any]
 
     @field_validator("name", "version")
     @classmethod
@@ -291,11 +272,6 @@ class DatasetIdentity(_StrictModel):
         digest = hashlib.sha256(_canonical_json(self.as_dict()).encode("utf-8")).hexdigest()
         return f"sha256:{digest}"
 
-    @property
-    def identity_key(self) -> str:
-        """Versioned cache/checkpoint key for this identity."""
-        return f"sonar-dataset-v{self.identity_schema_version}:{self.fingerprint.removeprefix('sha256:')}"
-
 
 class BenchmarkSpec(_StrictModel):
     """One cataloged benchmark integration."""
@@ -311,14 +287,15 @@ class BenchmarkSpec(_StrictModel):
     license: LicenseSpec
     redistribution: RedistributionSpec
     attribution: str
-    expected_schema: ExpectedSchema
+    text_column: str
+    audio_column: str
     selection: SelectionSpec
     preprocessing: PreprocessingSpec
     expected_fingerprints: dict[str, str]
     public_default: bool
     rights_approval: RightsApproval
 
-    @field_validator("id", "display_name", "attribution")
+    @field_validator("id", "display_name", "attribution", "text_column", "audio_column")
     @classmethod
     def _benchmark_strings_required(cls, value: str) -> str:
         return _nonempty(value)
@@ -398,8 +375,6 @@ class BenchmarkSpec(_StrictModel):
         resolved_config: Optional[str],
         split: str,
         data_fingerprint: str,
-        selection: Optional[Mapping[str, Any]] = None,
-        preprocessing: Optional[Mapping[str, Any]] = None,
         publishable: bool = False,
     ) -> DatasetIdentity:
         """Build an immutable identity, optionally enforcing leaderboard policy."""
@@ -415,18 +390,8 @@ class BenchmarkSpec(_StrictModel):
             raise ValueError(f"benchmark {self.id!r} does not accept a config")
 
         data_fingerprint = _require_sha256(data_fingerprint)
-        selection_payload = selection if selection is not None else self.selection.model_dump(mode="json")
-        preprocessing_payload = (
-            preprocessing if preprocessing is not None else self.preprocessing.model_dump(mode="json")
-        )
         if publishable:
-            self._assert_publishable(
-                resolved_config,
-                split,
-                data_fingerprint,
-                selection_payload,
-                preprocessing_payload,
-            )
+            self._assert_publishable(resolved_config, split, data_fingerprint)
         return DatasetIdentity(
             catalog_version=catalog_version,
             benchmark_id=self.id,
@@ -436,25 +401,14 @@ class BenchmarkSpec(_StrictModel):
             resolved_config=resolved_config,
             split=split,
             data_fingerprint=data_fingerprint,
-            expected_schema_json=_canonical_json(self.expected_schema.model_dump(mode="json")),
-            selection_json=_canonical_json(selection_payload),
-            preprocessing_json=_canonical_json(preprocessing_payload),
+            expected_schema_json=_canonical_json({"audio_column": self.audio_column, "text_column": self.text_column}),
+            selection_json=_canonical_json(self.selection.model_dump(mode="json")),
+            preprocessing_json=_canonical_json(self.preprocessing.model_dump(mode="json")),
         )
 
-    def _assert_publishable(
-        self,
-        resolved_config: Optional[str],
-        split: str,
-        data_fingerprint: str,
-        selection: Mapping[str, Any],
-        preprocessing: Mapping[str, Any],
-    ) -> None:
+    def _assert_publishable(self, resolved_config: Optional[str], split: str, data_fingerprint: str) -> None:
         if not self.public_default:
             raise ValueError(f"benchmark {self.id!r} is not an approved public default")
-        if _canonical_json(selection) != _canonical_json(self.selection.model_dump(mode="json")):
-            raise ValueError(f"benchmark {self.id!r} selection is not the approved catalog default")
-        if _canonical_json(preprocessing) != _canonical_json(self.preprocessing.model_dump(mode="json")):
-            raise ValueError(f"benchmark {self.id!r} preprocessing is not the approved catalog default")
         expected = self.expected_fingerprints.get(self.fingerprint_key(resolved_config, split))
         if expected is None:
             raise ValueError(f"benchmark {self.id!r} has no approved fingerprint for config/split")
@@ -545,20 +499,6 @@ def load_catalog(path: Optional[str | Path] = None) -> BenchmarkCatalog:
     return validate_catalog_document(document)
 
 
-def fingerprint_bytes(content: bytes) -> str:
-    """Return a strong content digest in catalog format."""
-    return f"sha256:{hashlib.sha256(content).hexdigest()}"
-
-
-def fingerprint_file(path: str | Path) -> str:
-    """Stream a file into a strong content digest."""
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return f"sha256:{digest.hexdigest()}"
-
-
 def fingerprint_records(records: Iterable[Mapping[str, Any]]) -> str:
     """Digest an ordered sequence of JSON records deterministically."""
     digest = hashlib.sha256()
@@ -568,37 +508,6 @@ def fingerprint_records(records: Iterable[Mapping[str, Any]]) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def load_catalog_schema() -> dict[str, Any]:
-    """Load the committed JSON Schema generated from :class:`BenchmarkCatalog`."""
-    try:
-        raw = resources.files("psdn_sonar.data").joinpath(_DEFAULT_SCHEMA_RESOURCE).read_text(encoding="utf-8")
-        schema = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise CatalogValidationError(f"could not read benchmark catalog schema: {exc}") from exc
-    if not isinstance(schema, dict):
-        raise CatalogValidationError("benchmark catalog schema root must be an object")
-    return schema
-
-
-def generated_catalog_schema() -> dict[str, Any]:
-    """Return the authoritative JSON Schema generated by Pydantic."""
-    schema = BenchmarkCatalog.model_json_schema()
-    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["$id"] = "https://github.com/PSDN-AI/SONAR-OSS/blob/main/psdn_sonar/data/benchmark_catalog.schema.json"
-    schema["title"] = "SONAR public benchmark catalog v1"
-    return schema
-
-
-def validate_catalog_schema_sync() -> None:
-    """Reject a committed schema that differs from the Pydantic model."""
-    committed = load_catalog_schema()
-    generated = generated_catalog_schema()
-    if committed != generated:
-        raise CatalogValidationError(
-            "benchmark_catalog.schema.json is stale; regenerate it from generated_catalog_schema()"
-        )
-
-
 def main(argv: Optional[list[str]] = None) -> int:
     """Offline ``python -m psdn_sonar.data.catalog`` validator."""
     parser = ArgumentParser(description="Validate the SONAR benchmark catalog offline")
@@ -606,7 +515,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
     try:
         catalog = load_catalog(args.path)
-        validate_catalog_schema_sync()
     except CatalogValidationError as exc:
         print(str(exc), file=sys.stderr)
         return 1

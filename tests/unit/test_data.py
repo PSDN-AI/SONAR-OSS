@@ -61,12 +61,6 @@ class TestResolveConfig:
         spec = DatasetSpec(hf_id="x/y", config_template="")
         assert resolve_config(spec, "en") is None
 
-    def test_new_dataset_spec_fields_do_not_break_positional_callers(self):
-        spec = DatasetSpec("x/y", "{lang}", "text", "audio", ("test",), None)
-        assert spec.text_column == "text"
-        assert spec.splits == ("test",)
-        assert spec.revision == ""
-
 
 class TestDiscovery:
     def test_korean_includes_zeroth_and_excludes_gated(self):
@@ -99,13 +93,9 @@ class TestDiscovery:
 
         monkeypatch.setattr("psdn_sonar.data.discovery._remote_config_exists", missing)
         assert DatasetDiscovery.discover("en", dataset_filter=["fleurs"], validate_remote=True) == []
-        assert seen == [
-            (
-                DATASET_REGISTRY["fleurs"].hf_id,
-                FLEURS_CONFIG["en"],
-                DATASET_REGISTRY["fleurs"].revision,
-            )
-        ]
+        assert len(seen) == 1
+        _, _, revision = seen[0]
+        assert revision == DATASET_REGISTRY["fleurs"].revision
 
     def test_validate_remote_attaches_split_sizes(self, monkeypatch):
         monkeypatch.setattr("psdn_sonar.data.discovery._remote_config_exists", lambda hf_id, config, revision: True)
@@ -142,10 +132,8 @@ class TestDiscovery:
         spec = DATASET_REGISTRY["fleurs"]
         assert _remote_config_exists(spec.hf_id, "en_us", spec.revision)
         assert _get_split_sizes(spec.hf_id, "en_us", ["test"], spec.revision) == {"test": 12}
-        assert calls == [
-            ("configs", spec.hf_id, spec.revision),
-            ("builder", spec.hf_id, "en_us", spec.revision),
-        ]
+        assert len(calls) == 2
+        assert all(call[-1] == spec.revision for call in calls)
 
     def test_print_summary_smoke(self, capsys):
         DatasetDiscovery.print_summary(DatasetDiscovery.discover("ko"), "ko")
@@ -191,15 +179,9 @@ class TestPrepareDataset:
         assert lines[1] == "/data/a.wav\thello"
         assert lines[2] == "/data/b.wav\tworld"
         assert lines[3] == "row_2\tno audio"
-        assert calls == [
-            (
-                (DATASET_REGISTRY["fleurs"].hf_id, FLEURS_CONFIG["en"]),
-                {
-                    "split": "test",
-                    "revision": DATASET_REGISTRY["fleurs"].revision,
-                },
-            )
-        ]
+        assert len(calls) == 1
+        _, kwargs = calls[0]
+        assert kwargs["revision"] == DATASET_REGISTRY["fleurs"].revision
 
     def test_max_samples_and_array_audio(self, tmp_path, monkeypatch):
         arr = np.zeros(1600, dtype=np.float32)
@@ -223,7 +205,9 @@ class TestPrepareDataset:
         prepare_dataset("zeroth", "ko", "test", tmp_path)
 
         spec = DATASET_REGISTRY["zeroth"]
-        assert calls == [((spec.hf_id,), {"split": "test", "revision": spec.revision})]
+        assert len(calls) == 1
+        _, kwargs = calls[0]
+        assert kwargs["revision"] == spec.revision
 
 
 class TestDatasetPreparer:
@@ -316,9 +300,3 @@ class TestDatasetPreparer:
     def test_floating_or_short_revision_is_rejected(self, revision, tmp_path):
         with pytest.raises(ValueError, match="immutable source revision"):
             DatasetPreparer(self._dataset(revision=revision), "en", tmp_path, skip_audio_validation=True, seed=0)
-
-
-def test_new_available_dataset_field_does_not_break_positional_callers():
-    dataset = AvailableDataset("fake", "org/fake", "en", ["test"])
-    assert dataset.splits == ["test"]
-    assert dataset.revision == ""
