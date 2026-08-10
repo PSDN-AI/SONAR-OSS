@@ -3,6 +3,7 @@ import math
 from typing import Dict, Iterable, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 
 from ..config import config
 
@@ -109,6 +110,31 @@ def calculate_poseidon_score(
     score = w_wer * (1 - wer_capped) + w_cer * (1 - cer_capped) + w_sem * similarity_capped
 
     return min(max(score, 0.0), 1.0)
+
+
+def ensure_poseidon_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Return *df* with a ``poseidon_score`` column, deriving it if missing.
+
+    The score is computed per row from ``wer_conv`` / ``cer_conv`` /
+    ``semantic_similarity_conv``. Missing error rates count as worst case
+    (1.0) and missing similarity as 0.0. Returned unchanged when the column
+    already exists or the source columns are absent.
+    """
+    if "poseidon_score" in df.columns:
+        return df
+    required = ["cer_conv", "wer_conv", "semantic_similarity_conv"]
+    if not all(col in df.columns for col in required):
+        return df
+
+    def _row_score(row: pd.Series) -> float:
+        wer = float(row["wer_conv"]) if pd.notna(row["wer_conv"]) else 1.0
+        cer = float(row["cer_conv"]) if pd.notna(row["cer_conv"]) else 1.0
+        sim = float(row["semantic_similarity_conv"]) if pd.notna(row["semantic_similarity_conv"]) else 0.0
+        return calculate_poseidon_score(cer, wer, sim)
+
+    df = df.copy()
+    df["poseidon_score"] = df.apply(_row_score, axis=1)
+    return df
 
 
 def _coerce_finite_wer(value: object) -> Optional[float]:
