@@ -8,6 +8,8 @@ from .metrics import (
     calculate_ngram_diversity,
 )
 from .plots import (
+    generate_audio_quality_plots,
+    generate_demographic_plots,
     generate_hard_negatives_comparison,
     generate_latency_plots,
     plot_ngram_diversity_comparison,
@@ -20,6 +22,8 @@ __all__ = [
     "calculate_hard_negatives",
     "calculate_lexical_diversity_metrics",
     "calculate_ngram_diversity",
+    "generate_audio_quality_plots",
+    "generate_demographic_plots",
     "generate_hard_negatives_comparison",
     "generate_latency_plots",
     "load_public_benchmark_diversity",
