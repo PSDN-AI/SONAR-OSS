@@ -14,7 +14,9 @@ from psdn_sonar.data import (
     DatasetSpec,
     prepare_dataset,
 )
-from psdn_sonar.data.registry import FLEURS_CONFIG, resolve_config
+from psdn_sonar.data.registry import FLEURS_CONFIG, MLS_CONFIG, resolve_config
+
+FAKE_REVISION = "a" * 40
 
 
 class FakeDataset:
@@ -34,8 +36,9 @@ class FakeDataset:
 
 
 class TestResolveConfig:
-    def test_lang_template(self):
+    def test_retired_common_voice_is_disabled(self):
         spec = DATASET_REGISTRY["common_voice"]
+        assert spec.enabled is False
         assert resolve_config(spec, "bn") == "bn"
 
     def test_fleurs_mapping(self):
@@ -47,21 +50,36 @@ class TestResolveConfig:
         spec = DATASET_REGISTRY["zeroth"]
         assert resolve_config(spec, "ko") == ""
 
+    def test_mls_uses_full_config_names_and_real_schema(self):
+        spec = DATASET_REGISTRY["multilingual_librispeech"]
+        assert resolve_config(spec, "de") == MLS_CONFIG["de"] == "german"
+        assert resolve_config(spec, "en") is None
+        assert spec.splits == ("train", "dev", "test")
+        assert spec.text_column == "transcript"
+
     def test_empty_template_without_no_config_lang_is_unsupported(self):
         spec = DatasetSpec(hf_id="x/y", config_template="")
         assert resolve_config(spec, "en") is None
+
+    def test_new_dataset_spec_fields_do_not_break_positional_callers(self):
+        spec = DatasetSpec("x/y", "{lang}", "text", "audio", ("test",), None)
+        assert spec.text_column == "text"
+        assert spec.splits == ("test",)
+        assert spec.revision == ""
 
 
 class TestDiscovery:
     def test_korean_includes_zeroth_and_excludes_gated(self):
         names = {d.name for d in DatasetDiscovery.discover("ko")}
-        assert {"common_voice", "fleurs", "zeroth"} <= names
+        assert {"fleurs", "zeroth"} <= names
+        assert "common_voice" not in names
         assert "voxpopuli" not in names
         assert "multilingual_librispeech" not in names
 
-    def test_english_includes_gated_datasets(self):
+    def test_english_excludes_mls_but_includes_voxpopuli(self):
         names = {d.name for d in DatasetDiscovery.discover("en")}
-        assert {"voxpopuli", "multilingual_librispeech"} <= names
+        assert "voxpopuli" in names
+        assert "multilingual_librispeech" not in names
 
     def test_dataset_filter(self):
         results = DatasetDiscovery.discover("en", dataset_filter=["fleurs"])
@@ -70,22 +88,64 @@ class TestDiscovery:
 
     def test_unknown_language_still_matches_templates(self):
         results = DatasetDiscovery.discover("xx")
-        names = {d.name for d in results}
-        assert "common_voice" in names  # template "{lang}" always resolves
-        assert "fleurs" not in names  # no FLEURS mapping for "xx"
+        assert results == []
 
     def test_validate_remote_drops_missing_configs(self, monkeypatch):
-        monkeypatch.setattr("psdn_sonar.data.discovery._remote_config_exists", lambda hf_id, config: False)
+        seen = []
+
+        def missing(hf_id, config, revision):
+            seen.append((hf_id, config, revision))
+            return False
+
+        monkeypatch.setattr("psdn_sonar.data.discovery._remote_config_exists", missing)
         assert DatasetDiscovery.discover("en", dataset_filter=["fleurs"], validate_remote=True) == []
+        assert seen == [
+            (
+                DATASET_REGISTRY["fleurs"].hf_id,
+                FLEURS_CONFIG["en"],
+                DATASET_REGISTRY["fleurs"].revision,
+            )
+        ]
 
     def test_validate_remote_attaches_split_sizes(self, monkeypatch):
-        monkeypatch.setattr("psdn_sonar.data.discovery._remote_config_exists", lambda hf_id, config: True)
+        monkeypatch.setattr("psdn_sonar.data.discovery._remote_config_exists", lambda hf_id, config, revision: True)
         monkeypatch.setattr(
             "psdn_sonar.data.discovery._get_split_sizes",
-            lambda hf_id, config, splits: {"train": 10},
+            lambda hf_id, config, splits, revision: {"train": 10},
         )
         results = DatasetDiscovery.discover("en", dataset_filter=["fleurs"], validate_remote=True)
         assert results[0].num_examples == {"train": 10}
+        assert results[0].revision == DATASET_REGISTRY["fleurs"].revision
+
+    def test_huggingface_metadata_calls_are_revision_pinned(self, monkeypatch):
+        from psdn_sonar.data.discovery import _get_split_sizes, _remote_config_exists
+
+        calls = []
+
+        def config_names(hf_id, *, revision):
+            calls.append(("configs", hf_id, revision))
+            return ["en_us"]
+
+        class SplitInfo:
+            num_examples = 12
+
+        class Builder:
+            info = type("Info", (), {"splits": {"test": SplitInfo()}})()
+
+        def load_builder(hf_id, config, *, revision):
+            calls.append(("builder", hf_id, config, revision))
+            return Builder()
+
+        monkeypatch.setattr("datasets.get_dataset_config_names", config_names)
+        monkeypatch.setattr("datasets.load_dataset_builder", load_builder)
+
+        spec = DATASET_REGISTRY["fleurs"]
+        assert _remote_config_exists(spec.hf_id, "en_us", spec.revision)
+        assert _get_split_sizes(spec.hf_id, "en_us", ["test"], spec.revision) == {"test": 12}
+        assert calls == [
+            ("configs", spec.hf_id, spec.revision),
+            ("builder", spec.hf_id, "en_us", spec.revision),
+        ]
 
     def test_print_summary_smoke(self, capsys):
         DatasetDiscovery.print_summary(DatasetDiscovery.discover("ko"), "ko")
@@ -108,36 +168,71 @@ class TestPrepareDataset:
         with pytest.raises(ValueError, match="has splits"):
             prepare_dataset("zeroth", "ko", "validation", tmp_path)
 
-    def test_writes_tsv(self, tmp_path, monkeypatch):
+    def test_retired_dataset_is_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="disabled by the benchmark catalog"):
+            prepare_dataset("common_voice", "en", "test", tmp_path)
+
+    def test_writes_tsv_with_pinned_revision(self, tmp_path, monkeypatch):
         rows = [
-            {"audio": {"path": "/data/a.wav"}, "sentence": "hello"},
-            {"audio": "/data/b.wav", "sentence": "world"},
-            {"audio": None, "sentence": "no audio"},
+            {"audio": {"path": "/data/a.wav"}, "transcription": "hello"},
+            {"audio": "/data/b.wav", "transcription": "world"},
+            {"audio": None, "transcription": "no audio"},
         ]
-        monkeypatch.setattr("datasets.load_dataset", lambda *a, **k: FakeDataset(rows))
-        tsv = prepare_dataset("common_voice", "en", "test", tmp_path)
+        calls = []
+
+        def load_dataset(*args, **kwargs):
+            calls.append((args, kwargs))
+            return FakeDataset(rows)
+
+        monkeypatch.setattr("datasets.load_dataset", load_dataset)
+        tsv = prepare_dataset("fleurs", "en", "test", tmp_path)
         lines = tsv.read_text(encoding="utf-8").splitlines()
         assert lines[0] == "audio_path\ttranscription"
         assert lines[1] == "/data/a.wav\thello"
         assert lines[2] == "/data/b.wav\tworld"
         assert lines[3] == "row_2\tno audio"
+        assert calls == [
+            (
+                (DATASET_REGISTRY["fleurs"].hf_id, FLEURS_CONFIG["en"]),
+                {
+                    "split": "test",
+                    "revision": DATASET_REGISTRY["fleurs"].revision,
+                },
+            )
+        ]
 
     def test_max_samples_and_array_audio(self, tmp_path, monkeypatch):
         arr = np.zeros(1600, dtype=np.float32)
-        rows = [{"audio": {"path": "", "array": arr, "sampling_rate": 16000}, "sentence": f"s{i}"} for i in range(5)]
+        rows = [
+            {"audio": {"path": "", "array": arr, "sampling_rate": 16000}, "transcription": f"s{i}"} for i in range(5)
+        ]
         monkeypatch.setattr("datasets.load_dataset", lambda *a, **k: FakeDataset(rows))
-        tsv = prepare_dataset("common_voice", "en", "test", tmp_path, max_samples=2)
+        tsv = prepare_dataset("fleurs", "en", "test", tmp_path, max_samples=2)
         lines = tsv.read_text(encoding="utf-8").splitlines()
         assert len(lines) == 3  # header + 2 rows
         assert (tmp_path / "audio" / "audio_0.wav").exists()
 
+    def test_no_config_load_is_also_revision_pinned(self, tmp_path, monkeypatch):
+        calls = []
+
+        def load_dataset(*args, **kwargs):
+            calls.append((args, kwargs))
+            return FakeDataset([{"audio": None, "text": "안녕하세요"}])
+
+        monkeypatch.setattr("datasets.load_dataset", load_dataset)
+        prepare_dataset("zeroth", "ko", "test", tmp_path)
+
+        spec = DATASET_REGISTRY["zeroth"]
+        assert calls == [((spec.hf_id,), {"split": "test", "revision": spec.revision})]
+
 
 class TestDatasetPreparer:
-    def _dataset(self, splits=("train", "validation", "test")):
+    def _dataset(self, splits=("train", "validation", "test"), revision=FAKE_REVISION):
         return AvailableDataset(
             name="fake",
             hf_id="org/fake",
             config="en",
+            revision=revision,
             splits=list(splits),
             text_column="sentence",
             audio_column="audio",
@@ -148,12 +243,24 @@ class TestDatasetPreparer:
 
     def test_predefined_splits_are_mapped(self, tmp_path, monkeypatch):
         splits = {"train": self._rows(3, "tr"), "validation": self._rows(2, "va"), "test": self._rows(1, "te")}
-        monkeypatch.setattr("datasets.load_dataset", lambda *a, split, **k: FakeDataset(splits[split]))
+        calls = []
+
+        def load_dataset(*args, split, revision):
+            calls.append((args, split, revision))
+            return FakeDataset(splits[split])
+
+        monkeypatch.setattr("datasets.load_dataset", load_dataset)
         prep = DatasetPreparer(self._dataset(), "en", tmp_path, skip_audio_validation=True, seed=0)
         out = prep.prepare()
 
         meta = json.loads((out / "metadata.json").read_text(encoding="utf-8"))
         assert meta["split_sizes"] == {"train": 3, "val": 2, "test": 1}
+        assert meta["source_revision"] == FAKE_REVISION
+        assert calls == [
+            (("org/fake", "en"), "train", FAKE_REVISION),
+            (("org/fake", "en"), "validation", FAKE_REVISION),
+            (("org/fake", "en"), "test", FAKE_REVISION),
+        ]
         with open(out / "val.tsv", encoding="utf-8") as f:
             rows = list(csv.DictReader(f, delimiter="\t"))
         assert [r["audio_path"] for r in rows] == ["/data/va0.wav", "/data/va1.wav"]
@@ -200,3 +307,18 @@ class TestDatasetPreparer:
         monkeypatch.setattr("datasets.load_dataset", boom)
         with pytest.raises(RuntimeError, match="No samples"):
             DatasetPreparer(self._dataset(), "en", tmp_path, skip_audio_validation=True, seed=0).prepare()
+
+    def test_missing_revision_is_rejected_before_download(self, tmp_path):
+        with pytest.raises(ValueError, match="immutable source revision"):
+            DatasetPreparer(self._dataset(revision=""), "en", tmp_path, skip_audio_validation=True, seed=0)
+
+    @pytest.mark.parametrize("revision", ["main", "latest", "v1.0", "a" * 39])
+    def test_floating_or_short_revision_is_rejected(self, revision, tmp_path):
+        with pytest.raises(ValueError, match="immutable source revision"):
+            DatasetPreparer(self._dataset(revision=revision), "en", tmp_path, skip_audio_validation=True, seed=0)
+
+
+def test_new_available_dataset_field_does_not_break_positional_callers():
+    dataset = AvailableDataset("fake", "org/fake", "en", ["test"])
+    assert dataset.splits == ["test"]
+    assert dataset.revision == ""

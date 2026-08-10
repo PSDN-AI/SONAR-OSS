@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .catalog import load_catalog
+
 
 @dataclass(frozen=True)
 class DatasetSpec:
@@ -22,6 +24,8 @@ class DatasetSpec:
     splits: tuple[str, ...] = ("train", "validation", "test")
     # When set, for these languages the dataset has no config (single default config).
     no_config_langs: Optional[frozenset[str]] = None
+    revision: str = ""
+    enabled: bool = True
 
 
 @dataclass
@@ -35,6 +39,7 @@ class AvailableDataset:
     num_examples: Optional[dict[str, int]] = None
     text_column: str = "sentence"
     audio_column: str = "audio"
+    revision: str = ""
 
 
 FLEURS_CONFIG: dict[str, str] = {
@@ -76,40 +81,64 @@ FLEURS_CONFIG: dict[str, str] = {
     "zh": "cmn_hans_cn",
 }
 
+MLS_CONFIG: dict[str, str] = {
+    "de": "german",
+    "es": "spanish",
+    "fr": "french",
+    "it": "italian",
+    "nl": "dutch",
+    "pl": "polish",
+    "pt": "portuguese",
+}
+
+_BENCHMARK_CATALOG = load_catalog()
+
+
+def _hf_dataset_spec(name: str, **kwargs) -> DatasetSpec:
+    benchmark = _BENCHMARK_CATALOG.get(name)
+    if benchmark.source.kind != "huggingface":
+        raise ValueError(f"catalog benchmark {name!r} is not a Hugging Face source")
+    return DatasetSpec(
+        hf_id=benchmark.source.identifier,
+        config_template=benchmark.config_template,
+        revision=benchmark.source.revision,
+        enabled=benchmark.runtime == "enabled" and benchmark.availability == "active",
+        splits=benchmark.splits,
+        **kwargs,
+    )
+
+
 DATASET_REGISTRY: dict[str, DatasetSpec] = {
+    # The former Hugging Face mirror is now a tombstone. Keep the name for
+    # explicit disabled errors, but never attempt runtime discovery/loading.
     "common_voice": DatasetSpec(
         hf_id="mozilla-foundation/common_voice_17_0",
         config_template="{lang}",
+        enabled=False,
+        splits=(),
         text_column="sentence",
         audio_column="audio",
     ),
-    "fleurs": DatasetSpec(
-        hf_id="google/fleurs",
-        config_template="{fleurs}",
+    "fleurs": _hf_dataset_spec(
+        "fleurs",
         text_column="transcription",
         audio_column="audio",
     ),
-    "zeroth": DatasetSpec(
-        hf_id="Bingsu/zeroth-korean",
-        config_template="",
+    "zeroth": _hf_dataset_spec(
+        "zeroth",
         text_column="text",
         audio_column="audio",
-        splits=("train", "test"),
         no_config_langs=frozenset({"ko"}),
     ),
-    "voxpopuli": DatasetSpec(
-        hf_id="facebook/voxpopuli",
-        config_template="{lang}",
+    "voxpopuli": _hf_dataset_spec(
+        "voxpopuli",
         text_column="raw_text",
         audio_column="audio",
-        splits=("train", "validation", "test"),
     ),
-    "multilingual_librispeech": DatasetSpec(
-        hf_id="facebook/multilingual_librispeech",
-        config_template="{lang}",
-        text_column="text",
+    "multilingual_librispeech": _hf_dataset_spec(
+        "multilingual_librispeech",
+        text_column="transcript",
         audio_column="audio",
-        splits=("train", "validation", "test"),
     ),
 }
 
@@ -126,14 +155,12 @@ VOXPOPULI_LANGS = frozenset(
         "nl",
         "pl",
         "ro",
-        "sv",
     }
 )
 
 MLS_LANGS = frozenset(
     {
         "de",
-        "en",
         "es",
         "fr",
         "it",
@@ -161,6 +188,8 @@ def resolve_config(spec: DatasetSpec, lang: str) -> Optional[str]:
     tpl = spec.config_template
     if "{fleurs}" in tpl:
         return FLEURS_CONFIG.get(lang)
+    if "{mls}" in tpl:
+        return MLS_CONFIG.get(lang)
     if "{lang}" in tpl:
         return tpl.replace("{lang}", lang)
     return None

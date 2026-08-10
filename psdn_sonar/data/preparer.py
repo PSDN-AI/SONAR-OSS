@@ -9,6 +9,7 @@ import random
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .catalog import validate_huggingface_revision
 from .registry import DATASET_REGISTRY, AvailableDataset, resolve_config
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,10 @@ def prepare_dataset(
     spec = DATASET_REGISTRY.get(name)
     if not spec:
         raise ValueError(f"Unknown dataset: {name}. Known: {list(DATASET_REGISTRY.keys())}")
+    if not spec.enabled:
+        raise ValueError(f"Dataset {name} is disabled by the benchmark catalog")
+    if not spec.revision:
+        raise ValueError(f"Dataset {name} has no immutable source revision")
     config = resolve_config(spec, lang)
     if config is None:
         raise ValueError(f"Dataset {name} does not support language: {lang}")
@@ -69,9 +74,9 @@ def prepare_dataset(
     from datasets import load_dataset
 
     if config:
-        ds = load_dataset(spec.hf_id, config, split=split)
+        ds = load_dataset(spec.hf_id, config, split=split, revision=spec.revision)
     else:
-        ds = load_dataset(spec.hf_id, split=split)
+        ds = load_dataset(spec.hf_id, split=split, revision=spec.revision)
 
     total = len(ds)
     if max_samples and max_samples < total:
@@ -122,6 +127,10 @@ class DatasetPreparer:
     ):
         from psdn_sonar.config_loader import get_run_seed
 
+        try:
+            validate_huggingface_revision(dataset.revision)
+        except ValueError as exc:
+            raise ValueError("DatasetPreparer requires an immutable source revision") from exc
         self.dataset = dataset
         self.language = language
         self.output_dir = Path(output_dir) / dataset.name
@@ -159,9 +168,14 @@ class DatasetPreparer:
                         self.dataset.hf_id,
                         self.dataset.config,
                         split=split,
+                        revision=self.dataset.revision,
                     )
                 else:
-                    ds = load_dataset(self.dataset.hf_id, split=split)
+                    ds = load_dataset(
+                        self.dataset.hf_id,
+                        split=split,
+                        revision=self.dataset.revision,
+                    )
             except Exception as exc:
                 logger.warning("Could not load split '%s': %s", split, exc)
                 continue
@@ -286,6 +300,7 @@ class DatasetPreparer:
     def _write_metadata(self, split_map: dict[str, list[dict]]) -> None:
         meta = {
             "source": self.dataset.hf_id,
+            "source_revision": self.dataset.revision,
             "config": self.dataset.config,
             "language": self.language,
             "split_sizes": {k: len(v) for k, v in split_map.items()},

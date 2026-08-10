@@ -40,6 +40,9 @@ passing run of this gate in its PR description.
 
 ### 3. Data rights
 
+Use the versioned catalog and approval process in
+[`benchmark-data-governance.md`](benchmark-data-governance.md) for this section.
+
 - [ ] Every dataset shipped, referenced, or used for benchmarking (e.g. Common Voice, FLEURS,
       Zeroth, VoxPopuli, MLS, OpenSLR) has a documented license and confirmed redistribution
       rights recorded alongside the import.

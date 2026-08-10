@@ -131,7 +131,7 @@ class SingleSpeakerLoaderBase:
 
 
 def _asr_bengali_filter(x: str) -> bool:
-    """Match asr_bengali_* subdirs (OpenSLR 37/53 use these; 53 has asr_bengali_0..8)."""
+    """Match asr_bengali_* subdirs (OpenSLR 53 has asr_bengali_0..f)."""
     return x.startswith("asr_bengali")
 
 

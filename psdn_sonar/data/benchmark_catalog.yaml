@@ -1,0 +1,401 @@
+schema_version: 1
+catalog_version: 1
+benchmarks:
+  common_voice:
+    id: common_voice
+    display_name: Mozilla Common Voice 17.0
+    availability: retired
+    runtime: disabled
+    source:
+      kind: archive
+      identifier: common-voice/cv-corpus-17.0-2024-03-15.json
+      canonical_url: https://github.com/common-voice/cv-dataset/blob/f99d8239d2796131b73ac99f92ee7cb4443bf3ba/datasets/scripted-speech/cv-corpus-17.0-2024-03-15.json
+      revision: sha256:d1c77b3672a3af20e06fa184e30b1d1dc0f9d613b4dcab35fd6a9b3101ac20d6
+      visibility: public
+      artifacts:
+        cv-corpus-17.0-2024-03-15.json: sha256:d1c77b3672a3af20e06fa184e30b1d1dc0f9d613b4dcab35fd6a9b3101ac20d6
+    config_template: "{lang}"
+    allowed_configs: []
+    splits: []
+    license:
+      status: verified
+      identifier: CC0-1.0
+      url: https://commonvoice.mozilla.org/terms
+    redistribution:
+      decision: pending_human_approval
+      rationale: The former Hugging Face source is retired; an MDC access and no-rehosting decision is pending.
+    attribution: Mozilla Common Voice contributors.
+    expected_schema:
+      format: archive
+      columns:
+        release_metadata: json
+    selection:
+      name: ordered_upstream_split
+      version: "1"
+      parameters: {}
+    preprocessing:
+      name: psdn_sonar.export_tsv
+      version: "1"
+    expected_fingerprints: {}
+    public_default: false
+    rights_approval:
+      status: pending
+      approved_by: null
+      approved_at: null
+      evidence_url: null
+
+  fleurs:
+    id: fleurs
+    display_name: Google FLEURS
+    availability: active
+    runtime: enabled
+    source:
+      kind: huggingface
+      identifier: google/fleurs
+      canonical_url: https://huggingface.co/datasets/google/fleurs
+      revision: 70bb2e84b976b7e960aa89f1c648e09c59f894dd
+      visibility: public
+      artifacts: {}
+    config_template: "{fleurs}"
+    allowed_configs:
+      - af_za
+      - ar_eg
+      - bn_in
+      - cs_cz
+      - da_dk
+      - de_de
+      - el_gr
+      - en_us
+      - es_419
+      - fi_fi
+      - fr_fr
+      - he_il
+      - hi_in
+      - hu_hu
+      - id_id
+      - it_it
+      - ja_jp
+      - ko_kr
+      - mr_in
+      - ms_my
+      - nl_nl
+      - nb_no
+      - pl_pl
+      - pt_br
+      - ro_ro
+      - ru_ru
+      - sv_se
+      - sw_ke
+      - ta_in
+      - te_in
+      - th_th
+      - tr_tr
+      - uk_ua
+      - ur_pk
+      - vi_vn
+      - cmn_hans_cn
+    splits: [train, validation, test]
+    license:
+      status: verified
+      identifier: CC-BY-4.0
+      url: https://huggingface.co/datasets/google/fleurs/blob/70bb2e84b976b7e960aa89f1c648e09c59f894dd/README.md
+    redistribution:
+      decision: pending_human_approval
+      rationale: License evidence is recorded; project-specific redistribution approval is still pending.
+    attribution: Conneau et al., FLEURS; Google LLC.
+    expected_schema:
+      format: huggingface
+      columns:
+        audio: audio
+        transcription: string
+    selection:
+      name: ordered_upstream_split
+      version: "1"
+      parameters: {}
+    preprocessing:
+      name: psdn_sonar.export_tsv
+      version: "1"
+    expected_fingerprints: {}
+    public_default: false
+    rights_approval:
+      status: pending
+      approved_by: null
+      approved_at: null
+      evidence_url: null
+
+  zeroth:
+    id: zeroth
+    display_name: Zeroth Korean
+    availability: active
+    runtime: enabled
+    source:
+      kind: huggingface
+      identifier: Bingsu/zeroth-korean
+      canonical_url: https://huggingface.co/datasets/Bingsu/zeroth-korean
+      revision: bd173fe2c8ed0dccd47acb4eda77542593651622
+      visibility: public
+      artifacts: {}
+    config_template: ""
+    allowed_configs: []
+    splits: [train, test]
+    license:
+      status: verified
+      identifier: CC-BY-4.0
+      url: https://huggingface.co/datasets/Bingsu/zeroth-korean/blob/bd173fe2c8ed0dccd47acb4eda77542593651622/README.md
+    redistribution:
+      decision: pending_human_approval
+      rationale: License evidence is recorded; mirror and redistribution approval is still pending.
+    attribution: Zeroth Project contributors and the Bingsu Hugging Face mirror maintainer.
+    expected_schema:
+      format: huggingface
+      columns:
+        audio: audio
+        text: string
+    selection:
+      name: ordered_upstream_split
+      version: "1"
+      parameters: {}
+    preprocessing:
+      name: psdn_sonar.export_tsv
+      version: "1"
+    expected_fingerprints: {}
+    public_default: false
+    rights_approval:
+      status: pending
+      approved_by: null
+      approved_at: null
+      evidence_url: null
+
+  voxpopuli:
+    id: voxpopuli
+    display_name: Meta VoxPopuli
+    availability: active
+    runtime: enabled
+    source:
+      kind: huggingface
+      identifier: facebook/voxpopuli
+      canonical_url: https://huggingface.co/datasets/facebook/voxpopuli
+      revision: 42f01879c780b4a2e90ec0b4f616c2ece526e4f1
+      visibility: public
+      artifacts: {}
+    config_template: "{lang}"
+    allowed_configs: [cs, de, en, es, fi, fr, hu, it, nl, pl, ro]
+    splits: [train, validation, test]
+    license:
+      status: verified
+      identifier: CC0-1.0 AND LicenseRef-European-Parliament
+      url: https://huggingface.co/datasets/facebook/voxpopuli/blob/42f01879c780b4a2e90ec0b4f616c2ece526e4f1/README.md
+    redistribution:
+      decision: pending_human_approval
+      rationale: The dataset card references both CC0 and European Parliament source terms; review is pending.
+    attribution: Wang et al., VoxPopuli; European Parliament source recordings.
+    expected_schema:
+      format: huggingface
+      columns:
+        audio: audio
+        raw_text: string
+    selection:
+      name: ordered_upstream_split
+      version: "1"
+      parameters: {}
+    preprocessing:
+      name: psdn_sonar.export_tsv
+      version: "1"
+    expected_fingerprints: {}
+    public_default: false
+    rights_approval:
+      status: pending
+      approved_by: null
+      approved_at: null
+      evidence_url: null
+
+  multilingual_librispeech:
+    id: multilingual_librispeech
+    display_name: Meta Multilingual LibriSpeech
+    availability: active
+    runtime: enabled
+    source:
+      kind: huggingface
+      identifier: facebook/multilingual_librispeech
+      canonical_url: https://huggingface.co/datasets/facebook/multilingual_librispeech
+      revision: 2e83e61823b4c47dcbcb1980bb88601274127609
+      visibility: public
+      artifacts: {}
+    config_template: "{mls}"
+    allowed_configs: [dutch, french, german, italian, polish, portuguese, spanish]
+    splits: [train, dev, test]
+    license:
+      status: verified
+      identifier: CC-BY-4.0
+      url: https://huggingface.co/datasets/facebook/multilingual_librispeech/blob/2e83e61823b4c47dcbcb1980bb88601274127609/README.md
+    redistribution:
+      decision: pending_human_approval
+      rationale: License evidence is recorded; project-specific redistribution approval is still pending.
+    attribution: Pratap et al., Multilingual LibriSpeech; LibriVox contributors.
+    expected_schema:
+      format: huggingface
+      columns:
+        audio: audio
+        transcript: string
+    selection:
+      name: ordered_upstream_split
+      version: "1"
+      parameters: {}
+    preprocessing:
+      name: psdn_sonar.export_tsv
+      version: "1"
+    expected_fingerprints: {}
+    public_default: false
+    rights_approval:
+      status: pending
+      approved_by: null
+      approved_at: null
+      evidence_url: null
+
+  openslr37_bd:
+    id: openslr37_bd
+    display_name: OpenSLR 37 Bangladesh Bengali
+    availability: active
+    runtime: enabled
+    source:
+      kind: openslr
+      identifier: SLR37/checksum.md5
+      canonical_url: https://www.openslr.org/resources/37/checksum.md5
+      revision: sha256:7e97ea1f141d9f32af4e35227f28b7468ff4c0be4ac2c3725795f990582b96bb
+      visibility: public
+      artifacts:
+        bn_bd.zip: md5:5f7b0a1de746d2ac3541c12883b3117f
+    config_template: ""
+    allowed_configs: []
+    splits: [all]
+    license:
+      status: verified
+      identifier: CC-BY-SA-4.0
+      url: https://www.openslr.org/resources/37/LICENSE.txt
+    redistribution:
+      decision: pending_human_approval
+      rationale: The manifest is SHA-256 pinned; archive checks use upstream MD5 and redistribution review is pending.
+    attribution: Google Bengali TTS corpus; Sodimana et al. (SLTU 2018).
+    expected_schema:
+      format: archive
+      columns:
+        audio: wav
+        transcription: string
+    selection:
+      name: sorted_archive_members
+      version: "1"
+      parameters: {}
+    preprocessing:
+      name: psdn_sonar.local_loader
+      version: "1"
+    expected_fingerprints: {}
+    public_default: false
+    rights_approval:
+      status: pending
+      approved_by: null
+      approved_at: null
+      evidence_url: null
+
+  openslr37_in:
+    id: openslr37_in
+    display_name: OpenSLR 37 Indian Bengali
+    availability: active
+    runtime: enabled
+    source:
+      kind: openslr
+      identifier: SLR37/checksum.md5
+      canonical_url: https://www.openslr.org/resources/37/checksum.md5
+      revision: sha256:7e97ea1f141d9f32af4e35227f28b7468ff4c0be4ac2c3725795f990582b96bb
+      visibility: public
+      artifacts:
+        bn_in.zip: md5:ae2c7f0329536908eab45185f0d318d0
+    config_template: ""
+    allowed_configs: []
+    splits: [all]
+    license:
+      status: verified
+      identifier: CC-BY-SA-4.0
+      url: https://www.openslr.org/resources/37/LICENSE.txt
+    redistribution:
+      decision: pending_human_approval
+      rationale: The manifest is SHA-256 pinned; archive checks use upstream MD5 and redistribution review is pending.
+    attribution: Google Bengali TTS corpus; Sodimana et al. (SLTU 2018).
+    expected_schema:
+      format: archive
+      columns:
+        audio: wav
+        transcription: string
+    selection:
+      name: sorted_archive_members
+      version: "1"
+      parameters: {}
+    preprocessing:
+      name: psdn_sonar.local_loader
+      version: "1"
+    expected_fingerprints: {}
+    public_default: false
+    rights_approval:
+      status: pending
+      approved_by: null
+      approved_at: null
+      evidence_url: null
+
+  openslr53:
+    id: openslr53
+    display_name: OpenSLR 53 Bengali ASR
+    availability: active
+    runtime: enabled
+    source:
+      kind: openslr
+      identifier: SLR53/checksum.md5
+      canonical_url: https://www.openslr.org/resources/53/checksum.md5
+      revision: sha256:4287fbacabc03c17c33fde77e13551396a8dad3970f604c6d722ce3373755888
+      visibility: public
+      artifacts:
+        asr_bengali_0.zip: md5:7753d72c75ce671e73df6ed83f4826bb
+        asr_bengali_1.zip: md5:a8a692e0806a37b1aa6cf60215159d69
+        asr_bengali_2.zip: md5:2ad26ad75097f20f5de239a4c0c9a7d8
+        asr_bengali_3.zip: md5:0394f18d099f0fe5a42f1f6235d79c1f
+        asr_bengali_4.zip: md5:9efab6bdd917f8a517518913f01c491c
+        asr_bengali_5.zip: md5:792bfc455c8224835cf69191cee9a869
+        asr_bengali_6.zip: md5:926a3df4c48f0f8bd7c50d9cbe21de22
+        asr_bengali_7.zip: md5:230ecaa2e8042610240f09966fd195af
+        asr_bengali_8.zip: md5:9c0518c0fa789f4a18f5d753d39d40c7
+        asr_bengali_9.zip: md5:df51f629c06103126c2d46002f6b531e
+        asr_bengali_a.zip: md5:bea7ce2282a5838ea970fb5d7d8cd690
+        asr_bengali_b.zip: md5:ad92504dc5da62fe9b6ce9c75c344a15
+        asr_bengali_c.zip: md5:588bb8b12df718f9bdce5685cc3dd06e
+        asr_bengali_d.zip: md5:1367fd082e9b83fc27d222c7e282c70e
+        asr_bengali_e.zip: md5:09cf7b480387c653cd2ebee678345fa3
+        asr_bengali_f.zip: md5:16c22fc754987da08260c9d74d1985b5
+        utt_spk_text.tsv: md5:b26547c09a285a20845b22f49f9b4959
+    config_template: ""
+    allowed_configs: []
+    splits: [all]
+    license:
+      status: verified
+      identifier: CC-BY-SA-4.0
+      url: https://www.openslr.org/resources/53/LICENSE
+    redistribution:
+      decision: pending_human_approval
+      rationale: The manifest is SHA-256 pinned; shard checks use upstream MD5 and redistribution review is pending.
+    attribution: Google Bengali ASR corpus; Kjartansson et al. (SLTU 2018).
+    expected_schema:
+      format: archive
+      columns:
+        audio: flac
+        transcription: string
+    selection:
+      name: sorted_archive_members
+      version: "1"
+      parameters: {}
+    preprocessing:
+      name: psdn_sonar.local_loader
+      version: "1"
+    expected_fingerprints: {}
+    public_default: false
+    rights_approval:
+      status: pending
+      approved_by: null
+      approved_at: null
+      evidence_url: null

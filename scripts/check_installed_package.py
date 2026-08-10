@@ -11,6 +11,7 @@ import yaml
 
 import psdn_sonar
 from psdn_sonar.config_loader import ConfigManager
+from psdn_sonar.data import load_catalog, validate_catalog_schema_sync
 from psdn_sonar.preprocessing import load_multi_speaker_config
 from psdn_sonar.utils.loanword import get_cache_path, load_cache
 
@@ -48,6 +49,17 @@ def main() -> None:
             raise RuntimeError(f"Installed configuration differs from source: {relative_path}")
         if not isinstance(yaml.safe_load(installed_config.read_text(encoding="utf-8")), dict):
             raise RuntimeError(f"Installed configuration is not a YAML mapping: {relative_path}")
+
+    source_catalog_schema = source_package_root / "data" / "benchmark_catalog.schema.json"
+    installed_catalog_schema = package_root / "data" / "benchmark_catalog.schema.json"
+    if not installed_catalog_schema.is_file():
+        raise RuntimeError("Installed wheel is missing the benchmark catalog JSON Schema")
+    if installed_catalog_schema.read_bytes() != source_catalog_schema.read_bytes():
+        raise RuntimeError("Installed benchmark catalog JSON Schema differs from source")
+    validate_catalog_schema_sync()
+    catalog = load_catalog()
+    if not catalog.benchmarks:
+        raise RuntimeError("Installed benchmark catalog is empty")
 
     source_cache_root = source_root / "config" / "language"
     source_caches = sorted(source_cache_root.glob("*/loanword_cache.json"))

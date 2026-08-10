@@ -33,7 +33,7 @@ class DatasetDiscovery:
         language:
             ISO 639-1 language code (e.g. ``"ur"``).
         dataset_filter:
-            If given, only check these dataset names (e.g. ``["common_voice", "fleurs"]``).
+            If given, only check these dataset names (e.g. ``["fleurs", "voxpopuli"]``).
         validate_remote:
             If ``True``, attempt to load dataset metadata from HuggingFace Hub
             to confirm the config actually exists.  Requires network access.
@@ -51,6 +51,8 @@ class DatasetDiscovery:
         for ds_name, spec in DATASET_REGISTRY.items():
             if dataset_filter and ds_name not in dataset_filter:
                 continue
+            if not spec.enabled:
+                continue
 
             lang_gate = _DATASET_LANG_GATES.get(ds_name)
             if lang_gate is not None and language not in lang_gate:
@@ -60,19 +62,20 @@ class DatasetDiscovery:
             if config is None:
                 continue
 
-            if validate_remote and config and not _remote_config_exists(spec.hf_id, config):
+            if validate_remote and config and not _remote_config_exists(spec.hf_id, config, spec.revision):
                 logger.info("  %s/%s: not found on HuggingFace Hub", spec.hf_id, config)
                 continue
 
             num_examples = None
             if validate_remote:
-                num_examples = _get_split_sizes(spec.hf_id, config, list(spec.splits))
+                num_examples = _get_split_sizes(spec.hf_id, config, list(spec.splits), spec.revision)
 
             results.append(
                 AvailableDataset(
                     name=ds_name,
                     hf_id=spec.hf_id,
                     config=config,
+                    revision=spec.revision,
                     splits=list(spec.splits),
                     num_examples=num_examples,
                     text_column=spec.text_column,
@@ -106,25 +109,25 @@ class DatasetDiscovery:
         print()
 
 
-def _remote_config_exists(hf_id: str, config: str) -> bool:
+def _remote_config_exists(hf_id: str, config: str, revision: str) -> bool:
     """Check whether a HF dataset config actually exists (lightweight check)."""
     if not config:
         return True
     try:
         from datasets import get_dataset_config_names
 
-        configs = get_dataset_config_names(hf_id)
+        configs = get_dataset_config_names(hf_id, revision=revision)
         return config in configs
     except Exception:
         return False
 
 
-def _get_split_sizes(hf_id: str, config: str, splits: list[str]) -> Optional[dict[str, int]]:
+def _get_split_sizes(hf_id: str, config: str, splits: list[str], revision: str) -> Optional[dict[str, int]]:
     """Try to get the number of examples per split without downloading data."""
     try:
         from datasets import load_dataset_builder
 
-        builder = load_dataset_builder(hf_id, config if config else None)
+        builder = load_dataset_builder(hf_id, config if config else None, revision=revision)
         info = builder.info
         if info.splits is None:
             return None
