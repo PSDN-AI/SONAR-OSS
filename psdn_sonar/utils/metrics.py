@@ -112,24 +112,38 @@ def calculate_poseidon_score(
     return min(max(score, 0.0), 1.0)
 
 
+# Column layouts tried in order: multi-speaker conversation metrics, their
+# non-conversation variants, single-speaker plain names, legacy uppercase.
+_POSEIDON_COLUMN_LAYOUTS = [
+    ("cer_conv", "wer_conv", "semantic_similarity_conv"),
+    ("cer_non", "wer_non", "semantic_similarity_non"),
+    ("cer", "wer", "semantic_similarity"),
+    ("CER", "WER", "semantic_similarity"),
+]
+
+
 def ensure_poseidon_score(df: pd.DataFrame) -> pd.DataFrame:
     """Return *df* with a ``poseidon_score`` column, deriving it if missing.
 
-    The score is computed per row from ``wer_conv`` / ``cer_conv`` /
-    ``semantic_similarity_conv``. Missing error rates count as worst case
-    (1.0) and missing similarity as 0.0. Returned unchanged when the column
-    already exists or the source columns are absent.
+    The score is computed per row from the first CER/WER/similarity column
+    layout present. Missing error rates count as worst case (1.0), and a
+    missing similarity column or value as 0.0. Returned unchanged when the
+    column already exists or no known layout is present.
     """
     if "poseidon_score" in df.columns:
         return df
-    required = ["cer_conv", "wer_conv", "semantic_similarity_conv"]
-    if not all(col in df.columns for col in required):
+
+    for cer_col, wer_col, sem_col in _POSEIDON_COLUMN_LAYOUTS:
+        if cer_col in df.columns and wer_col in df.columns:
+            break
+    else:
         return df
+    sem_present = sem_col in df.columns
 
     def _row_score(row: pd.Series) -> float:
-        wer = float(row["wer_conv"]) if pd.notna(row["wer_conv"]) else 1.0
-        cer = float(row["cer_conv"]) if pd.notna(row["cer_conv"]) else 1.0
-        sim = float(row["semantic_similarity_conv"]) if pd.notna(row["semantic_similarity_conv"]) else 0.0
+        wer = float(row[wer_col]) if pd.notna(row[wer_col]) else 1.0
+        cer = float(row[cer_col]) if pd.notna(row[cer_col]) else 1.0
+        sim = float(row[sem_col]) if sem_present and pd.notna(row[sem_col]) else 0.0
         return calculate_poseidon_score(cer, wer, sim)
 
     df = df.copy()
