@@ -55,17 +55,19 @@ jobs:
       - name: Verify uv.lock is in sync with pyproject.toml
         run: uv lock --check
 
-      - name: Install project
-        run: uv pip install --system -e ".[dev]"
+      # Contributor-environment contract (M1-ENV-01): install exactly the
+      # committed lockfile, never a fresh resolution.
+      - name: Install frozen environment
+        run: uv sync --frozen --extra dev --python 3.12
 
       - name: Ruff lint
-        run: ruff check psdn_sonar tests
+        run: uv run --no-sync ruff check psdn_sonar tests
 
       - name: Ruff format check
-        run: ruff format --check psdn_sonar tests
+        run: uv run --no-sync ruff format --check psdn_sonar tests
 
       - name: Type check
-        run: ty check psdn_sonar/
+        run: uv run --no-sync ty check psdn_sonar/
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -93,11 +95,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install project
-        run: uv pip install --system -e ".[dev]"
+      # Contributor-environment contract (M1-ENV-01): every supported
+      # interpreter must complete a frozen sync of the committed lockfile
+      # and pass the suite from that exact environment.
+      - name: Install frozen environment
+        run: uv sync --frozen --extra dev --python ${{ matrix.python-version }}
 
       - name: Run tests
-        run: pytest tests/ -v
+        run: uv run --no-sync pytest tests/ -v
 
   pip-audit:
     name: Dependency audit (report-only)

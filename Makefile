@@ -20,10 +20,8 @@ help:
 	@echo "  source .venv/bin/activate"
 
 setup:
-	@echo "Creating virtual environment with uv..."
-	uv venv
-	@echo "Installing dependencies..."
-	uv pip install -e ".[dev]"
+	@echo "Installing frozen environment with uv..."
+	uv sync --frozen --extra dev
 	@echo ""
 	@echo "Setup complete! Activate with:"
 	@echo "  source .venv/bin/activate"
