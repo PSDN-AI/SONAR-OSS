@@ -130,13 +130,29 @@ that maintainers should consider a follow-up update to the path map.
 
 ## Dependency Updates
 
-- Third-party GitHub Actions are pinned to full commit SHAs. Maintainers review and update those references
-  manually when needed; automated Dependabot version-update pull requests are intentionally disabled so
-  dependency changes remain deliberate during release-readiness work.
-- Python dependencies will be reviewed through the packaging manifests (`pyproject.toml`, lockfile) once
-  they land with the initial code import.
-- A `pip-audit` / dependency-vulnerability check is planned but explicitly deferred until those same
-  manifests land.
+Dependency changes are deliberate and reviewed; there is no automated version-bump bot.
+
+- **Python dependencies** follow an update → audit → relock → review cycle:
+  1. Change the constraint in `pyproject.toml` (or upgrade a transitive pin with
+     `uv lock --upgrade-package <name>`).
+  2. Run `uv lock` and commit the resulting `uv.lock` in the same PR; CI's `uv lock --check`
+     rejects manifests and lockfile drifting apart. Never hand-edit `uv.lock`, and avoid a
+     whole-environment `uv lock --upgrade` unless the PR intentionally reviews that full change.
+  3. The blocking `Dependency audit` check audits the exported lockfile (never a fresh
+     resolution) with `pip-audit` on every PR, push to `main`, weekly schedule, and manual
+     dispatch.
+  4. Review happens in the PR like any other change.
+- **Vulnerability exceptions** live in `security/dependency-audit-exceptions.toml`. Every entry
+  names one advisory ID with an owner, rationale, review date, and removal condition. The audit
+  fails closed on any new unexcepted advisory, on entries whose advisory has disappeared
+  (obsolete), and on entries past their review date (stale) — see `scripts/dependency_audit.py`.
+- **Cadence and ownership:** the weekly scheduled audit surfaces new advisories without waiting
+  for a PR; repository maintainers triage failures and either relock to a fixed version or add a
+  reviewed, time-bounded exception. Exceptions are re-reviewed at their `review_by` date at the
+  latest.
+- **GitHub Actions** are pinned to full commit SHAs. Maintainers review and update those
+  references manually; automated Dependabot version-update pull requests are intentionally
+  disabled so dependency changes remain deliberate during release-readiness work.
 
 ## Public Repository Safety
 

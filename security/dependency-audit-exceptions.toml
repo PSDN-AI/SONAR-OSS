@@ -1,0 +1,51 @@
+# Reviewed exceptions for the blocking `Dependency audit` check (M1-SEC-01).
+#
+# Every entry must be exact (one advisory ID), owned, justified, and
+# time-bounded. scripts/dependency_audit.py fails CI when:
+#   - a vulnerability is reported that has no entry here (new finding),
+#   - an entry no longer matches any reported vulnerability (obsolete —
+#     remove it), or
+#   - an entry's review_by date has passed (stale — re-review or remove).
+#
+# Adding an entry requires a PR touching this file, which makes every
+# exception reviewable in history.
+
+[[exception]]
+id = "PYSEC-2025-217"
+package = "transformers"
+owner = "RN0311"
+rationale = "ReDoS in a Transformers code path this toolkit does not call; no fixed release published for the 4.x line. transformers is pinned <5.0.0 because 5.x is a breaking major upgrade for the ASR adapters."
+review_by = "2026-10-15"
+removal_condition = "Remove when a fixed 4.x release exists in our constraint range, or when the transformers pin is raised to >=5."
+
+[[exception]]
+id = "PYSEC-2026-2288"
+package = "transformers"
+owner = "RN0311"
+rationale = "Fixed only in transformers 5.0.0; the toolkit pins <5.0.0 because 5.x is a breaking major upgrade for the ASR adapters. The affected code path is not reachable from psdn-sonar's model loading."
+review_by = "2026-10-15"
+removal_condition = "Remove when the transformers pin is raised to >=5 (tracked as part of the post-launch dependency review)."
+
+[[exception]]
+id = "PYSEC-2026-2289"
+package = "transformers"
+owner = "RN0311"
+rationale = "Fixed only in transformers 5.3.0; same <5.0.0 pin rationale as PYSEC-2026-2288."
+review_by = "2026-10-15"
+removal_condition = "Remove when the transformers pin is raised to >=5."
+
+[[exception]]
+id = "PYSEC-2026-2290"
+package = "transformers"
+owner = "RN0311"
+rationale = "Fixed only in transformers 5.5.0; same <5.0.0 pin rationale as PYSEC-2026-2288."
+review_by = "2026-10-15"
+removal_condition = "Remove when the transformers pin is raised to >=5."
+
+[[exception]]
+id = "PYSEC-2026-3624"
+package = "lightning"
+owner = "RN0311"
+rationale = "Advisory's fixed version is CalVer 2022.6.15, which version-compares above the current SemVer 2.x line, so every modern lightning release is flagged. The advisory targets the deprecated 2022-era package layout; lightning is a transitive dependency of the optional [pyannote] extra only."
+review_by = "2026-10-15"
+removal_condition = "Remove when the advisory metadata is corrected upstream or pyannote.audio drops the lightning dependency."
