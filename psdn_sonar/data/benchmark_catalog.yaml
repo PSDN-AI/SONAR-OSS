@@ -6,6 +6,9 @@ benchmarks:
     display_name: Mozilla Common Voice 17.0
     availability: retired
     runtime: disabled
+    # This manifest is a statistics/checksum file for the release, not the
+    # audio corpus itself. It needs a full rewrite once Mozilla Data
+    # Collective access is sorted out (tracked in #65).
     source:
       kind: archive
       identifier: common-voice/cv-corpus-17.0-2024-03-15.json
@@ -20,7 +23,7 @@ benchmarks:
     license:
       status: verified
       identifier: CC0-1.0
-      url: https://commonvoice.mozilla.org/terms
+      url: https://common-voice.github.io/community-playbook/sub_pages/cc0waiver_process.html
     redistribution:
       decision: pending_human_approval
       rationale: The former Hugging Face source is retired; an MDC access and no-rehosting decision is pending.
