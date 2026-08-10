@@ -9,28 +9,9 @@ import plotnine as p9
 
 from psdn_sonar.utils.plot_theme import get_swarm_colors, save_plot, theme_swarm_lab
 
+from ._common import load_and_tag_results
+
 logger = logging.getLogger(__name__)
-
-
-def _prettify_model_name(name: str) -> str:
-    return name.replace("_", " ").replace("-", " ").title()
-
-
-def _load_and_tag(results_csvs: List[Tuple[str, str]]) -> pd.DataFrame:
-    frames = []
-    for model_name, csv_path in results_csvs:
-        try:
-            df = pd.read_csv(csv_path)
-            df["model"] = _prettify_model_name(model_name)
-            frames.append(df)
-        except Exception as exc:
-            logger.warning("Could not load %s: %s", csv_path, exc)
-    if not frames:
-        return pd.DataFrame()
-    combined = pd.concat(frames, ignore_index=True)
-    if "inference_latency_s" in combined.columns:
-        combined["inference_latency_s"] = pd.to_numeric(combined["inference_latency_s"], errors="coerce")
-    return combined
 
 
 def plot_latency_boxplot(df: pd.DataFrame, output_path: str) -> None:
@@ -76,7 +57,7 @@ def generate_latency_plots(
     """
     out = Path(output_dir)
 
-    df = _load_and_tag(results_csvs)
+    df = load_and_tag_results(results_csvs)
     if df.empty or "inference_latency_s" not in df.columns:
         logger.warning("No latency data available — skipping latency plots.")
         return
