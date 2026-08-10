@@ -1,5 +1,6 @@
 """Report generation: metrics, loaders, and plots for evaluation results."""
 
+from .generators import generate_report, load_dataset_stats
 from .loaders import load_public_benchmark_diversity, load_transcripts_from_file
 from .metrics import (
     calculate_gini_coefficient,
@@ -30,6 +31,8 @@ __all__ = [
     "generate_hard_negatives_comparison",
     "generate_latency_plots",
     "generate_model_comparison_plots",
+    "generate_report",
+    "load_dataset_stats",
     "load_public_benchmark_diversity",
     "load_transcripts_from_file",
     "plot_ngram_diversity_comparison",
