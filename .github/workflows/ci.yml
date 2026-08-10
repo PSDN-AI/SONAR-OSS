@@ -70,7 +70,7 @@ jobs:
         run: uv run --no-sync ty check psdn_sonar/
 
       - name: Validate benchmark catalog
-        run: python -m psdn_sonar.data.validate_catalog
+        run: uv run --no-sync python -m psdn_sonar.data.validate_catalog
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
