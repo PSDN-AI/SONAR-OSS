@@ -80,16 +80,6 @@ FLEURS_CONFIG: dict[str, str] = {
     "zh": "cmn_hans_cn",
 }
 
-MLS_CONFIG: dict[str, str] = {
-    "de": "german",
-    "es": "spanish",
-    "fr": "french",
-    "it": "italian",
-    "nl": "dutch",
-    "pl": "polish",
-    "pt": "portuguese",
-}
-
 _BENCHMARK_CATALOG = load_catalog()
 
 
@@ -112,7 +102,6 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
     "fleurs": _hf_dataset_spec("fleurs"),
     "zeroth": _hf_dataset_spec("zeroth", no_config_langs=frozenset({"ko"})),
     "voxpopuli": _hf_dataset_spec("voxpopuli"),
-    "multilingual_librispeech": _hf_dataset_spec("multilingual_librispeech"),
 }
 
 VOXPOPULI_LANGS = frozenset(
@@ -131,21 +120,8 @@ VOXPOPULI_LANGS = frozenset(
     }
 )
 
-MLS_LANGS = frozenset(
-    {
-        "de",
-        "es",
-        "fr",
-        "it",
-        "nl",
-        "pl",
-        "pt",
-    }
-)
-
 _DATASET_LANG_GATES: dict[str, frozenset[str]] = {
     "voxpopuli": VOXPOPULI_LANGS,
-    "multilingual_librispeech": MLS_LANGS,
     "zeroth": frozenset({"ko"}),
 }
 
@@ -161,8 +137,6 @@ def resolve_config(spec: DatasetSpec, lang: str) -> Optional[str]:
     tpl = spec.config_template
     if "{fleurs}" in tpl:
         return FLEURS_CONFIG.get(lang)
-    if "{mls}" in tpl:
-        return MLS_CONFIG.get(lang)
     if "{lang}" in tpl:
         return tpl.replace("{lang}", lang)
     return None

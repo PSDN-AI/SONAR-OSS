@@ -15,7 +15,7 @@ from psdn_sonar.data import (
     DatasetSpec,
     prepare_dataset,
 )
-from psdn_sonar.data.registry import FLEURS_CONFIG, MLS_CONFIG, resolve_config
+from psdn_sonar.data.registry import FLEURS_CONFIG, resolve_config
 
 FAKE_REVISION = "a" * 40
 
@@ -37,8 +37,8 @@ class FakeDataset:
 
 
 class TestResolveConfig:
-    def test_retired_common_voice_is_not_in_hf_registry(self):
-        assert "common_voice" not in DATASET_REGISTRY
+    def test_catalog_only_datasets_are_not_in_hf_registry(self):
+        assert {"common_voice", "multilingual_librispeech"}.isdisjoint(DATASET_REGISTRY)
 
     def test_fleurs_mapping(self):
         spec = DATASET_REGISTRY["fleurs"]
@@ -48,13 +48,6 @@ class TestResolveConfig:
     def test_no_config_language_returns_empty_string(self):
         spec = DATASET_REGISTRY["zeroth"]
         assert resolve_config(spec, "ko") == ""
-
-    def test_mls_uses_full_config_names_and_real_schema(self):
-        spec = DATASET_REGISTRY["multilingual_librispeech"]
-        assert resolve_config(spec, "de") == MLS_CONFIG["de"] == "german"
-        assert resolve_config(spec, "en") is None
-        assert spec.splits == ("train", "dev", "test")
-        assert spec.text_column == "transcript"
 
     def test_empty_template_without_no_config_lang_is_unsupported(self):
         spec = DatasetSpec(hf_id="x/y", config_template="", revision=FAKE_REVISION)
@@ -67,12 +60,10 @@ class TestDiscovery:
         assert {"fleurs", "zeroth"} <= names
         assert "common_voice" not in names
         assert "voxpopuli" not in names
-        assert "multilingual_librispeech" not in names
 
-    def test_english_excludes_mls_but_includes_voxpopuli(self):
+    def test_english_includes_voxpopuli(self):
         names = {d.name for d in DatasetDiscovery.discover("en")}
         assert "voxpopuli" in names
-        assert "multilingual_librispeech" not in names
 
     def test_dataset_filter(self):
         results = DatasetDiscovery.discover("en", dataset_filter=["fleurs"])
