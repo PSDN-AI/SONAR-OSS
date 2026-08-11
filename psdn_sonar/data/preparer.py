@@ -60,10 +60,6 @@ def prepare_dataset(
     spec = DATASET_REGISTRY.get(name)
     if not spec:
         raise ValueError(f"Unknown dataset: {name}. Known: {list(DATASET_REGISTRY.keys())}")
-    if not spec.enabled:
-        raise ValueError(f"Dataset {name} is disabled by the benchmark catalog")
-    if not spec.revision:
-        raise ValueError(f"Dataset {name} has no immutable source revision")
     config = resolve_config(spec, lang)
     if config is None:
         raise ValueError(f"Dataset {name} does not support language: {lang}")

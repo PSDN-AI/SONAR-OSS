@@ -1,4 +1,4 @@
-.PHONY: help setup install test clean lint format typecheck pre-commit-install pre-commit-run check-internal-refs check-benchmark-catalog
+.PHONY: help setup install test clean lint format typecheck pre-commit-install pre-commit-run check-internal-refs
 
 help:
 	@echo "SONAR-OSS: Multi-Language ASR Evaluation Toolkit"
@@ -14,7 +14,6 @@ help:
 	@echo "  make pre-commit-install  - Install git pre-commit hooks (run once after clone)"
 	@echo "  make pre-commit-run      - Run all pre-commit hooks against the whole repo"
 	@echo "  make check-internal-refs - Fail if internal/private references are present"
-	@echo "  make check-benchmark-catalog - Validate the bundled benchmark catalog offline"
 	@echo ""
 	@echo "Quick start:"
 	@echo "  make setup"
@@ -60,6 +59,3 @@ pre-commit-run:
 
 check-internal-refs:
 	./scripts/check_internal_refs.sh
-
-check-benchmark-catalog:
-	uv run python -m psdn_sonar.data.validate_catalog

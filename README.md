@@ -59,13 +59,10 @@ make typecheck         # ty type checker
 make test              # pytest
 make pre-commit-install
 make check-internal-refs
-make check-benchmark-catalog
 ```
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contributor guide,
-including PR title conventions and the import gate. Dataset source, identity,
-and approval rules are documented in
-[`docs/benchmark-data-governance.md`](docs/benchmark-data-governance.md).
+including PR title conventions and the import gate.
 
 ## License
 

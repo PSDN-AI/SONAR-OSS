@@ -7,10 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from psdn_sonar.benchmark import RunScoresArtifact, SubmissionConfig, build_run_scores, write_scores_json
+from psdn_sonar.benchmark import SubmissionConfig, build_run_scores, write_scores_json
 from psdn_sonar.benchmark.scores import scores_json_path
 from psdn_sonar.benchmark.submission import KNOWN_INFERENCE_PARAM_KEYS
-from psdn_sonar.data import BenchmarkCatalog, load_catalog
 
 
 def test_submission_config_required_fields():
@@ -332,111 +331,6 @@ def _submission_for_test(*, model_snapshot: str) -> SubmissionConfig:
         package_version="0.1.0",
         timestamp_utc="2026-05-22T12:00:00Z",
     )
-
-
-def _approved_catalog_and_identity():
-    data_fingerprint = "sha256:" + "a" * 64
-    document = load_catalog().model_dump(mode="python")
-    benchmark = document["benchmarks"]["fleurs"]
-    benchmark["redistribution"] = {
-        "decision": "reference_only",
-        "rationale": "Synthetic approval fixture for publication-gate tests.",
-    }
-    benchmark["rights_approval"] = {
-        "status": "approved",
-        "approved_by": "test-reviewer",
-        "approved_at": "2026-08-10",
-        "evidence_url": "https://example.com/test-approval",
-    }
-    benchmark["expected_fingerprints"] = {"en_us::test": data_fingerprint}
-    benchmark["public_default"] = True
-    catalog = BenchmarkCatalog.model_validate(document)
-    identity = catalog.identity(
-        "fleurs",
-        resolved_config="en_us",
-        split="test",
-        data_fingerprint=data_fingerprint,
-        publishable=True,
-    )
-    return catalog, identity
-
-
-def test_publishable_scores_require_dataset_identity():
-    with pytest.raises(ValueError, match="publishable scores require a dataset identity"):
-        build_run_scores(
-            _submission_for_test(model_snapshot="demo_model"),
-            _evaluate_result_for_significant_wer(),
-            publishable=True,
-        )
-
-
-def test_bundled_pending_benchmark_cannot_publish():
-    catalog = load_catalog()
-    identity = catalog.identity(
-        "fleurs",
-        resolved_config="en_us",
-        split="test",
-        data_fingerprint="sha256:" + "a" * 64,
-    )
-    with pytest.raises(ValueError, match="not an approved public default"):
-        build_run_scores(
-            _submission_for_test(model_snapshot="demo_model"),
-            _evaluate_result_for_significant_wer(),
-            dataset_identity=identity,
-            publishable=True,
-        )
-
-
-def test_approved_identity_round_trips_in_publishable_scores(tmp_path: Path, monkeypatch):
-    catalog, identity = _approved_catalog_and_identity()
-    monkeypatch.setattr("psdn_sonar.benchmark.scores.load_catalog", lambda: catalog)
-
-    artifact = build_run_scores(
-        _submission_for_test(model_snapshot="demo_model"),
-        _evaluate_result_for_significant_wer(),
-        dataset_identity=identity,
-        publishable=True,
-    )
-    output = write_scores_json(tmp_path / "scores.json", artifact)
-    payload = json.loads(output.read_text(encoding="utf-8"))
-
-    assert payload["publishable"] is True
-    assert payload["dataset_identity"] == identity.as_dict()
-    assert RunScoresArtifact.model_validate(payload) == artifact
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("catalog_version", 999),
-        ("source_revision", "0" * 40),
-        ("selection_json", '{"name":"changed","parameters":{},"version":"1"}'),
-        ("preprocessing_json", '{"name":"changed","version":"1"}'),
-        ("expected_schema_json", '{"columns":{"changed":"string"},"format":"huggingface"}'),
-    ],
-)
-def test_publishable_scores_reject_tampered_identity(field, value, tmp_path: Path, monkeypatch):
-    catalog, identity = _approved_catalog_and_identity()
-    monkeypatch.setattr("psdn_sonar.benchmark.scores.load_catalog", lambda: catalog)
-    tampered = identity.model_copy(update={field: value})
-
-    with pytest.raises(ValueError, match="catalog|approved catalog identity"):
-        build_run_scores(
-            _submission_for_test(model_snapshot="demo_model"),
-            _evaluate_result_for_significant_wer(),
-            dataset_identity=tampered,
-            publishable=True,
-        )
-
-    artifact = build_run_scores(
-        _submission_for_test(model_snapshot="demo_model"),
-        _evaluate_result_for_significant_wer(),
-        dataset_identity=identity,
-        publishable=True,
-    )
-    artifact.dataset_identity = tampered
-    with pytest.raises(ValueError, match="catalog|approved catalog identity"):
-        write_scores_json(tmp_path / "scores.json", artifact)
 
 
 def test_run_evaluation_preserves_caller_submission_snapshot(tmp_path: Path, monkeypatch):

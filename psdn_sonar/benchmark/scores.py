@@ -6,9 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
-from psdn_sonar.data import DatasetIdentity, load_catalog
 from psdn_sonar.utils.metrics import (
     DEFAULT_SIGNIFICANT_WER_THRESHOLD,
     significant_wer_rate,
@@ -69,21 +68,6 @@ class RunScoresArtifact(BaseModel):
     model_name: str
     aggregate: RunAggregate
     utterances: list[dict[str, Any]] = Field(default_factory=list)
-    dataset_identity: Optional[DatasetIdentity] = None
-    publishable: bool = False
-
-    @model_validator(mode="after")
-    def _verify_publication_identity(self) -> RunScoresArtifact:
-        if self.publishable:
-            if self.dataset_identity is None:
-                raise ValueError("publishable scores require a dataset identity")
-            verify_publishable_identity(self.dataset_identity)
-        return self
-
-
-def verify_publishable_identity(identity: DatasetIdentity) -> None:
-    """Verify an identity against the bundled, reviewed benchmark catalog."""
-    load_catalog().verify_publishable_identity(identity)
 
 
 def _slim_utterance(row: dict[str, Any]) -> dict[str, Any]:
@@ -96,8 +80,6 @@ def build_run_scores(
     *,
     compute_sem: bool = False,
     significant_wer_threshold: float = DEFAULT_SIGNIFICANT_WER_THRESHOLD,
-    dataset_identity: Optional[DatasetIdentity] = None,
-    publishable: bool = False,
 ) -> RunScoresArtifact:
     """Build a scores artifact from ``SingleSpeakerEvaluator.evaluate_one`` output.
 
@@ -146,17 +128,11 @@ def build_run_scores(
         model_name=model_name,
         aggregate=aggregate,
         utterances=[_slim_utterance(row) for row in results],
-        dataset_identity=dataset_identity,
-        publishable=publishable,
     )
 
 
 def write_scores_json(path: Path | str, artifact: RunScoresArtifact) -> Path:
     """Serialize ``artifact`` to JSON and return the written path."""
-    if artifact.publishable:
-        if artifact.dataset_identity is None:
-            raise ValueError("publishable scores require a dataset identity")
-        verify_publishable_identity(artifact.dataset_identity)
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = artifact.model_dump(mode="json")

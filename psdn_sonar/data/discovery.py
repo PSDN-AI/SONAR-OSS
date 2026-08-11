@@ -51,9 +51,6 @@ class DatasetDiscovery:
         for ds_name, spec in DATASET_REGISTRY.items():
             if dataset_filter and ds_name not in dataset_filter:
                 continue
-            if not spec.enabled:
-                continue
-
             lang_gate = _DATASET_LANG_GATES.get(ds_name)
             if lang_gate is not None and language not in lang_gate:
                 continue

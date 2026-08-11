@@ -40,8 +40,11 @@ passing run of this gate in its PR description.
 
 ### 3. Data rights
 
-Use the versioned catalog and approval process in
-[`benchmark-data-governance.md`](benchmark-data-governance.md) for this section.
+A license is evidence, not approval. For a catalog update, pin the source,
+fingerprint upstream-order `{text, audio_sha256}` records with
+`psdn_sonar.data.catalog.fingerprint_records`, record the approver, date,
+evidence URL and decision, then run `pytest tests/unit/test_benchmark_catalog.py`.
+Never commit source data, credentials, private paths or private locations as evidence.
 
 - [ ] Every dataset shipped, referenced, or used for benchmarking (e.g. Common Voice, FLEURS,
       Zeroth, VoxPopuli, MLS, OpenSLR) has a documented license and confirmed redistribution

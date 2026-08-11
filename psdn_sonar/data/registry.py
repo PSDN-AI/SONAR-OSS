@@ -19,13 +19,12 @@ class DatasetSpec:
 
     hf_id: str
     config_template: str
+    revision: str
     text_column: str = "sentence"
     audio_column: str = "audio"
     splits: tuple[str, ...] = ("train", "validation", "test")
     # When set, for these languages the dataset has no config (single default config).
     no_config_langs: Optional[frozenset[str]] = None
-    revision: str = ""
-    enabled: bool = True
 
 
 @dataclass
@@ -35,11 +34,11 @@ class AvailableDataset:
     name: str
     hf_id: str
     config: str
+    revision: str
     splits: list[str] = field(default_factory=list)
     num_examples: Optional[dict[str, int]] = None
     text_column: str = "sentence"
     audio_column: str = "audio"
-    revision: str = ""
 
 
 FLEURS_CONFIG: dict[str, str] = {
@@ -96,31 +95,20 @@ _BENCHMARK_CATALOG = load_catalog()
 
 def _hf_dataset_spec(name: str, **kwargs) -> DatasetSpec:
     benchmark = _BENCHMARK_CATALOG.get(name)
-    if benchmark.source.kind != "huggingface":
-        raise ValueError(f"catalog benchmark {name!r} is not a Hugging Face source")
+    if benchmark.source.kind != "huggingface" or not benchmark.enabled:
+        raise ValueError(f"catalog benchmark {name!r} is not an enabled Hugging Face source")
     return DatasetSpec(
         hf_id=benchmark.source.identifier,
         config_template=benchmark.config_template,
         text_column=benchmark.text_column,
         audio_column=benchmark.audio_column,
         revision=benchmark.source.revision,
-        enabled=benchmark.runtime == "enabled" and benchmark.availability == "active",
         splits=benchmark.splits,
         **kwargs,
     )
 
 
 DATASET_REGISTRY: dict[str, DatasetSpec] = {
-    # The former Hugging Face mirror is now a tombstone. Keep the name for
-    # explicit disabled errors, but never attempt runtime discovery/loading.
-    "common_voice": DatasetSpec(
-        hf_id="mozilla-foundation/common_voice_17_0",
-        config_template="{lang}",
-        enabled=False,
-        splits=(),
-        text_column="sentence",
-        audio_column="audio",
-    ),
     "fleurs": _hf_dataset_spec("fleurs"),
     "zeroth": _hf_dataset_spec("zeroth", no_config_langs=frozenset({"ko"})),
     "voxpopuli": _hf_dataset_spec("voxpopuli"),

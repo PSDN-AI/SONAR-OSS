@@ -41,7 +41,7 @@ _EXPECTED_STRUCTURES: Dict[str, str] = {
     "fleurs": "Fleurs/test/test.tsv, test/audio/*.wav",
     "openslr37_bd": "OpenSLR37_BD/line_index.tsv, wavs/*.wav (or utt_spk_text + asr_bengali_*)",
     "openslr37_in": "OpenSLR37_IN/line_index.tsv, wavs/*.wav",
-    "openslr53": "OpenSLR53/utt_spk_text.tsv, asr_bengali_0..f/**/*.flac",
+    "openslr53": "OpenSLR53/utt_spk_text.tsv, asr_bengali_0..8/**/*.flac",
 }
 
 
