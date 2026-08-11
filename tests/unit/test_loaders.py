@@ -4,6 +4,8 @@ All dataset layouts are synthesised under ``tmp_path`` — no fixture files
 and no network access.
 """
 
+import os
+
 import pytest
 
 from psdn_sonar.loaders import (
@@ -218,6 +220,30 @@ class TestResolveDatasetDir:
         d = tmp_path / "fleurs" / "test" / "audio"
         d.mkdir(parents=True)
         (tmp_path / "fleurs" / "test" / "test.tsv").write_text("x", encoding="utf-8")
+        assert resolve_dataset_dir(str(tmp_path), "fleurs") == str(tmp_path / "fleurs")
+
+    def test_returns_on_disk_spelling_on_case_insensitive_fs(self, tmp_path, monkeypatch):
+        d = tmp_path / "fleurs" / "test" / "audio"
+        d.mkdir(parents=True)
+        (tmp_path / "fleurs" / "test" / "test.tsv").write_text("x", encoding="utf-8")
+
+        # Simulate a case-insensitive filesystem (macOS APFS): isdir matches
+        # the final path component regardless of case. On macOS this is a
+        # no-op superset of the real behavior, so the test covers both.
+        real_isdir = os.path.isdir
+
+        def ci_isdir(path):
+            if real_isdir(path):
+                return True
+            parent, name = os.path.split(str(path))
+            if not real_isdir(parent):
+                return False
+            return any(
+                entry.lower() == name.lower() and real_isdir(os.path.join(parent, entry))
+                for entry in os.listdir(parent)
+            )
+
+        monkeypatch.setattr(os.path, "isdir", ci_isdir)
         assert resolve_dataset_dir(str(tmp_path), "fleurs") == str(tmp_path / "fleurs")
 
     def test_rejects_incomplete_layout(self, tmp_path):
