@@ -15,6 +15,8 @@ Currently available layers:
   (HuggingFace and hosted vendor APIs), and protocol-aware latency types
   (``LatencyMetrics``).
 - :mod:`psdn_sonar.backends` — config-driven ASR backends.
+- :mod:`psdn_sonar.analysis` — demographic performance analysis
+  (``DemographicAnalyzer``).
 
 Dataset loaders, evaluators, reporting, and the CLI are imported
 incrementally in subsequent PRs — see docs/import-gate.md for the checklist
