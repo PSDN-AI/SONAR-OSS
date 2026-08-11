@@ -41,42 +41,29 @@ security configuration, or release metadata is a normal SONAR-OSS pull request.
    - `psdn_sonar/` (`product-code`)
    - `tests/` (`tests`)
    - `config/` (`public-config`)
-4. Create a temporary public sync record using the format below, but set `import_gate` to `PENDING` for the
-   pre-copy dry-run. `files` is the exact allowlist, not a glob or directory. Use only the public component
-   names below; keep source revisions, source paths, private issue links, and internal identifiers in the
-   private system of record.
-5. From the SONAR-OSS worktree root, before copying, run the dry-run validator against the record and the
-   temporary `git ls-files` output. The validator requires `public_base_sha` to be the current `HEAD` at
-   this stage and requires the public worktree to contain no tracked or untracked changes.
-6. Copy only the allowlisted files into a dedicated branch, then stage only those files for review. Generate
-   a temporary changed-file list with
-   `git diff --cached --name-only --no-ext-diff --no-renames <public-base-sha>`. The supplied list, the
-   actual staged/committed public Git diff, and the record must match exactly. Deletions, file-type changes,
-   symlinks, submodules, unstaged changes, and unrelated changes fail the final dry-run.
-7. Apply every section of `docs/import-gate.md`. Run the public lint, tests, internal-reference check,
-   pre-commit hooks, secret scan, and any component-specific validation. Only after they pass, change
-   `import_gate` from `PENDING` to `PASS`, then rerun the validator with `--changed-files` for the final
-   dry-run and pull request record.
-8. Open a pull request containing the public sync record, validation evidence, and `Import gate: PASS`
-   sign-off. At least one named maintainer other than the author reviews the allowlist and gate evidence.
-   No automated or unreviewed full-repository synchronization may merge.
+4. Copy only the allowlisted files into a dedicated branch, then stage exactly those files for review.
+5. Verify that the staged diff matches the allowlist exactly. This plain-`git` comparison is the dry-run
+   verification for the synchronization:
 
-The validator is read-only. It checks that the record contains only public-safe fields, the public base is
-the current commit or an ancestor of the final diff, every selected file is present in the tracked-source
-inventory, the paths are eligible for synchronization, and the resulting public Git diff contains exactly
-the reviewed allowlist. A failure prints only a stable public-safe error category; inspect the temporary
-inputs privately rather than copying their contents or local paths into a public log.
+   ```bash
+   git diff --cached --name-only --no-ext-diff --no-renames <public-base-sha> | sort > /tmp/sonar-sync-changed.txt
+   jq -r '.files[]' /tmp/sonar-sync-record.json | sort | diff - /tmp/sonar-sync-changed.txt
+   ```
 
-```bash
-python scripts/validate_sync.py \
-  --record /tmp/sonar-sync-record.json \
-  --source-tracked-files /tmp/sonar-source-files.txt
+   Empty diff output means the allowlist matches the staged diff. Deletions, file-type changes, symlinks,
+   submodules, unstaged changes, and unrelated changes remain stop conditions.
+6. Apply every section of `docs/import-gate.md`: the public lint, tests, internal-reference check,
+   pre-commit hooks, secret scan, and any component-specific validation.
+7. Write the public sync record once, using the format below, with final values including
+   `"import_gate": "PASS"`. `files` is the exact allowlist, not a glob or directory. Use only the public
+   component names below; keep source revisions, source paths, private issue links, and internal
+   identifiers in the private system of record.
+8. Open a pull request containing the public sync record and the dry-run and import-gate evidence. A named
+   maintainer other than the author re-runs the allowlist-vs-diff comparison from step 5 and reviews the
+   import-gate evidence. No automated or unreviewed full-repository synchronization may merge.
 
-python scripts/validate_sync.py \
-  --record /tmp/sonar-sync-record.json \
-  --source-tracked-files /tmp/sonar-source-files.txt \
-  --changed-files /tmp/sonar-public-changes.txt
-```
+Dedicated validation tooling for this process was considered and deliberately deferred; revisit automation
+after the public launch if manual verification proves error-prone.
 
 Temporary inventories and records may be attached to the pull request only after confirming that they
 contain public paths and the record fields below. Never commit or attach the full canonical-source
@@ -88,7 +75,6 @@ The pull request records only public-safe provenance:
 
 ```json
 {
-  "schema_version": 1,
   "sync_type": "recurring-sync",
   "sync_date": "YYYY-MM-DD",
   "public_base_sha": "40-character-lowercase-SHA",
@@ -134,7 +120,8 @@ keep private details in the private system of record.
 ## Pull Request Checklist
 
 - [ ] The public base SHA and exact tracked-file allowlist are recorded.
-- [ ] The dry-run passes before copying and matches the final public diff after copying.
+- [ ] The recorded allowlist matches the final staged diff exactly (author verified with the diff commands
+      above; reviewer re-verified).
 - [ ] No SONAR-OSS-owned path is overwritten by synchronization.
 - [ ] The import gate is repeated and records `Import gate: PASS`.
 - [ ] Public lint, tests, secret scan, internal-reference check, and component checks pass.
