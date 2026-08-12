@@ -9,6 +9,8 @@ toolkit (`psdn-sonar`).
 - Keep each change focused on one problem or one small set of closely related changes.
 - For larger proposals (new metrics, new language support, new benchmark integrations), start with an
   issue so the scope and direction can be discussed early.
+- For a curated change from the canonical development source, follow the tracked-files-only
+  [upstream synchronization policy](docs/upstream-sync-policy.md) before copying anything.
 
 ## Good Contributions
 
@@ -126,6 +128,9 @@ that maintainers should consider a follow-up update to the path map.
 - Update documentation when behavior, usage, or contributor workflow changes.
 - If the PR imports code, data, model artifacts, generated output, or sample assets, complete the import
   gate in `docs/import-gate.md`.
+- If the PR synchronizes shared code from the canonical development source, include the public sync record,
+  exact tracked-file allowlist, dry-run result, and named maintainer review required by
+  `docs/upstream-sync-policy.md`.
 - Be ready to address review feedback or split oversized work into follow-up PRs.
 
 ## Dependency Updates

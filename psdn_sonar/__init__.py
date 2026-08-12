@@ -17,6 +17,9 @@ Currently available layers:
 - :mod:`psdn_sonar.backends` — config-driven ASR backends.
 - :mod:`psdn_sonar.analysis` — demographic performance analysis
   (``DemographicAnalyzer``).
+- :mod:`psdn_sonar.core` — dataset/manifest evaluation loops.
+- :mod:`psdn_sonar.recipe` — per-language evaluation recipes
+  (models, datasets, normalization).
 
 Dataset loaders, evaluators, reporting, and the CLI are imported
 incrementally in subsequent PRs — see docs/import-gate.md for the checklist
