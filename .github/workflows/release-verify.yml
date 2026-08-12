@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Tag name or 40-hex commit SHA (blank = main HEAD)"
+        description: "40-hex commit SHA (blank = main HEAD)"
         required: false
         default: ""
         type: string

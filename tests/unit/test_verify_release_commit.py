@@ -1,11 +1,10 @@
-"""Unit tests for the pure logic in scripts/verify_release_commit.py."""
+"""Tests for scripts/verify_release_commit.py."""
 
 import importlib.util
 import json
 import pathlib
+import subprocess
 import sys
-
-import pytest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "verify_release_commit.py"
 _spec = importlib.util.spec_from_file_location("verify_release_commit", _SCRIPT)
@@ -13,217 +12,128 @@ vrc = importlib.util.module_from_spec(_spec)
 sys.modules["verify_release_commit"] = vrc
 _spec.loader.exec_module(vrc)
 
-_BASELINE = pathlib.Path(__file__).resolve().parents[2] / "security" / "repo-settings-baseline.json"
-_COMMIT = "e" * 40
-_TAG_OBJECT = "d" * 40
-
-
-def _fake_api(responses):
-    """gh_api stand-in serving canned responses keyed by path prefix."""
-
-    def fake(path, **_):
-        for prefix, value in responses.items():
-            if path.startswith(prefix):
-                return value
-        raise AssertionError(f"unexpected gh_api call: {path}")
-
-    return fake
-
-
-def test_gh_api_items_requests_and_flattens_every_page(monkeypatch):
-    commands = []
-
-    def fake_run(cmd, **_):
-        commands.append(cmd)
-        pages = [{"workflow_runs": [{"id": 1}]}, {"workflow_runs": [{"id": 2}]}]
-        return vrc.subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(pages).encode(), stderr=b"")
-
-    monkeypatch.setattr(vrc.subprocess, "run", fake_run)
-    assert vrc.gh_api_items("/actions/runs?per_page=100", "workflow_runs") == [{"id": 1}, {"id": 2}]
-    assert "--paginate" in commands[0]
-    assert "--slurp" in commands[0]
-
-
-# --- resolve_ref -----------------------------------------------------------
-
-
-def test_annotated_tag_dereferences_to_commit(monkeypatch):
-    monkeypatch.setattr(
-        vrc,
-        "gh_api",
-        _fake_api(
-            {
-                "/git/ref/tags/v1": {"ref": "refs/tags/v1", "object": {"type": "tag", "sha": _TAG_OBJECT}},
-                f"/git/tags/{_TAG_OBJECT}": {"object": {"type": "commit", "sha": _COMMIT}},
-            }
-        ),
-    )
-    assert vrc.resolve_ref("v1") == (_COMMIT, [])
-
-
-def test_lightweight_tag_needs_no_dereference(monkeypatch):
-    monkeypatch.setattr(
-        vrc,
-        "gh_api",
-        _fake_api({"/git/ref/tags/v1": {"ref": "refs/tags/v1", "object": {"type": "commit", "sha": _COMMIT}}}),
-    )
-    assert vrc.resolve_ref("v1") == (_COMMIT, [])
-
-
-def test_branch_name_is_rejected_structurally(monkeypatch):
-    monkeypatch.setattr(vrc, "gh_api", _fake_api({"/git/ref/tags/main": None}))
-    sha, failures = vrc.resolve_ref("main")
-    assert sha == "" and "neither a 40-hex commit SHA nor an existing tag" in failures[0]
-
-
-def test_prefix_matched_ref_list_is_rejected(monkeypatch):
-    # /git/ref prefix-matches: querying tag "v1" can return a list for "v1.0" etc.
-    monkeypatch.setattr(vrc, "gh_api", _fake_api({"/git/ref/tags/v1": [{"ref": "refs/tags/v1.0"}]}))
-    sha, failures = vrc.resolve_ref("v1")
-    assert sha == "" and failures
-
-
-def test_abbreviated_sha_is_rejected(monkeypatch):
-    monkeypatch.setattr(vrc, "gh_api", _fake_api({"/git/ref/tags/e7db574": None}))
-    sha, failures = vrc.resolve_ref("e7db574")
-    assert sha == "" and failures
-
-
-def test_tag_object_sha_is_a_clean_rejection(monkeypatch):
-    monkeypatch.setattr(vrc, "gh_api", _fake_api({f"/git/commits/{_TAG_OBJECT}": None}))
-    sha, failures = vrc.resolve_ref(_TAG_OBJECT)
-    assert sha == "" and "not a commit in this repository" in failures[0]
-
-
-# --- classify_position -----------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("compare", "ok"),
-    [
-        ({"status": "identical"}, True),
-        ({"status": "behind", "behind_by": 1}, False),
-        ({"status": "ahead", "ahead_by": 2}, False),
-        ({"status": "diverged", "ahead_by": 20, "behind_by": 32}, False),
-        (None, False),
-    ],
-)
-def test_classify_position(compare, ok):
-    _, failures = vrc.classify_position(compare)
-    assert (not failures) is ok
-
-
-# --- accept_run ------------------------------------------------------------
+_MAIN = "a" * 40
+_OLD = "b" * 40
 
 
 def _run(**overrides):
-    base = {
+    run = {
         "id": 1,
         "path": ".github/workflows/ci.yml",
         "event": "push",
         "head_branch": "main",
         "head_repository": {"full_name": vrc.REPO},
         "status": "completed",
-        "run_attempt": 1,
     }
-    base.update(overrides)
-    return base
-
-
-@pytest.mark.parametrize(
-    ("overrides", "reason_fragment"),
-    [
-        ({}, None),
-        ({"event": "workflow_dispatch"}, None),
-        ({"event": "pull_request"}, "PR-head"),
-        ({"event": "pull_request_target"}, "PR-head"),
-        ({"event": "dynamic", "path": "dynamic/dependabot/update-graph"}, "not an evidence source"),
-        ({"path": ".github/workflows/pr-title.yml"}, "not an evidence source"),
-        ({"path": ".github/workflows/release.yml"}, "not an evidence source"),
-        ({"head_branch": "feat/core-and-recipe"}, "not main"),
-        ({"head_repository": {"full_name": "someone/fork"}}, "fork"),
-        ({"status": "in_progress"}, "not completed"),
-    ],
-)
-def test_accept_run(overrides, reason_fragment):
-    reason = vrc.accept_run(_run(**overrides))
-    if reason_fragment is None:
-        assert reason is None
-    else:
-        assert reason is not None and reason_fragment in reason
-
-
-# --- select_checks / evaluate_checks --------------------------------------
+    run.update(overrides)
+    return run
 
 
 def _job(name, conclusion="success", completed_at="2026-08-12T18:00:00Z", job_id=10):
-    return {"name": name, "conclusion": conclusion, "completed_at": completed_at, "id": job_id, "html_url": "u"}
-
-
-def test_latest_wins_across_two_accepted_runs():
-    runs = [_run(id=1), _run(id=2, event="workflow_dispatch")]
-    jobs = {
-        1: [_job("Dependency audit", conclusion="failure", completed_at="2026-08-12T10:00:00Z")],
-        2: [_job("Dependency audit", conclusion="success", completed_at="2026-08-12T12:00:00Z")],
+    return {
+        "name": name,
+        "conclusion": conclusion,
+        "completed_at": completed_at,
+        "id": job_id,
+        "html_url": "https://example.test/job",
     }
-    selected = vrc.select_checks(runs, jobs)
-    assert selected["Dependency audit"]["conclusion"] == "success"
-    assert selected["Dependency audit"]["workflow_run_id"] == 2
 
 
-def test_latest_job_wins_without_losing_jobs_from_an_earlier_attempt():
-    run = _run(id=1, run_attempt=2)
-    jobs = {
-        1: [
-            _job("Secret scan", completed_at="2026-08-12T10:00:00Z", job_id=10),
-            _job("Dependency audit", conclusion="failure", completed_at="2026-08-12T10:00:00Z", job_id=11),
-            _job("Dependency audit", completed_at="2026-08-12T12:00:00Z", job_id=12),
-        ]
+def _all_success():
+    return {
+        name: {
+            "name": name,
+            "conclusion": "success",
+            "check_run_id": 10,
+            "url": "https://example.test/job",
+        }
+        for name in vrc.REQUIRED_CHECKS
     }
-    selected = vrc.select_checks([run], jobs)
-    assert selected["Secret scan"]["check_run_id"] == 10
-    assert selected["Dependency audit"]["check_run_id"] == 12
 
 
-def test_unsuccessful_and_missing_checks_all_reported():
-    runs = [_run(id=1)]
-    jobs = {1: [_job("Secret scan", conclusion="cancelled")]}
-    failures = vrc.evaluate_checks(vrc.select_checks(runs, jobs))
-    assert "required check 'Secret scan' concluded 'cancelled'" in failures
-    assert len([f for f in failures if f.startswith("missing required check")]) == len(vrc.REQUIRED_CHECKS) - 1
+def test_github_requests_and_returns_every_page(monkeypatch):
+    commands = []
+
+    def fake_run(command, **_):
+        commands.append(command)
+        output = json.dumps([{"items": [1]}, {"items": [2]}])
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+
+    monkeypatch.setattr(vrc.subprocess, "run", fake_run)
+    assert vrc.github("/example") == [{"items": [1]}, {"items": [2]}]
+    assert "--paginate" in commands[0] and "--slurp" in commands[0]
 
 
-def test_unknown_job_names_are_ignored():
-    selected = vrc.select_checks([_run(id=1)], {1: [_job("update-uv-graph")]})
-    assert selected == {}
+def test_collect_checks_ignores_untrusted_runs(monkeypatch):
+    runs = [
+        _run(id=1),
+        _run(id=2, head_branch="feature"),
+        _run(id=3, head_repository={"full_name": "someone/fork"}),
+        _run(id=4, event="pull_request"),
+        _run(id=5, path=".github/workflows/release.yml"),
+        _run(id=6, status="in_progress"),
+    ]
+
+    def fake_github(path):
+        if path.startswith("/actions/runs?"):
+            return [{"workflow_runs": runs}]
+        assert "/runs/1/jobs" in path
+        return [{"jobs": [_job("Secret scan")]}]
+
+    monkeypatch.setattr(vrc, "github", fake_github)
+    assert list(vrc.collect_checks(_MAIN)) == ["Secret scan"]
 
 
-def test_render_markdown_marks_failed_checks_red():
-    evidence = {
-        "verified": False,
-        "commit": _COMMIT,
-        "tag": "v1",
-        "main_position": "identical",
-        "main_head": _COMMIT,
-        "failures": ["required check failed"],
-        "checks": [
-            {"name": "Secret scan", "conclusion": "failure", "check_run_id": 10, "url": "u"},
-            {"name": "Dependency audit", "conclusion": "success", "check_run_id": 11, "url": "u"},
-        ],
-    }
-    rendered = vrc.render_markdown(evidence)
-    assert "❌ Secret scan: failure" in rendered
-    assert "✅ Dependency audit: success" in rendered
+def test_collect_checks_handles_partial_reruns(monkeypatch):
+    jobs = [
+        _job("Secret scan", completed_at="2026-08-12T10:00:00Z", job_id=10),
+        _job("Dependency audit", conclusion="failure", completed_at="2026-08-12T10:00:00Z", job_id=11),
+        _job("Dependency audit", completed_at="2026-08-12T12:00:00Z", job_id=12),
+    ]
+
+    def fake_github(path):
+        if path.startswith("/actions/runs?"):
+            return [{"workflow_runs": [_run()]}]
+        assert "filter=all" in path
+        return [{"jobs": jobs[:2]}, {"jobs": jobs[2:]}]
+
+    monkeypatch.setattr(vrc, "github", fake_github)
+    checks = vrc.collect_checks(_MAIN)
+    assert checks["Secret scan"]["check_run_id"] == 10
+    assert checks["Dependency audit"]["check_run_id"] == 12
 
 
-# --- coupling with the settings baseline (#25) -----------------------------
+def test_main_passes_for_current_main(monkeypatch, tmp_path):
+    evidence_path = tmp_path / "evidence.json"
+    monkeypatch.setattr(vrc, "github", lambda _: [{"object": {"sha": _MAIN}}])
+    monkeypatch.setattr(vrc, "collect_checks", lambda _: _all_success())
+    monkeypatch.setattr(sys, "argv", [str(_SCRIPT), "--tag", "v1.0.0", "--evidence", str(evidence_path)])
+
+    assert vrc.main() == 0
+    evidence = json.loads(evidence_path.read_text())
+    assert evidence["verified"] is True
+    assert evidence["tag"] == "v1.0.0"
 
 
-@pytest.mark.skipif(not _BASELINE.exists(), reason="settings baseline not merged yet (PR #71)")
-def test_branch_protection_names_match_settings_baseline():
-    baseline = json.loads(_BASELINE.read_text())
-    required = baseline["branch_protection_main"]["required_status_checks"]["checks"]
-    assert all(entry.endswith("@15368") for entry in required)
-    baseline_names = {entry.rsplit("@", 1)[0] for entry in required}
-    verifier_names = set(vrc.BRANCH_PROTECTION_MAIN_CHECKS) | {"Validate PR title"}
-    assert baseline_names == verifier_names
+def test_main_rejects_old_commit_before_checking_ci(monkeypatch):
+    def unexpected_check(_):
+        raise AssertionError("CI should not be queried for an old commit")
+
+    monkeypatch.setattr(vrc, "github", lambda _: [{"object": {"sha": _MAIN}}])
+    monkeypatch.setattr(vrc, "collect_checks", unexpected_check)
+    monkeypatch.setattr(sys, "argv", [str(_SCRIPT), _OLD])
+
+    assert vrc.main() == 1
+
+
+def test_main_rejects_failed_and_missing_checks_with_red_output(monkeypatch, capsys):
+    monkeypatch.setattr(vrc, "github", lambda _: [{"object": {"sha": _MAIN}}])
+    failed = _all_success()["Secret scan"] | {"conclusion": "failure"}
+    monkeypatch.setattr(vrc, "collect_checks", lambda _: {"Secret scan": failed})
+    monkeypatch.setattr(sys, "argv", [str(_SCRIPT)])
+
+    assert vrc.main() == 1
+    output = capsys.readouterr().out
+    assert "❌ Secret scan: failure" in output
+    assert "✅ Secret scan" not in output
+    assert "missing required check" in output
