@@ -47,7 +47,7 @@ class TestRecipeCreation:
         assert names == {"common_voice", "fleurs", "zeroth"}
 
     def test_common_voice_points_to_live_source(self):
-        # Mozilla emptied the HF common_voice_* repos in Oct 2025.
+        """Mozilla emptied the HF common_voice_* repos in Oct 2025; MDC is the live source."""
         for language in ("bengali", "hindi", "english", "korean"):
             cv = next(d for d in get_recipe(language).datasets if d["name"] == "common_voice")
             assert "mozilla-foundation" not in cv["path"]

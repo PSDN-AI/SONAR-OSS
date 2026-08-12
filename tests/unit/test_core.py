@@ -216,8 +216,7 @@ class TestProcessManifestWithASR:
         assert "Samples: 2" in stats_text
 
     def test_sweep_perfect_transcription_scores_top(self, tmp_path):
-        # A perfect transcription (CER/WER == 0.0) must yield a top method
-        # score, not fall through falsy `or` defaults to the worst case.
+        """A perfect transcription (CER/WER == 0.0) must score top, not fall to falsy defaults."""
         manifest = _write_manifest_dataset(tmp_path, ref_a="hello world", ref_b="hello world")
         output = tmp_path / "out.csv"
 

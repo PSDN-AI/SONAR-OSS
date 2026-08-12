@@ -5,6 +5,12 @@ roster (from the model registry), the public datasets, and canonical text
 normalization/tokenization. Users provide the language and optionally a path
 to their own dataset.
 
+Dataset entries are benchmark descriptors: ``path`` documents where the public
+data lives (Hugging Face dataset id or source URL). Common Voice is distributed
+through the Mozilla Data Collective and requires a free account to download;
+local evaluation loaders exist for Common Voice, FLEURS, and OpenSLR
+(see :mod:`psdn_sonar.core`).
+
 Example:
     recipe = get_recipe("bengali", "path/to/my/dataset")
     normalized = recipe.normalize(text)
@@ -31,14 +37,9 @@ _LANGUAGE_ALIASES = {
     **{name: name for name in _LANGUAGE_CODES},
 }
 
-# Common Voice moved off Hugging Face to the Mozilla Data Collective in
-# October 2025; the old mozilla-foundation/* dataset repos are empty stubs.
-_COMMON_VOICE = {"name": "common_voice", "path": "https://datacollective.mozillafoundation.org"}
+_COMMON_VOICE = {"name": "common_voice", "path": "https://mozilladatacollective.com/datasets"}
 _FLEURS = {"name": "fleurs", "path": "google/fleurs"}
 
-# Benchmark descriptors per language. ``path`` documents where the public data
-# lives (Hugging Face dataset id or source URL); local evaluation loaders
-# currently exist for Common Voice, FLEURS, and OpenSLR (see psdn_sonar.core).
 _LANGUAGE_DATASETS: Dict[str, List[Dict]] = {
     "bengali": [
         _COMMON_VOICE,

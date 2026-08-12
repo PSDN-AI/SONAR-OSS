@@ -38,7 +38,6 @@ _DATASET_LOADERS: Dict[str, Any] = {
     "openslr53": OpenSLR53Loader,
 }
 
-# Accepted spelling variants for dataset names (e.g. recipe dataset entries).
 _DATASET_NAME_ALIASES = {"common_voice": "commonvoice"}
 
 # Accumulator keys: non-conversion and conversion variants of each metric.
@@ -482,9 +481,8 @@ def process_manifest_with_asr(
                 scored = UtteranceEvaluator.score_dual_variant(ref_text, asr_raw, language=language)
                 values = _scored_metric_values(scored)
 
-                # Per-method score summary across all attempted methods.
-                # Missing error rates count as worst case (1.0), missing similarity as 0.0;
-                # a legitimate 0.0 error rate must be preserved, so no falsy-or defaults.
+                # Per-method score summary; missing error rates count as worst
+                # case (1.0) via explicit None checks so a legitimate 0.0 survives.
                 method_scores = {}
                 for r in all_results.get(speaker, []):
                     if r.get("error") is None and r.get("cer") is not None:
