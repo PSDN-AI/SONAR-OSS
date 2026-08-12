@@ -24,6 +24,8 @@ Currently available layers:
   evaluation pipeline.
 - :mod:`psdn_sonar.orchestrators` — multi-dataset / multi-model workflows
   (``CrossDatasetComparison``).
+- :mod:`psdn_sonar.custom_eval` — bring-your-own HuggingFace model + dataset
+  evaluation from a YAML config.
 
 Dataset loaders, evaluators, reporting, and the CLI are imported
 incrementally in subsequent PRs — see docs/import-gate.md for the checklist
