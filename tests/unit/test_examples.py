@@ -19,10 +19,37 @@ def load_example(name: str):
 
 @pytest.mark.parametrize(
     "name",
-    ["custom_dataset", "multispeaker_audio_dataset", "single_speaker_audio_dataset"],
+    [
+        "custom_dataset",
+        "multispeaker_audio_dataset",
+        "single_speaker_audio_dataset",
+        "huggingface_dataset_loader",
+        "huggingface_complete_workflow",
+        "korean_language_smoke",
+    ],
 )
 def test_examples_import_cleanly(name):
     load_example(name)
+
+
+class TestHuggingFaceDatasetLoader:
+    @pytest.fixture
+    def loader(self):
+        return load_example("huggingface_dataset_loader")
+
+    def test_resolve_column_prefers_requested(self, loader):
+        dataset = type("D", (), {"column_names": ["audio", "sentence"]})()
+        assert loader._resolve_column(dataset, "audio", loader._AUDIO_COLUMN_CANDIDATES, "audio") == "audio"
+
+    def test_resolve_column_falls_back_to_candidate(self, loader):
+        dataset = type("D", (), {"column_names": ["file", "sentence"]})()
+        assert loader._resolve_column(dataset, "audio", loader._AUDIO_COLUMN_CANDIDATES, "audio") == "file"
+        assert loader._resolve_column(dataset, "transcription", loader._TEXT_COLUMN_CANDIDATES, "text") == "sentence"
+
+    def test_resolve_column_exits_when_unresolvable(self, loader):
+        dataset = type("D", (), {"column_names": ["unrelated"]})()
+        with pytest.raises(SystemExit):
+            loader._resolve_column(dataset, "audio", loader._AUDIO_COLUMN_CANDIDATES, "audio")
 
 
 class TestCustomDatasetHelpers:
