@@ -40,6 +40,23 @@ python examples/multispeaker_audio_dataset.py --manifest examples/test_manifest.
 psdn-sonar custom --config examples/custom_eval_portuguese.yaml --output results/custom-eval --report
 ```
 
+## Analysis and data utilities
+
+| Example | What it shows |
+| --- | --- |
+| `demographic_analysis.py` | ASR performance across demographics (age, gender, region) from multi-speaker results. |
+| `visualization.py` | Summary WER/CER plots from an evaluation summary CSV. |
+| `download_from_cloud.py` | Fetching datasets from S3/Cloudflare R2 (requires the `cloud` extra). |
+
+```bash
+# Demographic breakdown of multi-speaker results
+python examples/demographic_analysis.py --results-csv results/asr_eval_results_whisper_api_manifest.csv \
+    --dataset-dir /path/to/dataset
+
+# Summary plots from a results summary CSV
+python examples/visualization.py --summary-csv results/summary.csv --output-dir results/plots
+```
+
 ## Sample data
 
 - `test_data.tsv` — minimal single-speaker TSV (Bengali).

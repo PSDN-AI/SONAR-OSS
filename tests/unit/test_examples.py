@@ -26,6 +26,9 @@ def load_example(name: str):
         "huggingface_dataset_loader",
         "huggingface_complete_workflow",
         "korean_language_smoke",
+        "demographic_analysis",
+        "visualization",
+        "download_from_cloud",
     ],
 )
 def test_examples_import_cleanly(name):
