@@ -44,6 +44,10 @@ Thumbs.db
 .vscode/
 *.swp
 
+# Per-contributor agent instruction files (personal tooling config, not part of the toolkit)
+CLAUDE.md
+AGENTS.md
+
 # Jupyter
 .ipynb_checkpoints/
 
