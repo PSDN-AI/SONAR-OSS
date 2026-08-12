@@ -101,10 +101,10 @@ Adding a new third-party action requires updating the allowlist pattern and
   no `.github/dependabot.yml`: version updates stay disabled for every
   ecosystem, including GitHub Actions, whose SHA pins maintainers update
   manually (CONTRIBUTING.md). Dependabot alerts are a repository setting
-  and do not require that file. CODEOWNERS keeps the path pinned so a
-  re-introduction is routed to the security owners; that routing only
-  becomes merge-blocking when `require_code_owner_reviews` turns on at the
-  flip (§1.7) — until then the guard is the update policy itself.
+  and do not require that file. Re-introducing it is an ordinary PR owned
+  by the default CODEOWNERS rule (both maintainers) — merge-blocking once
+  `require_code_owner_reviews` turns on at the flip (§1.7); until then the
+  guard is the update policy itself.
 
 ### 1.6 Deployment environments
 

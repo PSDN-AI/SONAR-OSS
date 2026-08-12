@@ -1,15 +1,2 @@
 # Default reviewers for repository changes.
 * @RN0311 @AndyBoWu
-
-# Security-sensitive paths (M3-SEC-01, #25). Explicit entries keep ownership
-# pinned if the default rule broadens later. These become merge-blocking once
-# branch protection enables require_code_owner_reviews at the public flip
-# (see docs/public-release-checklist.md §1.7).
-/.github/workflows/ @AndyBoWu @RN0311
-/.github/CODEOWNERS @AndyBoWu @RN0311
-/.github/dependabot.yml @AndyBoWu @RN0311
-/SECURITY.md @AndyBoWu @RN0311
-/security/ @RN0311 @AndyBoWu
-/scripts/dependency_audit.py @RN0311 @AndyBoWu
-/scripts/check_repo_settings.py @AndyBoWu @RN0311
-/pyproject.toml @AndyBoWu @RN0311
