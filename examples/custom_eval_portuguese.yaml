@@ -1,0 +1,28 @@
+language:
+  code: pt
+  name: Portuguese
+
+models:
+  - hf_model_id: openai/whisper-small
+    whisper_language: portuguese
+
+dataset:
+  hf_dataset_id: google/fleurs
+  hf_subset: pt_br
+  hf_split: test
+  text_column: transcription
+  audio_column: audio
+
+api_models:
+  enabled: true
+  include:
+    - whisper_api
+    - elevenlabs_api
+    - assemblyai_api
+
+text_processing:
+  lowercase: false
+  remove_punctuation: true
+  normalize_whitespace: true
+  unicode_norm: NFC
+  strip_accents: false
