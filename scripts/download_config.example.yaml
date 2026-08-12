@@ -1,0 +1,38 @@
+# Example sync config for scripts/download_data.py
+#
+# Copy, edit, and run:
+#   python scripts/download_data.py --config my_sync.yaml
+#
+# Credentials are NEVER stored here — they are read from environment
+# variables (optionally via a .env file next to this config).
+
+provider: r2 # s3 | r2
+bucket: my-asr-bucket
+prefix: deliveries/2026-01/ # optional; prepended to every remote path below
+
+# Optional overrides. Defaults per provider:
+#   s3: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+#   r2: R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_ACCOUNT_ID
+# credentials:
+#   access_key_id_env: MY_ACCESS_KEY_VAR
+#   secret_access_key_env: MY_SECRET_KEY_VAR
+#   account_id_env: MY_ACCOUNT_ID_VAR   # r2 only
+
+# For any other S3-compatible provider, set the endpoint directly:
+# endpoint_url: https://storage.example.com
+# region: us-east-1
+
+# Remote prefixes mirrored into local directories.
+# Files that already exist locally with the same size are skipped.
+directories:
+  - remote: audio/
+    local: data/audio
+  - remote: transcripts/
+    local: data/transcripts
+
+# Individual objects downloaded to exact local paths.
+files:
+  - remote: manifest.jsonl
+    local: data/metadata/manifest.jsonl
+  - remote: metadata.json
+    local: data/metadata/metadata.json
