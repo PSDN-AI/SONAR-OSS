@@ -1,5 +1,5 @@
 {
-  "_comment": "Approved repository-settings state (M3-SEC-01, issue #25). scripts/check_repo_settings.py compares live GitHub settings against this file and fails on drift. Interim values approved via the waivers in docs/public-release-checklist.md §1.2 are part of the approved state; update this file only through a reviewed PR, and update it in the same change as any settings change (including the public-flip steps in §1.7).",
+  "_comment": "Approved repository-settings state (M3-SEC-01, issue #25). scripts/check_repo_settings.py compares live GitHub settings against this file and fails on drift. Interim launch-window values (zero required reviews, enforce_admins off, no pypi environment reviewers) were approved in issue #25 and expire at the public visibility flip. Update this file only through a reviewed PR, in the same change as any settings change.",
   "branch_protection_main": {
     "required_status_checks": {
       "strict": true,

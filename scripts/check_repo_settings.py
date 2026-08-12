@@ -99,7 +99,7 @@ def collect_live_state() -> dict:
     envs = gh_api("/environments?per_page=100")
 
     # /actions/permissions/access applies to private and internal repositories;
-    # the public-flip PR updates the baseline to the sentinel (checklist §1.7).
+    # the public-flip PR updates the baseline to the sentinel in the same change.
     if repo.get("visibility") in ("private", "internal"):
         access_level = gh_api("/actions/permissions/access").get("access_level")
     else:

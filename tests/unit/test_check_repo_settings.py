@@ -69,7 +69,7 @@ def test_unexpected_live_key_reads_as_not_in_baseline():
 def test_committed_baseline_parses_and_flattens():
     baseline = json.loads(BASELINE_PATH.read_text())
     flat = flatten(baseline)
-    # Spot-check governed keys the release checklist depends on.
+    # Spot-check governed keys the release evidence (issue #12) depends on.
     assert flat["branch_protection_main.enforce_admins"] is False
     assert flat["actions_permissions.allowed_actions"] == "selected"
     assert "Dependency audit@15368" in flat["branch_protection_main.required_status_checks.checks"]
