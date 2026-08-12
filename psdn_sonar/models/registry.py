@@ -153,6 +153,11 @@ def list_models() -> List[str]:
     return sorted(_MODEL_CONFIGS.keys())
 
 
+def get_model_config(name: str) -> Optional[Tuple[str, dict]]:
+    """``(class_path, kwargs)`` for a registered model name, or None."""
+    return _MODEL_CONFIGS.get(name)
+
+
 def get_language_defaults(language: str) -> Optional[List[str]]:
     """Return default model names for a language, or None if unknown."""
     return LANGUAGE_DEFAULT_MODELS.get(language.lower())
