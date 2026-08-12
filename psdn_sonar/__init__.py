@@ -26,10 +26,11 @@ Currently available layers:
   (``CrossDatasetComparison``).
 - :mod:`psdn_sonar.custom_eval` — bring-your-own HuggingFace model + dataset
   evaluation from a YAML config.
+- :mod:`psdn_sonar.cli` — the ``psdn-sonar`` command-line interface
+  (``single`` / ``multi`` / ``discover`` / ``custom``).
 
-Dataset loaders, evaluators, reporting, and the CLI are imported
-incrementally in subsequent PRs — see docs/import-gate.md for the checklist
-every import must pass.
+Examples and public scripts are imported incrementally in subsequent PRs —
+see docs/import-gate.md for the checklist every import must pass.
 """
 
 __version__ = "0.1.0.dev1"

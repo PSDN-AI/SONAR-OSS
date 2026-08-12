@@ -1,0 +1,695 @@
+"""SONAR command-line interface.
+
+Single entrypoint for all evaluation workflows: single-speaker evaluation
+(``single``), multi-speaker evaluation (``multi``), public dataset discovery
+(``discover``), and bring-your-own-model evaluation (``custom``).
+"""
+
+import argparse
+import logging
+import os
+import sys
+import warnings
+from pathlib import Path
+
+from psdn_sonar import __version__
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+logger = logging.getLogger(__name__)
+
+# Third-party libraries whose INFO/DEBUG output would drown the CLI's own
+# progress logs; real warnings and errors still surface.
+_QUIET_LOGGERS = [
+    "httpx",
+    "httpcore",
+    "urllib3",
+    "requests",
+    "transformers",
+    "transformers.modeling_utils",
+    "torch",
+    "torchaudio",
+    "accelerate",
+    "safetensors",
+    "sentence_transformers",
+    "sentence_transformers.SentenceTransformer",
+    "speechmos",
+    "absl",
+    "absl-py",
+    "matplotlib",
+    "PIL",
+    "numba",
+    "librosa",
+    "psdn_sonar.config_loader",
+    "psdn_sonar.quality_models",
+]
+for _lib in _QUIET_LOGGERS:
+    logging.getLogger(_lib).setLevel(logging.WARNING)
+
+warnings.filterwarnings("ignore", category=UserWarning, module=r"torch|transformers|torchaudio|librosa|safetensors")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"torch|transformers|huggingface_hub|librosa")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"torch|transformers|pkg_resources|speechmos")
+
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+
+def run_single_speaker(args):
+    """Run single-speaker evaluation."""
+    from psdn_sonar.evaluators.single_speaker import SingleSpeakerEvaluator
+
+    if args.hf_model:
+        custom_model_name = f"custom_{args.hf_model.replace('/', '_').replace('-', '_')}"
+        models = [custom_model_name]
+        custom_hf_model = args.hf_model
+        logger.info(f"Using custom HuggingFace model: {args.hf_model}")
+        logger.info(f"Results will be saved as: {custom_model_name}")
+    elif args.models:
+        models = args.models
+        custom_hf_model = None
+    else:
+        language_key = args.language.lower()
+        models = SingleSpeakerEvaluator.LANGUAGE_DEFAULT_MODELS.get(language_key)
+        if not models:
+            supported = list(SingleSpeakerEvaluator.LANGUAGE_DEFAULT_MODELS.keys())
+            logger.error(
+                f"No --models specified and no default model list found for language "
+                f"'{args.language}'. Either pass --models explicitly or use a supported "
+                f"language: {supported}"
+            )
+            sys.exit(1)
+        custom_hf_model = None
+        logger.info(
+            f"No --models specified. Running all {len(models)} default models "
+            f"for language '{args.language}': {', '.join(models)}"
+        )
+
+    logger.info("Single-speaker evaluation: dataset=%s models=%s output=%s", args.input, ", ".join(models), args.output)
+
+    try:
+        from psdn_sonar.utils.metrics import DEFAULT_SIGNIFICANT_WER_THRESHOLD
+
+        significant_wer_threshold = (
+            args.significant_wer_threshold
+            if getattr(args, "significant_wer_threshold", None) is not None
+            else DEFAULT_SIGNIFICANT_WER_THRESHOLD
+        )
+
+        SingleSpeakerEvaluator.run_evaluation(
+            tsv_path=args.input,
+            output_dir=args.output,
+            models=models,
+            max_samples=args.max_samples,
+            compute_sem=True,
+            custom_hf_model=custom_hf_model,
+            language=args.language,
+            significant_wer_threshold=significant_wer_threshold,
+        )
+        logger.info("Evaluation complete. Results: %s/", args.output)
+
+        for model in models:
+            results_csv = Path(args.output) / f"asr_detailed_{model}.csv"
+            if results_csv.exists():
+                display_aggregate_stats(str(results_csv), model)
+
+        if args.report:
+            all_csvs = [
+                (m, str(Path(args.output) / f"asr_detailed_{m}.csv"))
+                for m in models
+                if (Path(args.output) / f"asr_detailed_{m}.csv").exists()
+            ]
+
+            for model in models:
+                results_csv = Path(args.output) / f"asr_detailed_{model}.csv"
+                if results_csv.exists():
+                    logger.info("Report pipeline for: %s", model)
+                    run_comprehensive_report(
+                        input_path=args.input,
+                        results_csv=str(results_csv),
+                        model_name=model,
+                        output_dir=str(Path(args.output) / "analysis"),
+                        language=args.language,
+                        all_results_csvs=all_csvs,
+                    )
+                else:
+                    logger.warning(f"No results CSV found for {model}, skipping report")
+
+    except Exception as e:
+        logger.error(f"Evaluation failed: {e}", exc_info=True)
+        sys.exit(1)
+
+
+def run_multi_speaker(args):
+    """Run multi-speaker evaluation."""
+    from psdn_sonar.multispeaker_pipeline import run_multispeaker_evaluation
+
+    if not args.models and not getattr(args, "hf_model", None):
+        logger.error(
+            "Either --models or --hf-model must be specified for multi-speaker mode. "
+            "Language-based auto-selection is only supported for single-speaker mode."
+        )
+        sys.exit(1)
+
+    models = args.models if isinstance(args.models, list) else [args.models]
+
+    try:
+        logger.info(
+            "Multi-speaker evaluation: manifest=%s models=%s output=%s", args.input, ", ".join(models), args.output
+        )
+
+        output_csvs = []
+
+        for model_name in models:
+            logger.info("Evaluating model: %s", model_name)
+            output_csv = run_multispeaker_evaluation(
+                manifest_path=args.input,
+                model_name=model_name,
+                output_dir=args.output,
+                max_samples=args.max_samples,
+                sweep=getattr(args, "sweep", False),
+                method=getattr(args, "method", None),
+            )
+            output_csvs.append((model_name, output_csv))
+            logger.info("Completed: %s", model_name)
+
+        if args.demographics and args.dataset_dir:
+            logger.info("Generating demographic analysis for all models")
+            for model_name, output_csv in output_csvs:
+                logger.info("Processing demographics for: %s", model_name)
+                run_demographic_analysis(output_csv, args.dataset_dir, args.output)
+
+        if args.report:
+            logger.info("Generating comprehensive reports for all models")
+            all_csvs = list(output_csvs)
+            for model_name, output_csv in output_csvs:
+                logger.info("Report pipeline for: %s", model_name)
+                run_comprehensive_report(
+                    input_path=args.input,
+                    results_csv=output_csv,
+                    model_name=model_name,
+                    output_dir=str(Path(args.output) / "analysis"),
+                    language=args.language,
+                    all_results_csvs=all_csvs,
+                )
+
+        for model_name, output_csv in output_csvs:
+            display_aggregate_stats(output_csv, model_name)
+
+        logger.info("All evaluations complete.")
+
+    except Exception as e:
+        logger.error(f"Evaluation failed: {e}", exc_info=True)
+        sys.exit(1)
+
+
+def run_demographic_analysis(results_csv, dataset_dir, output_dir):
+    """Generate demographic analysis plots."""
+    from psdn_sonar.analysis.demographic_analyzer import DemographicAnalyzer
+
+    results_csv = Path(results_csv)
+    dataset_dir = Path(dataset_dir)
+    output_dir = Path(output_dir) / "demographic-analysis"
+
+    model_name = results_csv.stem.replace("asr_eval_results_", "").replace("_manifest", "")
+
+    try:
+        DemographicAnalyzer.run_full_analysis(
+            results_csv=results_csv, dataset_dir=dataset_dir, output_dir=output_dir, model_name=model_name
+        )
+        logger.info("Demographic analysis complete: %s/demographic_plots/%s/", output_dir, model_name)
+    except Exception as e:
+        logger.error(f"Demographic analysis failed: {e}", exc_info=True)
+        raise
+
+
+def display_aggregate_stats(results_csv, model_name):
+    """Log aggregate metric statistics from a results CSV."""
+    import pandas as pd
+
+    try:
+        df = pd.read_csv(results_csv)
+
+        if "cer_conv" in df.columns:
+            cer_col, wer_col = "cer_conv", "wer_conv"
+            sem_col = "semantic_similarity_conv"
+            poseidon_col = "poseidon_score_conv"
+        else:
+            cer_col, wer_col = "cer", "wer"
+            sem_col = "semantic_similarity"
+            poseidon_col = "poseidon_score"
+
+        stats = {}
+        for col, name in [
+            (cer_col, "CER"),
+            (wer_col, "WER"),
+            (sem_col, "Semantic Similarity"),
+            (poseidon_col, "POSEIDON"),
+        ]:
+            if col in df.columns:
+                values = df[col].dropna()
+                stats[name] = {
+                    "mean": values.mean(),
+                    "std": values.std(),
+                    "min": values.min(),
+                    "max": values.max(),
+                    "count": len(values),
+                }
+
+        logger.info(f"\nModel: {model_name}")
+        logger.info("-" * 70)
+        logger.info(f"{'Metric':<20} {'Mean':<12} {'Std Dev':<12} {'Min':<12} {'Max':<12} {'Samples':<10}")
+        logger.info("-" * 70)
+
+        for metric_name, metric_stats in stats.items():
+            logger.info(
+                f"{metric_name:<20} "
+                f"{metric_stats['mean']:<12.4f} "
+                f"{metric_stats['std']:<12.4f} "
+                f"{metric_stats['min']:<12.4f} "
+                f"{metric_stats['max']:<12.4f} "
+                f"{metric_stats['count']:<10}"
+            )
+        logger.info("-" * 70)
+
+    except Exception as e:
+        logger.warning(f"Could not display stats for {model_name}: {e}")
+
+
+def run_comprehensive_report(input_path, results_csv, model_name, output_dir, language="bn", all_results_csvs=None):
+    """Run the full analysis pipeline for one model and generate a report.
+
+    ``all_results_csvs`` is an optional list of ``(model_name, csv_path)``
+    tuples; when provided, the audio-quality and latency plots include every
+    model for side-by-side comparison. Plot steps degrade gracefully on
+    failure; only report generation itself is fatal.
+    """
+    import pandas as pd
+
+    from psdn_sonar.language_codes import to_long_name
+    from psdn_sonar.reporting.generators.report_generator import generate_report
+
+    dataset_name = Path(input_path).stem
+    analysis_dir = Path(output_dir) / model_name
+
+    diversity_dir = analysis_dir / "diversity-analysis"
+    cross_dir = analysis_dir / "cross-dataset-analysis"
+    hard_neg_dir = analysis_dir / "hard-negatives-analysis"
+    audio_qual_dir = analysis_dir / "audio-quality-analysis"
+    for d in (diversity_dir, cross_dir, hard_neg_dir, audio_qual_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    lang_long = to_long_name(language)
+
+    logger.info("Comprehensive report pipeline for model: %s", model_name)
+
+    logger.info("Step 1/6: lexical diversity analysis")
+    try:
+        from psdn_sonar.reporting.metrics.lexical import calculate_lexical_diversity_metrics
+        from psdn_sonar.reporting.plots.lexical_diversity import (
+            plot_ngram_diversity_comparison,
+            plot_vocabulary_growth,
+            plot_zipf_law,
+        )
+
+        if input_path.endswith(".jsonl"):
+            from psdn_sonar.reporting.loaders.transcript_loader import load_transcripts_from_jsonl
+
+            transcripts = load_transcripts_from_jsonl(Path(input_path))
+        else:
+            df = pd.read_csv(input_path, sep="\t")
+            col = "transcription" if "transcription" in df.columns else "transcript"
+            transcripts = df[col].dropna().astype(str).tolist()
+
+        diversity_results = {"User Dataset": calculate_lexical_diversity_metrics(transcripts)}
+        plot_ngram_diversity_comparison(
+            diversity_results,
+            str(diversity_dir / "diversity_gt_comparative_diversity.png"),
+            include_benchmarks=True,
+            language=lang_long,
+        )
+        plot_vocabulary_growth(
+            {"User Dataset": transcripts},
+            str(diversity_dir / "diversity_gt_vocabulary_growth_curve.png"),
+            include_public_benchmarks=True,
+            language=lang_long,
+        )
+        plot_zipf_law(
+            {"User Dataset": transcripts},
+            str(diversity_dir / "diversity_gt_zipf_law.png"),
+            include_public_benchmarks=True,
+            language=lang_long,
+        )
+    except Exception as e:
+        logger.warning(f"Lexical diversity analysis failed (continuing): {e}")
+
+    logger.info("Step 2/6: cross-dataset comparison")
+    try:
+        from psdn_sonar.reporting.plots.cross_dataset import generate_cross_dataset_plots
+
+        generate_cross_dataset_plots(
+            results_csv=results_csv,
+            model_name=model_name,
+            output_dir=str(cross_dir),
+            language=lang_long,
+        )
+    except Exception as e:
+        logger.warning(f"Cross-dataset comparison failed (continuing): {e}")
+
+    logger.info("Step 3/6: hard negatives analysis")
+    try:
+        from psdn_sonar.reporting.plots.hard_negatives import generate_hard_negatives_comparison
+
+        generate_hard_negatives_comparison(
+            results_csv=results_csv,
+            output_dir=str(hard_neg_dir),
+            language=lang_long,
+        )
+    except Exception as e:
+        logger.warning(f"Hard negatives analysis failed (continuing): {e}")
+
+    logger.info("Step 4/6: audio quality analysis")
+    try:
+        from psdn_sonar.reporting.plots.audio_quality import generate_audio_quality_plots
+
+        aq_csvs = all_results_csvs if all_results_csvs else [(model_name, results_csv)]
+        generate_audio_quality_plots(
+            results_csvs=aq_csvs,
+            output_dir=str(audio_qual_dir),
+            language=lang_long,
+        )
+    except Exception as e:
+        logger.warning(f"Audio quality analysis failed (continuing): {e}")
+
+    logger.info("Step 5/6: inference latency analysis")
+    try:
+        from psdn_sonar.reporting.plots.latency import generate_latency_plots
+
+        latency_csvs = all_results_csvs if all_results_csvs else [(model_name, results_csv)]
+        generate_latency_plots(
+            results_csvs=latency_csvs,
+            output_dir=str(analysis_dir / "latency-analysis"),
+        )
+    except Exception as e:
+        logger.warning(f"Latency analysis failed (continuing): {e}")
+
+    logger.info("Step 6/6: generating final report")
+    try:
+        stats_path = results_csv if input_path.endswith(".jsonl") else input_path
+        report_path = generate_report(
+            dataset_name=dataset_name,
+            dataset_path=stats_path,
+            output_path=str(analysis_dir / "EVAL_REPORT.md"),
+            language=lang_long,
+        )
+        logger.info("Report saved: %s", report_path)
+    except Exception as e:
+        logger.error(f"Report generation failed: {e}", exc_info=True)
+        raise
+
+
+def run_discover(args):
+    """Discover and prepare public datasets for a language."""
+    from psdn_sonar.data.discovery import DatasetDiscovery
+    from psdn_sonar.data.preparer import DatasetPreparer
+
+    dataset_filter = None
+    if args.datasets:
+        dataset_filter = [d.strip() for d in args.datasets.split(",")]
+
+    split_ratio = (80, 10, 10)
+    if args.split_ratio:
+        parts = [int(x.strip()) for x in args.split_ratio.split(",")]
+        if len(parts) != 3:
+            logger.error("--split-ratio must have exactly 3 comma-separated integers (e.g. 80,10,10)")
+            sys.exit(1)
+        split_ratio = (parts[0], parts[1], parts[2])
+
+    logger.info("Dataset discovery for language: %s", args.language)
+
+    available = DatasetDiscovery.discover(
+        language=args.language,
+        dataset_filter=dataset_filter,
+        validate_remote=args.validate,
+    )
+
+    DatasetDiscovery.print_summary(available, args.language)
+
+    if not available:
+        logger.warning("No datasets found for language '%s'", args.language)
+        sys.exit(0)
+
+    if args.dry_run:
+        logger.info("Dry run — skipping download.")
+        sys.exit(0)
+
+    output_base = Path(args.output) if args.output else Path("data") / args.language
+    for ds in available:
+        logger.info("Preparing: %s (%s, config=%s)", ds.name, ds.hf_id, ds.config)
+        try:
+            preparer = DatasetPreparer(
+                dataset=ds,
+                language=args.language,
+                output_dir=output_base,
+                max_samples=args.max_samples,
+                split_ratio=split_ratio,
+                skip_audio_validation=args.skip_audio_validation,
+            )
+            preparer.prepare()
+        except Exception as e:
+            logger.error(f"Failed to prepare {ds.name}: {e}", exc_info=True)
+            continue
+
+    logger.info("All datasets prepared. Output: %s/", output_base)
+
+
+def run_custom(args):
+    """Run custom language evaluation from YAML config."""
+    from psdn_sonar.custom_eval import CustomEvalConfig, run_custom_evaluation
+
+    try:
+        config = CustomEvalConfig(args.config)
+        logger.info(f"Loaded config: {config}")
+
+        evaluated_models = run_custom_evaluation(
+            config=config,
+            output_dir=args.output,
+            max_samples=args.max_samples,
+            generate_report=args.report,
+        )
+
+        for model_name, csv_path in evaluated_models:
+            if Path(csv_path).exists():
+                display_aggregate_stats(csv_path, model_name)
+
+    except Exception as e:
+        logger.error(f"Custom evaluation failed: {e}", exc_info=True)
+        sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="SONAR: Multi-Language ASR Evaluation Toolkit",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Single-speaker evaluation with one model
+  psdn-sonar single --input dataset.tsv --models wav2vec2_bengali --max-samples 10
+
+  # Single-speaker — run all default models for a language
+  psdn-sonar single --input dataset.tsv --language ko
+
+  # Single-speaker with a custom HuggingFace model
+  psdn-sonar single --input dataset.tsv --hf-model openai/whisper-small --language bn
+
+  # Single-speaker with report generation
+  psdn-sonar single --input dataset.tsv --models wav2vec2_bengali --report
+
+  # Custom language evaluation with YAML config
+  psdn-sonar custom --config my_eval.yaml --output results/custom-eval --report
+
+  # Multi-speaker evaluation
+  psdn-sonar multi --input manifest.jsonl --models elevenlabs_api
+
+  # Multi-speaker with demographic analysis
+  psdn-sonar multi --input manifest.jsonl --models elevenlabs_api \\
+      --demographics --dataset-dir /path/to/dataset
+
+  # Discover available public datasets for a language
+  psdn-sonar discover --language ur
+
+  # Discover and download with sample limit
+  psdn-sonar discover --language ur --max-samples 500 --output data/ur
+        """.strip(),
+    )
+
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument("--verbose", "-v", action="store_true", help="Show detailed debug output")
+    verbosity.add_argument("--quiet", "-q", action="store_true", help="Only show warnings and errors")
+
+    subparsers = parser.add_subparsers(dest="mode", help="Evaluation mode")
+    subparsers.required = True
+
+    single_parser = subparsers.add_parser("single", help="Single-speaker evaluation")
+    single_parser.add_argument(
+        "--input", required=True, help="Path to TSV/CSV file with audio_path and transcription columns"
+    )
+    single_parser.add_argument(
+        "--models",
+        nargs="+",
+        help="ASR models to evaluate (e.g., wav2vec2_bengali, elevenlabs_api). If omitted, all default models for --language are run.",
+    )
+    single_parser.add_argument(
+        "--hf-model", type=str, help='Custom HuggingFace model ID (e.g., "openai/whisper-small"). Use this OR --models.'
+    )
+    single_parser.add_argument(
+        "--language",
+        type=str,
+        default="bn",
+        help="Language code (bn=Bengali, ko=Korean, hi=Hindi, en=English, default: bn)",
+    )
+    single_parser.add_argument(
+        "--output",
+        default="results/single-speaker-eval",
+        help="Output directory (default: results/single-speaker-eval)",
+    )
+    single_parser.add_argument("--max-samples", type=int, default=0, help="Maximum samples to process (0=all)")
+    single_parser.add_argument(
+        "--significant-wer-threshold",
+        type=float,
+        default=None,
+        help=(
+            "WER value at and above which an utterance is flagged as a significant error "
+            "(per-row significant_wer column + run-level significant_wer_rate in scores.json). "
+            "Default: 0.30. The threshold actually used is recorded in scores.json."
+        ),
+    )
+    single_parser.add_argument(
+        "--report", action="store_true", help="Generate comprehensive report with benchmark comparisons"
+    )
+    single_parser.set_defaults(func=run_single_speaker)
+
+    custom_parser = subparsers.add_parser("custom", help="Custom language evaluation via YAML config")
+    custom_parser.add_argument("--config", required=True, help="Path to YAML config file")
+    custom_parser.add_argument(
+        "--output", default="results/custom-eval", help="Output directory (default: results/custom-eval)"
+    )
+    custom_parser.add_argument("--max-samples", type=int, default=0, help="Maximum samples to process (0=all)")
+    custom_parser.add_argument("--report", action="store_true", help="Generate comprehensive evaluation report")
+    custom_parser.set_defaults(func=run_custom)
+
+    multi_parser = subparsers.add_parser("multi", help="Multi-speaker evaluation")
+    multi_parser.add_argument("--input", required=True, help="Path to manifest.jsonl file")
+    multi_parser.add_argument(
+        "--models", nargs="+", help="ASR model name(s) to evaluate (e.g., wav2vec2_bengali, elevenlabs_api)"
+    )
+    multi_parser.add_argument(
+        "--hf-model", type=str, help='Custom HuggingFace model ID (e.g., "openai/whisper-small"). Use this OR --models.'
+    )
+    multi_parser.add_argument(
+        "--output", default="results/multispeaker-eval", help="Output directory (default: results/multispeaker-eval)"
+    )
+    multi_parser.add_argument("--max-samples", type=int, default=0, help="Maximum samples to process (0=all)")
+    multi_parser.add_argument(
+        "--language",
+        type=str,
+        default="bn",
+        help="Language code (bn=Bengali, ko=Korean, hi=Hindi, en=English, default: bn)",
+    )
+    multi_parser.add_argument(
+        "--method",
+        type=str,
+        default=None,
+        help=(
+            "Preprocessing method to use for all clips "
+            "(energy_trim, timestamp_trim, no_trim, pyannote_vad). "
+            "If omitted, method is auto-selected per clip based on available data."
+        ),
+    )
+    multi_parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help=(
+            "Run all methods and pick the best per clip using ground truth (oracle selection). "
+            "WARNING: inflates reported metrics. Use only for ablation studies."
+        ),
+    )
+    multi_parser.add_argument("--demographics", action="store_true", help="Generate demographic analysis plots")
+    multi_parser.add_argument(
+        "--dataset-dir", help="Dataset directory (required if --demographics or --report is used)"
+    )
+    multi_parser.add_argument(
+        "--report", action="store_true", help="Generate comprehensive report with benchmark comparisons"
+    )
+    multi_parser.set_defaults(func=run_multi_speaker)
+
+    discover_parser = subparsers.add_parser("discover", help="Discover and prepare public datasets for a language")
+    discover_parser.add_argument("--language", required=True, help="ISO 639-1 language code (e.g. ur, bn, ko, en)")
+    discover_parser.add_argument(
+        "--output",
+        default=None,
+        help="Output directory (default: data/<language>)",
+    )
+    discover_parser.add_argument(
+        "--datasets",
+        type=str,
+        default=None,
+        help="Comma-separated dataset filter (e.g. common_voice,fleurs). Default: all available.",
+    )
+    discover_parser.add_argument("--max-samples", type=int, default=0, help="Limit samples per split (0=all)")
+    discover_parser.add_argument(
+        "--split-ratio",
+        type=str,
+        default=None,
+        help="Train,val,test ratio for datasets without predefined splits (default: 80,10,10)",
+    )
+    discover_parser.add_argument(
+        "--skip-audio-validation",
+        action="store_true",
+        help="Skip SNR/clipping computation for faster processing",
+    )
+    discover_parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Validate dataset availability on HuggingFace Hub before downloading",
+    )
+    discover_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Only show available datasets, do not download",
+    )
+    discover_parser.set_defaults(func=run_discover)
+
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        for _lib in _QUIET_LOGGERS:
+            logging.getLogger(_lib).setLevel(logging.DEBUG)
+    elif args.quiet:
+        logging.getLogger().setLevel(logging.WARNING)
+
+    if args.mode in ("single", "multi"):
+        if getattr(args, "models", None) and getattr(args, "hf_model", None):
+            parser.error("Cannot use both --models and --hf-model. Choose one.")
+
+    if args.mode == "multi":
+        if args.demographics and not args.dataset_dir:
+            parser.error("--demographics requires --dataset-dir")
+        if args.report and not args.dataset_dir:
+            parser.error("--report requires --dataset-dir for multi-speaker mode")
+
+    if getattr(args, "input", None) and not Path(args.input).exists():
+        parser.error(f"Input file not found: {args.input}")
+
+    if getattr(args, "config", None) and not Path(args.config).exists():
+        parser.error(f"Config file not found: {args.config}")
+
+    if args.mode == "discover" and args.output is None:
+        args.output = f"data/{args.language}"
+
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
