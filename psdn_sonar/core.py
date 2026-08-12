@@ -38,6 +38,9 @@ _DATASET_LOADERS: Dict[str, Any] = {
     "openslr53": OpenSLR53Loader,
 }
 
+# Accepted spelling variants for dataset names (e.g. recipe dataset entries).
+_DATASET_NAME_ALIASES = {"common_voice": "commonvoice"}
+
 # Accumulator keys: non-conversion and conversion variants of each metric.
 _METRIC_KEYS = ("cer_n", "wer_n", "sem_n", "poseidon_n", "cer_c", "wer_c", "sem_c", "poseidon_c")
 
@@ -106,7 +109,9 @@ def process_dataset_with_asr(
     conversion) plus a ``.txt`` stats summary next to it. ``max_samples > 0``
     evaluates a seeded random subset.
     """
-    loader = _DATASET_LOADERS.get(dataset_name.lower())
+    dataset_key = dataset_name.lower()
+    dataset_key = _DATASET_NAME_ALIASES.get(dataset_key, dataset_key)
+    loader = _DATASET_LOADERS.get(dataset_key)
     if not loader:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
@@ -114,18 +119,18 @@ def process_dataset_with_asr(
         root_dir = os.path.dirname(os.path.abspath(output_tsv))
 
     logger.info(f"Loading metadata and audio files from {dataset_dir}")
-    if dataset_name.lower() == "commonvoice":
+    if dataset_key == "commonvoice":
         all_metadata = loader.load_metadata(dataset_dir, language=language)
     else:
         all_metadata = loader.load_metadata(dataset_dir)
 
-    if dataset_name.lower() == "commonvoice":
+    if dataset_key == "commonvoice":
         audio_files = []
         for f in glob.glob(os.path.join(dataset_dir, language, "clips", "*.mp3")):
             fid = os.path.splitext(os.path.basename(f))[0]
             if fid in all_metadata:
                 audio_files.append((f, fid, os.path.relpath(f, dataset_dir).replace("\\", "/")))
-    elif dataset_name.lower() == "fleurs":
+    elif dataset_key == "fleurs":
         audio_files = []
         for rel in all_metadata:
             p = os.path.join(dataset_dir, "test", "audio", rel)
@@ -154,10 +159,10 @@ def process_dataset_with_asr(
         writer.writeheader()
 
         for idx, info in enumerate(tqdm(audio_files, desc="  Evaluating", unit="sample", leave=True)):
-            if dataset_name == "commonvoice":
+            if dataset_key == "commonvoice":
                 path, fid, rel = info
                 meta = all_metadata[fid]
-            elif dataset_name == "fleurs":
+            elif dataset_key == "fleurs":
                 _, path, rel = info
                 meta = all_metadata[rel]
             else:
@@ -478,12 +483,14 @@ def process_manifest_with_asr(
                 values = _scored_metric_values(scored)
 
                 # Per-method score summary across all attempted methods.
+                # Missing error rates count as worst case (1.0), missing similarity as 0.0;
+                # a legitimate 0.0 error rate must be preserved, so no falsy-or defaults.
                 method_scores = {}
                 for r in all_results.get(speaker, []):
                     if r.get("error") is None and r.get("cer") is not None:
-                        c = r.get("cer") or 1.0
-                        w = r.get("wer") or 1.0
-                        s = r.get("similarity") or 0.0
+                        c = r["cer"]
+                        w = r.get("wer") if r.get("wer") is not None else 1.0
+                        s = r.get("similarity") if r.get("similarity") is not None else 0.0
                         method_scores[r.get("method", "unknown")] = round(((1 - c) + (1 - w) + s) / 3, 4)
 
                 writer.writerow(

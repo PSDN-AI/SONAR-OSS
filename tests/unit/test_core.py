@@ -138,6 +138,18 @@ class TestProcessDatasetWithASR:
         output, _ = self._run(tmp_path, monkeypatch, {"s1": "hello world", "s2": ""})
         assert [r["id"] for r in self._read_rows(output)] == ["s1"]
 
+    def test_dataset_name_is_case_insensitive(self, tmp_path, monkeypatch):
+        monkeypatch.setitem(core._DATASET_LOADERS, "stub", _StubLoader({"s1": "hello world"}))
+        output = tmp_path / "results.tsv"
+
+        process_dataset_with_asr("STUB", str(tmp_path), _StubModel(), str(output), language="en")
+
+        assert len(self._read_rows(output)) == 1
+
+    def test_common_voice_alias_resolves(self):
+        assert core._DATASET_NAME_ALIASES["common_voice"] == "commonvoice"
+        assert "commonvoice" in core._DATASET_LOADERS
+
 
 def _write_wav(path, seconds=1.0):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -202,6 +214,27 @@ class TestProcessManifestWithASR:
         assert "Model: stub-model" in stats_text
         assert "Mode: fixed" not in stats_text  # auto-selection was used
         assert "Samples: 2" in stats_text
+
+    def test_sweep_perfect_transcription_scores_top(self, tmp_path):
+        # A perfect transcription (CER/WER == 0.0) must yield a top method
+        # score, not fall through falsy `or` defaults to the worst case.
+        manifest = _write_manifest_dataset(tmp_path, ref_a="hello world", ref_b="hello world")
+        output = tmp_path / "out.csv"
+
+        process_manifest_with_asr(
+            str(manifest),
+            _StubModel("hello world"),
+            str(output),
+            language="en",
+            methods=["no_trim"],
+            sweep=True,
+        )
+
+        with open(output, encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        for row in rows:
+            scores = json.loads(row["all_method_scores"])
+            assert scores["no_trim"] >= 0.6
 
     def test_missing_transcript_skips_clip(self, tmp_path):
         manifest = _write_manifest_dataset(tmp_path)

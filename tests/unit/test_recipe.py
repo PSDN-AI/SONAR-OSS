@@ -42,6 +42,22 @@ class TestRecipeCreation:
         recipe = get_recipe("hindi", "path/to/my/data.tsv")
         assert recipe.datasets[-1] == {"name": "user_dataset", "path": "path/to/my/data.tsv"}
 
+    def test_korean_includes_zeroth(self):
+        names = {d["name"] for d in get_recipe("korean").datasets}
+        assert names == {"common_voice", "fleurs", "zeroth"}
+
+    def test_common_voice_points_to_live_source(self):
+        # Mozilla emptied the HF common_voice_* repos in Oct 2025.
+        for language in ("bengali", "hindi", "english", "korean"):
+            cv = next(d for d in get_recipe(language).datasets if d["name"] == "common_voice")
+            assert "mozilla-foundation" not in cv["path"]
+            assert "datacollective" in cv["path"]
+
+    def test_dataset_lists_are_not_shared_between_recipes(self):
+        first = get_recipe("hindi")
+        first.datasets[0]["path"] = "mutated"
+        assert get_recipe("hindi").datasets[0]["path"] != "mutated"
+
     def test_unsupported_language_raises(self):
         with pytest.raises(ValueError, match="not supported"):
             get_recipe("klingon")

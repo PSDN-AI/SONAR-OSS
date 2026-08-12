@@ -31,25 +31,31 @@ _LANGUAGE_ALIASES = {
     **{name: name for name in _LANGUAGE_CODES},
 }
 
+# Common Voice moved off Hugging Face to the Mozilla Data Collective in
+# October 2025; the old mozilla-foundation/* dataset repos are empty stubs.
+_COMMON_VOICE = {"name": "common_voice", "path": "https://datacollective.mozillafoundation.org"}
+_FLEURS = {"name": "fleurs", "path": "google/fleurs"}
+
+# Benchmark descriptors per language. ``path`` documents where the public data
+# lives (Hugging Face dataset id or source URL); local evaluation loaders
+# currently exist for Common Voice, FLEURS, and OpenSLR (see psdn_sonar.core).
 _LANGUAGE_DATASETS: Dict[str, List[Dict]] = {
     "bengali": [
-        {"name": "common_voice", "path": "mozilla-foundation/common_voice_13_0"},
-        {"name": "fleurs", "path": "google/fleurs"},
+        _COMMON_VOICE,
+        _FLEURS,
         {"name": "openslr37_bd", "path": "openslr/SLR37"},
         {"name": "openslr37_in", "path": "openslr/SLR37"},
         {"name": "openslr53", "path": "openslr/SLR53"},
     ],
-    "hindi": [
-        {"name": "common_voice", "path": "mozilla-foundation/common_voice_13_0"},
-        {"name": "fleurs", "path": "google/fleurs"},
-    ],
+    "hindi": [_COMMON_VOICE, _FLEURS],
     "english": [
-        {"name": "librispeech", "path": "librispeech_asr"},
-        {"name": "common_voice", "path": "mozilla-foundation/common_voice_13_0"},
+        {"name": "librispeech", "path": "openslr/librispeech_asr"},
+        _COMMON_VOICE,
     ],
     "korean": [
-        {"name": "common_voice", "path": "mozilla-foundation/common_voice_13_0"},
-        {"name": "fleurs", "path": "google/fleurs"},
+        _COMMON_VOICE,
+        _FLEURS,
+        {"name": "zeroth", "path": "Bingsu/zeroth-korean"},
     ],
 }
 
@@ -113,7 +119,7 @@ class RecipeFactory:
             raise ValueError(f"Language '{language}' not supported. Supported: {supported}")
 
         models = [_model_entry(name) for name in get_language_defaults(canonical) or []]
-        datasets = list(_LANGUAGE_DATASETS[canonical])
+        datasets = [dict(d) for d in _LANGUAGE_DATASETS[canonical]]
         if dataset_path:
             datasets.append({"name": "user_dataset", "path": dataset_path})
 
