@@ -191,7 +191,8 @@ class TestRunCustomEvaluation:
         tsv.write_text("audio_path\ttranscription\na.wav\thello\n")
 
         monkeypatch.setattr("psdn_sonar.config.load_env", lambda: None)
-        monkeypatch.setattr("psdn_sonar.models.huggingface.CustomHuggingFaceModel", _StubModel)
+        fake_hf = types.SimpleNamespace(CustomHuggingFaceModel=_StubModel)
+        monkeypatch.setitem(sys.modules, "psdn_sonar.models.huggingface", fake_hf)
         evaluator = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator"
         monkeypatch.setattr(f"{evaluator}.load_data", staticmethod(lambda path: [{"audio_path": "a"}]))
         monkeypatch.setattr(f"{evaluator}.evaluate_one", staticmethod(lambda **kw: {"results": [{"wer": 0.1}]}))
