@@ -12,6 +12,20 @@ part of the installable `psdn_sonar` package; run them from the repo root with
 | `check_installed_package.py` | Smoke-checks an installed wheel (used by the package workflow) |
 | `dependency_audit.py` | Validates `pip-audit` findings against reviewed exceptions |
 
+## Benchmark precomputation
+
+| Script | Role |
+|--------|------|
+| `precompute_benchmarks.py` | Evaluate public datasets with a language's registered models and compute lexical statistics, producing the cached benchmark data under `psdn_sonar/benchmarks/` |
+
+```bash
+# Korean: prepare FLEURS + Zeroth from HuggingFace, evaluate, compute stats
+python scripts/precompute_benchmarks.py --language korean --prepare fleurs zeroth
+
+# English: use a locally prepared Common Voice TSV
+python scripts/precompute_benchmarks.py --language english --tsv commonvoice=path/to/test.tsv
+```
+
 ## Data acquisition
 
 | Script | Role |
