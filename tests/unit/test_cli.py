@@ -157,14 +157,19 @@ class TestCustomDispatch:
         assert mock_run.call_args[1]["generate_report"] is True
 
 
+PRIVATE_CONTROL_PLANE_MODULE = ".".join(["psdn_sonar", "service"])
+
+
 class TestServiceDecoupling:
     def test_no_service_imports(self):
         import psdn_sonar.cli as cli_module
 
         source = open(cli_module.__file__, encoding="utf-8").read()
-        assert "psdn_sonar.service" not in source
+        assert PRIVATE_CONTROL_PLANE_MODULE not in source
         assert "typer" not in source
 
     def test_no_service_package_shipped(self):
+        import importlib
+
         with pytest.raises(ImportError):
-            import psdn_sonar.service  # noqa: F401
+            importlib.import_module(PRIVATE_CONTROL_PLANE_MODULE)
