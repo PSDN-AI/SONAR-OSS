@@ -39,7 +39,20 @@ Broader release policy remains tracked in
 
    Editing `pyproject.toml` by hand without regenerating the lockfile makes
    `uv lock --check` fail the release build.
-2. Tag the merge commit with an annotated tag and push it:
+2. Verify the release candidate (M3-CI-01). Dispatch the
+   **Release verification** workflow (Actions → Release verification → Run
+   workflow; leave `ref` blank to verify the tip of `main`, or pass the merge
+   commit's 40-hex SHA). It consumes the post-merge check runs already
+   recorded for that exact SHA — it re-runs nothing — and passes only when
+   the commit is the current tip of `main` with every required check green.
+   If `main` has moved since your merge, verify the new tip instead. Tag only
+   after a PASS.
+
+   ```bash
+   gh workflow run "Release verification" --ref main
+   ```
+
+3. Tag the verified commit with an annotated tag and push it:
 
    ```bash
    git switch main && git pull
@@ -48,15 +61,21 @@ Broader release policy remains tracked in
    ```
 
    The tag must be `v` + the exact declared package version.
-3. Watch the `Release` workflow run. On success there is a GitHub Release for
-   the tag carrying both distributions, their SHA-256 checksums, the source
-   commit, and the smoke-test result.
+4. Watch the `Release` workflow run. Its `Verify release commit` job repeats
+   the verification against the tagged commit (accepting a verified ancestor
+   of `main`, since another PR may have merged after your tag) and blocks
+   publishing on any failure. On success there is a GitHub Release for the
+   tag carrying both distributions, their SHA-256 checksums, the source
+   commit, the smoke-test result, and `release-evidence.json` — the durable
+   verification record (commit, per-check run links, `uv.lock` digest,
+   artifact digests) consumed by the public-release gate.
 
 ## What the pipeline guarantees
 
 | Job | Guarantee |
 | --- | --- |
 | Build distributions | Tag, `pyproject.toml`, and `__init__.py` agree; the wheel and sdist pass metadata and clean-install checks |
+| Verify release commit | The exact built commit is on `main` and every required post-merge check succeeded on that SHA — evidence from PR heads, forks, or unrelated workflows is rejected; nothing publishes without it |
 | Publish to TestPyPI | Upload via Trusted Publishing with PEP 740 attestations, then wait until the index serves files byte-identical to the build output; only this job holds `id-token: write` |
 | Smoke test from TestPyPI | A clean environment installs and imports `psdn-sonar==<version>` from TestPyPI, with dependencies from real PyPI |
 | Create GitHub Release | Tag ↔ version ↔ source commit ↔ artifacts bound in one place; created whenever publish succeeded, recording the smoke result |
@@ -70,3 +89,12 @@ Broader release policy remains tracked in
   not use `skip-existing`.
 - **Gate failure on version drift:** bump the file you forgot, merge, delete
   nothing — cut the next patch/dev version instead of force-moving the tag.
+- **Verification: "candidate is N commit(s) behind main":** `main` moved
+  after your merge. Re-dispatch Release verification for the new tip (or, on
+  the tag path, this is accepted automatically for a verified ancestor).
+- **Verification: "missing required check":** the named workflow never
+  completed on that SHA — dispatch it on `main` and re-verify. Note that
+  workflow-run history is finite and commits from before a history rewrite
+  carry no evidence; such commits cannot be released.
+- **Verification: "commit is not on main":** the tag points at a commit
+  outside `main`'s history. Cut a new tag from the current `main`.

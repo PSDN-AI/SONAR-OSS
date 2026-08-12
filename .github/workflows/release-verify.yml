@@ -1,0 +1,67 @@
+name: Release verification
+
+# Read-only verification of a release candidate (M3-CI-01, issue #24).
+# Consumes the check runs GitHub Actions already recorded for the exact
+# post-merge main SHA — never re-runs jobs. Strict by design: the candidate
+# must be the current tip of main, so every new main commit invalidates
+# earlier candidate evidence. The tag-push path in release.yml runs the
+# same script with --allow-behind (a tagged, verified ancestor is fine).
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag name or 40-hex commit SHA (blank = main HEAD)"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  # Unique group per run: a candidate verification can never be cancelled
+  # by another dispatch, including one for a different candidate.
+  group: release-verify-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Forks keep the workflow file but have no evidence to verify.
+    if: github.repository == 'PSDN-AI/SONAR-OSS'
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Input reaches the script through env only — never ${{ }} inside
+      # run — so a crafted ref name cannot inject into the shell.
+      - name: Verify required checks on the candidate commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_INPUT: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "$REF_INPUT" ]; then
+            args+=("$REF_INPUT")
+          fi
+          python scripts/verify_release_commit.py "${args[@]}" \
+            --evidence "$RUNNER_TEMP/release-evidence.json" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Uploaded on rejection too: an intentional-rejection dry run needs
+      # an attachable evidence record just as much as a pass does.
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-evidence
+          path: ${{ runner.temp }}/release-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
