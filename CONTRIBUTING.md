@@ -83,7 +83,32 @@ Run these before opening a pull request. CI runs on pull requests and every resu
 `Package artifacts` (wheel/sdist build, metadata validation, clean-install smoke test, and
 runtime-extras verification).
 
+## Branches
+
+Create working branches from the latest `main`, and open pull requests against `main`.
+
+Branch names use the same Conventional Commit types as pull request titles, in the form
+`type/short-description`:
+
+- **Allowed prefixes:** the PR title types listed below (`feat`, `fix`, `docs`, `refactor`, `perf`,
+  `test`, `build`, `ci`, `chore`, `revert`).
+- Write the description in kebab-case, and start it with the issue number when the branch addresses
+  a specific issue.
+
+Examples:
+
+- `feat/multispeaker-orchestrator`
+- `fix/59-fleurs-case-insensitive-resolution`
+- `docs/branch-naming-convention`
+
+Branch names are reviewed by convention rather than enforced by CI, so pick a compliant name when
+the branch is created — including when a tool auto-generates the branch name for you.
+
 ## Pull Request Titles
+
+Pull requests are squash-merged: the pull request title becomes the commit message on `main`, and
+the source branch is deleted automatically after merge. This is why PR titles are validated while
+individual commit messages within a branch are not.
 
 Pull request titles follow [Conventional Commits](https://www.conventionalcommits.org/):
 `type(optional-scope): short description`. A CI check ("Validate PR title") enforces this on every
