@@ -30,6 +30,20 @@ def _fake_api(responses):
     return fake
 
 
+def test_gh_api_items_requests_and_flattens_every_page(monkeypatch):
+    commands = []
+
+    def fake_run(cmd, **_):
+        commands.append(cmd)
+        pages = [{"workflow_runs": [{"id": 1}]}, {"workflow_runs": [{"id": 2}]}]
+        return vrc.subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(pages).encode(), stderr=b"")
+
+    monkeypatch.setattr(vrc.subprocess, "run", fake_run)
+    assert vrc.gh_api_items("/actions/runs?per_page=100", "workflow_runs") == [{"id": 1}, {"id": 2}]
+    assert "--paginate" in commands[0]
+    assert "--slurp" in commands[0]
+
+
 # --- resolve_ref -----------------------------------------------------------
 
 
@@ -85,18 +99,17 @@ def test_tag_object_sha_is_a_clean_rejection(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("compare", "allow_behind", "ok"),
+    ("compare", "ok"),
     [
-        ({"status": "identical"}, False, True),
-        ({"status": "behind", "behind_by": 1}, False, False),
-        ({"status": "behind", "behind_by": 1}, True, True),
-        ({"status": "ahead", "ahead_by": 2}, True, False),
-        ({"status": "diverged", "ahead_by": 20, "behind_by": 32}, True, False),
-        (None, True, False),
+        ({"status": "identical"}, True),
+        ({"status": "behind", "behind_by": 1}, False),
+        ({"status": "ahead", "ahead_by": 2}, False),
+        ({"status": "diverged", "ahead_by": 20, "behind_by": 32}, False),
+        (None, False),
     ],
 )
-def test_classify_position(compare, allow_behind, ok):
-    _, failures = vrc.classify_position(compare, allow_behind)
+def test_classify_position(compare, ok):
+    _, failures = vrc.classify_position(compare)
     assert (not failures) is ok
 
 
@@ -158,6 +171,20 @@ def test_latest_wins_across_two_accepted_runs():
     assert selected["Dependency audit"]["workflow_run_id"] == 2
 
 
+def test_latest_job_wins_without_losing_jobs_from_an_earlier_attempt():
+    run = _run(id=1, run_attempt=2)
+    jobs = {
+        1: [
+            _job("Secret scan", completed_at="2026-08-12T10:00:00Z", job_id=10),
+            _job("Dependency audit", conclusion="failure", completed_at="2026-08-12T10:00:00Z", job_id=11),
+            _job("Dependency audit", completed_at="2026-08-12T12:00:00Z", job_id=12),
+        ]
+    }
+    selected = vrc.select_checks([run], jobs)
+    assert selected["Secret scan"]["check_run_id"] == 10
+    assert selected["Dependency audit"]["check_run_id"] == 12
+
+
 def test_unsuccessful_and_missing_checks_all_reported():
     runs = [_run(id=1)]
     jobs = {1: [_job("Secret scan", conclusion="cancelled")]}
@@ -169,6 +196,24 @@ def test_unsuccessful_and_missing_checks_all_reported():
 def test_unknown_job_names_are_ignored():
     selected = vrc.select_checks([_run(id=1)], {1: [_job("update-uv-graph")]})
     assert selected == {}
+
+
+def test_render_markdown_marks_failed_checks_red():
+    evidence = {
+        "verified": False,
+        "commit": _COMMIT,
+        "tag": "v1",
+        "main_position": "identical",
+        "main_head": _COMMIT,
+        "failures": ["required check failed"],
+        "checks": [
+            {"name": "Secret scan", "conclusion": "failure", "check_run_id": 10, "url": "u"},
+            {"name": "Dependency audit", "conclusion": "success", "check_run_id": 11, "url": "u"},
+        ],
+    }
+    rendered = vrc.render_markdown(evidence)
+    assert "❌ Secret scan: failure" in rendered
+    assert "✅ Dependency audit: success" in rendered
 
 
 # --- coupling with the settings baseline (#25) -----------------------------

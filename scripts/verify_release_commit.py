@@ -8,19 +8,17 @@ exact SHA. It never re-runs jobs: re-running would prove "the code passes
 now", not "the merged commit everyone reviewed passed".
 
 Rejected, with all reasons collected rather than the first one found:
-branch names, abbreviated SHAs, tag objects, commits not on ``main``,
-commits behind ``main`` (unless ``--allow-behind``, used on the tag-push
-release path where the tagged commit may be a verified ancestor), evidence
-from PR heads / forks / unrelated workflows, and missing, cancelled, or
-unsuccessful required checks.
+branch names, abbreviated SHAs, tag objects, commits not at the current tip
+of ``main``, evidence from PR heads / forks / unrelated workflows, and
+missing, cancelled, or unsuccessful required checks.
 
-The verifier runs from a checkout of the commit under test, so a hostile
-commit could weaken it — the same trust model as every other CI job here;
-that commit sits behind branch protection and review.
+The publishing workflow runs this verifier from a separate checkout of the
+current ``main`` branch. Candidate code is data to this gate and cannot
+weaken the checks that decide whether it may be published.
 
 Usage:
-    python scripts/verify_release_commit.py [REF] [--allow-behind]
-        [--tag NAME] [--evidence PATH]
+    python scripts/verify_release_commit.py [REF] [--tag NAME]
+        [--evidence PATH]
 
 REF is a tag name or 40-hex commit SHA; omitted means the current tip of
 ``main``. Exit codes: 0 verified, 1 rejected, 2 usage or API error.
@@ -68,9 +66,11 @@ ALLOWED_WORKFLOWS = frozenset(
 ALLOWED_EVENTS = frozenset({"push", "workflow_dispatch"})
 
 
-def gh_api(path: str, *, accept: str | None = None, binary: bool = False):
+def gh_api(path: str, *, accept: str | None = None, binary: bool = False, paginate: bool = False):
     """Run ``gh api`` and return parsed JSON (or raw bytes). None on 404."""
     cmd = ["gh", "api", f"repos/{REPO}{path}"]
+    if paginate:
+        cmd += ["--paginate", "--slurp"]
     if accept:
         cmd += ["-H", f"Accept: {accept}"]
     proc = subprocess.run(cmd, capture_output=True)
@@ -79,6 +79,12 @@ def gh_api(path: str, *, accept: str | None = None, binary: bool = False):
             return None
         sys.exit(f"ERROR: gh api {path} failed: {proc.stderr.decode(errors='replace').strip()}")
     return proc.stdout if binary else json.loads(proc.stdout.decode())
+
+
+def gh_api_items(path: str, key: str) -> list[dict]:
+    """Return every item from a paginated GitHub collection response."""
+    pages = gh_api(path, paginate=True) or []
+    return [item for page in pages for item in page.get(key, [])]
 
 
 def resolve_ref(ref: str | None) -> tuple[str, list[str]]:
@@ -107,7 +113,7 @@ def resolve_ref(ref: str | None) -> tuple[str, list[str]]:
     return target["sha"], []
 
 
-def classify_position(compare: dict | None, allow_behind: bool) -> tuple[str, list[str]]:
+def classify_position(compare: dict | None) -> tuple[str, list[str]]:
     """Map a compare/main...{sha} response to (position label, failures)."""
     if compare is None:
         return "unknown", ["commit not comparable to main (unknown to the repository)"]
@@ -117,8 +123,6 @@ def classify_position(compare: dict | None, allow_behind: bool) -> tuple[str, li
     if status == "behind":
         behind = compare.get("behind_by", "?")
         label = f"behind:{behind}"
-        if allow_behind:
-            return label, []
         return label, [f"candidate is {behind} commit(s) behind main — re-verify the current tip"]
     return str(status), [f"commit is not on main (compare status: {status})"]
 
@@ -154,7 +158,7 @@ def select_checks(accepted_runs: list[dict], jobs_by_run: dict[int, list[dict]])
                 "url": job.get("html_url"),
                 "workflow_path": run.get("path"),
                 "workflow_run_id": run["id"],
-                "run_attempt": run.get("run_attempt"),
+                "run_attempt": job.get("run_attempt", run.get("run_attempt")),
                 "event": run.get("event"),
                 "completed_at": job.get("completed_at") or "",
             }
@@ -192,14 +196,14 @@ def render_markdown(evidence: dict) -> str:
     for failure in evidence["failures"]:
         lines.append(f"- ❌ {failure}")
     for check in evidence["checks"]:
-        lines.append(f"- ✅ {check['name']} ([{check['check_run_id']}]({check['url']}))")
+        icon = "✅" if check["conclusion"] == "success" else "❌"
+        lines.append(f"- {icon} {check['name']}: {check['conclusion']} ([{check['check_run_id']}]({check['url']}))")
     return "\n".join(lines)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("ref", nargs="?", default=None, help="tag name or 40-hex commit SHA (default: main HEAD)")
-    parser.add_argument("--allow-behind", action="store_true", help="accept a verified ancestor of main (tag path)")
     parser.add_argument("--tag", default=None, help="tag name to record in the evidence (release path)")
     parser.add_argument("--evidence", default=None, help="write the evidence JSON to this path")
     args = parser.parse_args()
@@ -209,19 +213,19 @@ def main() -> int:
     failures += resolve_failures
 
     compare = gh_api(f"/compare/main...{sha}") if sha else None
-    position, position_failures = classify_position(compare, args.allow_behind)
+    position, position_failures = classify_position(compare)
     failures += position_failures
     main_head = (compare or {}).get("base_commit", {}).get("sha")
 
     selected: dict[str, dict] = {}
     if sha:
-        runs = (gh_api(f"/actions/runs?head_sha={sha}&per_page=100") or {}).get("workflow_runs", [])
+        runs = gh_api_items(f"/actions/runs?head_sha={sha}&per_page=100", "workflow_runs")
         accepted, rejected = [], []
         for run in runs:
             reason = accept_run(run)
             (accepted if reason is None else rejected).append((run, reason))
         jobs_by_run = {
-            run["id"]: (gh_api(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100") or {}).get("jobs", [])
+            run["id"]: gh_api_items(f"/actions/runs/{run['id']}/jobs?filter=all&per_page=100", "jobs")
             for run, _ in accepted
         }
         selected = select_checks([run for run, _ in accepted], jobs_by_run)

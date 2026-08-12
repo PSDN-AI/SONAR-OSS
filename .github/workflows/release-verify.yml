@@ -4,8 +4,8 @@ name: Release verification
 # Consumes the check runs GitHub Actions already recorded for the exact
 # post-merge main SHA — never re-runs jobs. Strict by design: the candidate
 # must be the current tip of main, so every new main commit invalidates
-# earlier candidate evidence. The tag-push path in release.yml runs the
-# same script with --allow-behind (a tagged, verified ancestor is fine).
+# earlier candidate evidence. The release workflow runs this same strict
+# check from main, so a newer main commit invalidates an older tag.
 on:
   workflow_dispatch:
     inputs:
@@ -65,3 +65,4 @@ jobs:
           path: ${{ runner.temp }}/release-evidence.json
           if-no-files-found: warn
           retention-days: 90
+          overwrite: true
