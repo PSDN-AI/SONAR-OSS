@@ -4,6 +4,8 @@ All dataset layouts are synthesised under ``tmp_path`` — no fixture files
 and no network access.
 """
 
+import os
+
 import pytest
 
 from psdn_sonar.loaders import (
@@ -218,6 +220,45 @@ class TestResolveDatasetDir:
         d = tmp_path / "fleurs" / "test" / "audio"
         d.mkdir(parents=True)
         (tmp_path / "fleurs" / "test" / "test.tsv").write_text("x", encoding="utf-8")
+        assert resolve_dataset_dir(str(tmp_path), "fleurs") == str(tmp_path / "fleurs")
+
+    def test_returns_on_disk_spelling_on_case_insensitive_fs(self, tmp_path, monkeypatch):
+        d = tmp_path / "fleurs" / "test" / "audio"
+        d.mkdir(parents=True)
+        (tmp_path / "fleurs" / "test" / "test.tsv").write_text("x", encoding="utf-8")
+
+        # Simulate a case-insensitive filesystem (macOS APFS): resolve every
+        # path component case-insensitively for both isdir and exists, so the
+        # synthesized ``Fleurs`` candidate also passes its layout validation.
+        # On macOS this matches the real filesystem; on case-sensitive
+        # filesystems it reproduces the macOS behavior.
+        real_isdir = os.path.isdir
+        real_exists = os.path.exists
+
+        def ci_actual(path):
+            p = str(path)
+            if real_exists(p):
+                return p
+            parent, name = os.path.split(p)
+            if not name or parent == p:
+                return p
+            rparent = ci_actual(parent)
+            if real_isdir(rparent):
+                for entry in os.listdir(rparent):
+                    if entry.lower() == name.lower():
+                        return os.path.join(rparent, entry)
+            return p
+
+        monkeypatch.setattr(os.path, "isdir", lambda p: real_isdir(ci_actual(p)))
+        monkeypatch.setattr(os.path, "exists", lambda p: real_exists(ci_actual(p)))
+
+        # Guard that the simulation is effective: the wrong-case spelling must
+        # pass the same checks the resolver makes, otherwise the ``Fleurs``
+        # candidate gets rejected by validation on case-sensitive filesystems
+        # and this test cannot catch the regression there.
+        assert os.path.isdir(str(tmp_path / "Fleurs"))
+        assert os.path.exists(str(tmp_path / "Fleurs" / "test" / "test.tsv"))
+
         assert resolve_dataset_dir(str(tmp_path), "fleurs") == str(tmp_path / "fleurs")
 
     def test_rejects_incomplete_layout(self, tmp_path):

@@ -45,6 +45,28 @@ _EXPECTED_STRUCTURES: Dict[str, str] = {
 }
 
 
+def _actual_dir(base_dir: str, name: str) -> Optional[str]:
+    """Return the on-disk spelling of ``name`` under ``base_dir``, or ``None``.
+
+    On case-insensitive filesystems ``os.path.isdir`` can succeed for a
+    candidate whose case differs from the real entry; return the real one.
+    """
+    d = os.path.join(base_dir, name)
+    if not os.path.isdir(d):
+        return None
+    try:
+        entries = os.listdir(base_dir)
+    except OSError:
+        return d
+    if name in entries:
+        return d
+    lowered = name.lower()
+    for entry in entries:
+        if entry.lower() == lowered and os.path.isdir(os.path.join(base_dir, entry)):
+            return os.path.join(base_dir, entry)
+    return d
+
+
 def resolve_dataset_dir(base_dir: str, dataset_name: str) -> Optional[str]:
     """Return the resolved dataset root under ``base_dir``, or ``None``.
 
@@ -62,8 +84,8 @@ def resolve_dataset_dir(base_dir: str, dataset_name: str) -> Optional[str]:
 
     candidates, is_valid = entry
     for name in candidates:
-        d = os.path.join(base_dir, name)
-        if os.path.isdir(d) and is_valid(d):
+        d = _actual_dir(base_dir, name)
+        if d is not None and is_valid(d):
             return d
 
     if dataset_name == "commonvoice":
