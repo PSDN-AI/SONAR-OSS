@@ -44,14 +44,20 @@
     "default_workflow_permissions": "read",
     "can_approve_pull_request_reviews": false
   },
+  "actions_access_level": "none",
   "repo_flags": {
     "visibility": "private",
     "has_wiki": false,
+    "allow_forking": false,
     "allow_squash_merge": true,
     "allow_merge_commit": false,
     "allow_rebase_merge": false,
     "allow_auto_merge": false,
     "delete_branch_on_merge": true
+  },
+  "security_and_analysis": {
+    "secret_scanning": "disabled",
+    "secret_scanning_push_protection": "disabled"
   },
   "vulnerability_alerts": true,
   "automated_security_fixes": false,
@@ -59,12 +65,14 @@
     "pypi": {
       "can_admins_bypass": false,
       "custom_branch_policies": true,
-      "tag_policies": ["v*"]
+      "deployment_policies": ["tag:v*"],
+      "reviewers": []
     },
     "testpypi": {
       "can_admins_bypass": true,
       "custom_branch_policies": true,
-      "tag_policies": ["v*"]
+      "deployment_policies": ["tag:v*"],
+      "reviewers": []
     }
   }
 }

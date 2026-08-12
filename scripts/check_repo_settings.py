@@ -27,46 +27,89 @@ REPO = "PSDN-AI/SONAR-OSS"
 BASELINE_PATH = pathlib.Path(__file__).resolve().parent.parent / "security" / "repo-settings-baseline.json"
 
 
-def gh_api(path: str) -> tuple[int, dict | list | None]:
-    """Run ``gh api <path>`` and return (exit_code, parsed_json_or_None)."""
+def gh_api(path: str, *, missing_ok: bool = False) -> dict | list | None:
+    """Run ``gh api <path>`` and return the parsed JSON body ({} when empty).
+
+    Any API failure aborts the run: a snapshot built from partial reads
+    would silently match the baseline's false-y values, or pass as ``--json``
+    release evidence while missing governed settings. ``missing_ok=True``
+    maps an HTTP 404 to ``None`` so endpoints that report state through 404
+    (e.g. ``/vulnerability-alerts``) can distinguish "off" from "unreadable".
+    """
     proc = subprocess.run(
         ["gh", "api", f"repos/{REPO}{path}"],
         capture_output=True,
         text=True,
     )
     if proc.returncode != 0:
-        return proc.returncode, None
+        if missing_ok and "HTTP 404" in proc.stderr:
+            return None
+        detail = proc.stderr.strip() or f"exit code {proc.returncode}"
+        sys.exit(
+            f"ERROR: gh api repos/{REPO}{path} failed: {detail}\n"
+            "Refusing to emit a partial snapshot (is gh authenticated with admin access?)"
+        )
     body = proc.stdout.strip()
-    return 0, json.loads(body) if body else None
+    return json.loads(body) if body else {}
+
+
+def complete_list(payload: dict | None, key: str) -> list:
+    """Return ``payload[key]`` after checking ``total_count`` for truncation.
+
+    A silently truncated page would read as a complete, drift-free listing —
+    entries past the page boundary would vanish instead of surfacing.
+    """
+    items = (payload or {}).get(key, [])
+    total = (payload or {}).get("total_count", len(items))
+    if total != len(items):
+        sys.exit(f"ERROR: {key} listing truncated ({len(items)} of {total}); refusing a partial snapshot")
+    return items
+
+
+def shape_environment(env: dict, policies: dict | None) -> dict:
+    """Shape one environment (plus its deployment policies) like the baseline."""
+    reviewers = sorted(
+        f"{entry.get('type')}:{(entry.get('reviewer') or {}).get('login') or (entry.get('reviewer') or {}).get('slug')}"
+        for rule in env.get("protection_rules", [])
+        if rule.get("type") == "required_reviewers"
+        for entry in rule.get("reviewers", [])
+    )
+    return {
+        "can_admins_bypass": env.get("can_admins_bypass"),
+        "custom_branch_policies": bool((env.get("deployment_branch_policy") or {}).get("custom_branch_policies")),
+        "deployment_policies": sorted(
+            f"{p.get('type') or 'unknown'}:{p['name']}" for p in complete_list(policies, "branch_policies")
+        ),
+        "reviewers": reviewers,
+    }
 
 
 def collect_live_state() -> dict:
     """Read live settings and shape them exactly like the baseline file."""
-    code, prot = gh_api("/branches/main/protection")
-    if code != 0 or prot is None:
-        sys.exit("ERROR: could not read branch protection (is gh authenticated with admin access?)")
+    prot = gh_api("/branches/main/protection")
     reviews = prot.get("required_pull_request_reviews", {})
     checks = prot.get("required_status_checks", {})
 
-    _, actions = gh_api("/actions/permissions")
-    _, selected = gh_api("/actions/permissions/selected-actions")
-    _, wf_perms = gh_api("/actions/permissions/workflow")
-    _, repo = gh_api("")
-    alerts_code, _ = gh_api("/vulnerability-alerts")
-    _, autofix = gh_api("/automated-security-fixes")
-    _, envs = gh_api("/environments")
+    actions = gh_api("/actions/permissions")
+    selected = gh_api("/actions/permissions/selected-actions")
+    wf_perms = gh_api("/actions/permissions/workflow")
+    repo = gh_api("")
+    alerts = gh_api("/vulnerability-alerts", missing_ok=True)
+    autofix = gh_api("/automated-security-fixes", missing_ok=True)
+    envs = gh_api("/environments?per_page=100")
+
+    # /actions/permissions/access applies to private and internal repositories;
+    # the public-flip PR updates the baseline to the sentinel (checklist §1.7).
+    if repo.get("visibility") in ("private", "internal"):
+        access_level = gh_api("/actions/permissions/access").get("access_level")
+    else:
+        access_level = "not_applicable_public"
 
     environments = {}
-    for env in (envs or {}).get("environments", []):
+    for env in complete_list(envs, "environments"):
         name = env["name"]
-        _, policies = gh_api(f"/environments/{name}/deployment-branch-policies")
-        environments[name] = {
-            "can_admins_bypass": env.get("can_admins_bypass"),
-            "custom_branch_policies": bool((env.get("deployment_branch_policy") or {}).get("custom_branch_policies")),
-            "tag_policies": sorted(
-                p["name"] for p in (policies or {}).get("branch_policies", []) if p.get("type") == "tag"
-            ),
-        }
+        policies = gh_api(f"/environments/{name}/deployment-branch-policies?per_page=100", missing_ok=True)
+        environments[name] = shape_environment(env, policies)
 
     return {
         "branch_protection_main": {
@@ -86,40 +129,55 @@ def collect_live_state() -> dict:
             "lock_branch": prot.get("lock_branch", {}).get("enabled"),
         },
         "actions_permissions": {
-            "enabled": (actions or {}).get("enabled"),
-            "allowed_actions": (actions or {}).get("allowed_actions"),
-            "sha_pinning_required": (actions or {}).get("sha_pinning_required"),
+            "enabled": actions.get("enabled"),
+            "allowed_actions": actions.get("allowed_actions"),
+            "sha_pinning_required": actions.get("sha_pinning_required"),
         },
         "selected_actions": {
-            "github_owned_allowed": (selected or {}).get("github_owned_allowed"),
-            "verified_allowed": (selected or {}).get("verified_allowed"),
-            "patterns_allowed": sorted((selected or {}).get("patterns_allowed", [])),
+            "github_owned_allowed": selected.get("github_owned_allowed"),
+            "verified_allowed": selected.get("verified_allowed"),
+            "patterns_allowed": sorted(selected.get("patterns_allowed", [])),
         },
         "workflow_permissions": {
-            "default_workflow_permissions": (wf_perms or {}).get("default_workflow_permissions"),
-            "can_approve_pull_request_reviews": (wf_perms or {}).get("can_approve_pull_request_reviews"),
+            "default_workflow_permissions": wf_perms.get("default_workflow_permissions"),
+            "can_approve_pull_request_reviews": wf_perms.get("can_approve_pull_request_reviews"),
         },
+        "actions_access_level": access_level,
         "repo_flags": {
-            "visibility": (repo or {}).get("visibility"),
-            "has_wiki": (repo or {}).get("has_wiki"),
-            "allow_squash_merge": (repo or {}).get("allow_squash_merge"),
-            "allow_merge_commit": (repo or {}).get("allow_merge_commit"),
-            "allow_rebase_merge": (repo or {}).get("allow_rebase_merge"),
-            "allow_auto_merge": (repo or {}).get("allow_auto_merge"),
-            "delete_branch_on_merge": (repo or {}).get("delete_branch_on_merge"),
+            "visibility": repo.get("visibility"),
+            "has_wiki": repo.get("has_wiki"),
+            "allow_forking": repo.get("allow_forking"),
+            "allow_squash_merge": repo.get("allow_squash_merge"),
+            "allow_merge_commit": repo.get("allow_merge_commit"),
+            "allow_rebase_merge": repo.get("allow_rebase_merge"),
+            "allow_auto_merge": repo.get("allow_auto_merge"),
+            "delete_branch_on_merge": repo.get("delete_branch_on_merge"),
         },
-        "vulnerability_alerts": alerts_code == 0,
-        "automated_security_fixes": bool((autofix or {}).get("enabled")),
+        "security_and_analysis": {
+            "secret_scanning": ((repo.get("security_and_analysis") or {}).get("secret_scanning") or {}).get("status"),
+            "secret_scanning_push_protection": (
+                (repo.get("security_and_analysis") or {}).get("secret_scanning_push_protection") or {}
+            ).get("status"),
+        },
+        "vulnerability_alerts": alerts is not None,
+        # 404 means Dependabot itself is off (or the toggle is unreadable);
+        # never collapse that to False, which would equal the baseline.
+        "automated_security_fixes": "dependabot_disabled" if autofix is None else bool(autofix.get("enabled")),
         "environments": environments,
     }
 
 
 def flatten(value, prefix: str = "") -> dict:
-    """Flatten nested dicts/lists into {dotted.path: scalar}."""
+    """Flatten nested dicts/lists into {dotted.path: scalar}.
+
+    Only top-level ``_``-prefixed keys are metadata (the baseline's
+    ``_comment``); nested ones are data — e.g. an environment named
+    ``_publish`` must still surface in the diff.
+    """
     flat: dict = {}
     if isinstance(value, dict):
         for key, sub in value.items():
-            if key.startswith("_"):
+            if not prefix and key.startswith("_"):
                 continue
             flat.update(flatten(sub, f"{prefix}{key}." if prefix else f"{key}."))
     elif isinstance(value, list):

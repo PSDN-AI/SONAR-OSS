@@ -97,8 +97,14 @@ Adding a new third-party action requires updating the allowlist pattern and
 - **Dependabot automated security fixes: deliberately off.** Dependency
   updates flow through the locked-lockfile deliberate-update policy
   (M1-SEC-01, issue #19) with reviewed, time-bound exceptions; automatic
-  version-bump PRs would bypass that review. For the same reason,
-  `.github/dependabot.yml` covers the `github-actions` ecosystem only.
+  version-bump PRs would bypass that review. For the same reason there is
+  no `.github/dependabot.yml`: version updates stay disabled for every
+  ecosystem, including GitHub Actions, whose SHA pins maintainers update
+  manually (CONTRIBUTING.md). Dependabot alerts are a repository setting
+  and do not require that file. CODEOWNERS keeps the path pinned so a
+  re-introduction is routed to the security owners; that routing only
+  becomes merge-blocking when `require_code_owner_reviews` turns on at the
+  flip (§1.7) — until then the guard is the update policy itself.
 
 ### 1.6 Deployment environments
 
@@ -111,6 +117,12 @@ Required reviewers on `pypi` were rejected by the API on the current plan for
 a private repository (verified 2026-08-12); they become available at the
 public flip and must be in place before issue #51 wires the production
 publish job.
+
+The drift check (§1.9) records each environment's deployment policies with
+their type (`tag:v*`, and any `branch:*` entry that appears), its required
+reviewers, and the admin-bypass flag, so loosening any of them — adding a
+branch policy, or the `pypi` reviewer going missing after the flip — fails
+the check.
 
 ### 1.7 Post-public flip steps
 
