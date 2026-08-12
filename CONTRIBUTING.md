@@ -106,9 +106,10 @@ the branch is created — including when a tool auto-generates the branch name f
 
 ## Pull Request Titles
 
-Pull requests are squash-merged: the pull request title becomes the commit message on `main`, and
-the source branch is deleted automatically after merge. This is why PR titles are validated while
-individual commit messages within a branch are not.
+Pull requests are squash-merged. By default, the pull request title becomes the commit title on
+`main`, the pull request description becomes the commit body, and the source branch is deleted
+automatically after merge. This is why PR titles are validated while individual commit messages
+within a branch are not.
 
 Pull request titles follow [Conventional Commits](https://www.conventionalcommits.org/):
 `type(optional-scope): short description`. A CI check ("Validate PR title") enforces this on every
