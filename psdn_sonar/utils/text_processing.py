@@ -1,6 +1,7 @@
 import logging
 import re
 import unicodedata
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -372,6 +373,26 @@ def normalize_bengali_for_wer(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_with_processor(text: str, language: str) -> Optional[str]:
+    """Normalize via the registered language processor; None when unavailable.
+
+    Returning None signals the caller to use its rule-based fallback (e.g.
+    missing language config, registry import failure, heavy dependency absent).
+    """
+    try:
+        import psdn_sonar.language  # noqa: F401 — triggers @register_language decorators
+
+        from ..config_loader import load_config
+        from ..registry import get_language_processor
+
+        config = load_config(language=language, backend="huggingface")
+        processor_cls = get_language_processor(language)
+        return processor_cls(config).normalize(text)
+    except Exception:
+        logger.debug("Language processor normalization failed for '%s', using fallback", language, exc_info=True)
+        return None
+
+
 def normalize_text_unified(text: str, language: str = "en") -> str:
     """Unified Normalization Pipeline for both Reference and Hypothesis.
 
@@ -416,66 +437,50 @@ def normalize_text_unified(text: str, language: str = "en") -> str:
         return ""
 
     if language == "en":
-        try:
-            import psdn_sonar.language  # noqa: F401 — triggers @register_language decorators
+        result = _normalize_with_processor(text, "en")
+        if result is not None:
+            return result
 
-            from ..config_loader import load_config
-            from ..registry import get_language_processor
+        from .numbers import verbalize_digits
 
-            config = load_config(language="en", backend="huggingface")
-            processor_cls = get_language_processor("en")
-            processor = processor_cls(config)
-            return processor.normalize(text)
-        except Exception:
-            logger.debug("English processor init failed, using fallback", exc_info=True)
-            from .numbers import verbalize_digits
-
-            # Order mirrors EnglishProcessor.normalize:
-            #   lower -> verbalize_symbols -> verbalize_numbers -> strip P+S
-            # Doing verbalize_numbers BEFORE strip is what makes "3.14"
-            # produce "three.fourteen" -> "threefourteen" instead of the
-            # period being stripped first into "314" -> "three hundred fourteen".
-            text = text.lower()
-            text = _verbalize_semantic_symbols(text, "en")
-            text = verbalize_digits(text, "en")
-            text = _strip_punctuation_and_symbols(text)
-            text = re.sub(r"\s+", " ", text).strip()
-            return text
+        # Order mirrors EnglishProcessor.normalize:
+        #   lower -> verbalize_symbols -> verbalize_numbers -> strip P+S
+        # Doing verbalize_numbers BEFORE strip is what makes "3.14"
+        # produce "three.fourteen" -> "threefourteen" instead of the
+        # period being stripped first into "314" -> "three hundred fourteen".
+        text = text.lower()
+        text = _verbalize_semantic_symbols(text, "en")
+        text = verbalize_digits(text, "en")
+        text = _strip_punctuation_and_symbols(text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
 
     elif language == "bn":
         return normalize_bengali_for_wer(text)
 
     elif language in ["ko", "hi"]:
-        try:
-            import psdn_sonar.language  # noqa: F401 — triggers @register_language decorators
+        result = _normalize_with_processor(text, language)
+        if result is not None:
+            return result
 
-            from ..config_loader import load_config
-            from ..registry import get_language_processor
+        from .numbers import verbalize_digits
 
-            config = load_config(language=language, backend="huggingface")
-            processor_cls = get_language_processor(language)
-            processor = processor_cls(config)
-            return processor.normalize(text)
-        except Exception:
-            logger.debug("Language processor normalization failed for '%s', using fallback", language, exc_info=True)
-            from .numbers import verbalize_digits
-
-            # Order mirrors HindiProcessor.normalize / KoreanProcessor.normalize:
-            #   loanword cache -> NFC -> verbalize_symbols -> verbalize_numbers
-            #   -> strip P+S -> lower
-            # Loanword replacement was previously skipped in the fallback,
-            # which silently changed reference text for Hindi/Korean inputs
-            # containing English loanwords. Adding it here closes that
-            # parity gap. The verbalize-before-strip ordering is what
-            # makes "3.14" produce identical output across both paths.
-            text = _apply_loanword_replacement_for_fallback(text, language)
-            text = unicodedata.normalize("NFC", text)
-            text = _verbalize_semantic_symbols(text, language)
-            text = verbalize_digits(text, language)
-            text = _strip_punctuation_and_symbols(text)
-            text = text.lower()
-            text = re.sub(r"\s+", " ", text).strip()
-            return text
+        # Order mirrors HindiProcessor.normalize / KoreanProcessor.normalize:
+        #   loanword cache -> NFC -> verbalize_symbols -> verbalize_numbers
+        #   -> strip P+S -> lower
+        # Loanword replacement was previously skipped in the fallback,
+        # which silently changed reference text for Hindi/Korean inputs
+        # containing English loanwords. Adding it here closes that
+        # parity gap. The verbalize-before-strip ordering is what
+        # makes "3.14" produce identical output across both paths.
+        text = _apply_loanword_replacement_for_fallback(text, language)
+        text = unicodedata.normalize("NFC", text)
+        text = _verbalize_semantic_symbols(text, language)
+        text = verbalize_digits(text, language)
+        text = _strip_punctuation_and_symbols(text)
+        text = text.lower()
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
 
     else:
         text = remove_punctuation_rule_based(text)

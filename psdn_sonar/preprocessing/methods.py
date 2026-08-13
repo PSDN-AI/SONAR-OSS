@@ -12,12 +12,8 @@ from .audio_utils import get_audio_duration, trim_by_timestamps, trim_silence
 
 logger = logging.getLogger(__name__)
 
-# Methods that operate on combined audio (one API call for both speakers)
-PER_CLIP_METHODS = {"scribe_diarize", "pyannote_diarize"}
-# Methods that operate on per-channel audio (one API call per speaker)
-PER_CHANNEL_METHODS = {"energy_trim", "timestamp_trim", "no_trim", "pyannote_vad"}
-# Methods requiring pyannote
-PYANNOTE_METHODS = {"pyannote_vad", "pyannote_diarize"}
+# Method-name sets are derived from the strategy registries at the bottom of
+# this module; adding a method means adding one registry entry.
 
 
 def preprocess_energy_trim(
@@ -170,3 +166,68 @@ def dual_assignment_score(
             {"text": t1, **a2_scores_a},
             {"text": t0, **a2_scores_b},
         )
+
+
+# ---------------------------------------------------------------------------
+# Strategy registries (Strategy pattern)
+#
+# Per-channel strategies share the signature
+#   (audio_path, speaker, segments, silence_settings, timestamp_settings,
+#    pyannote_settings) -> (processed_path, original_duration_s, trimmed_duration_s)
+# and per-clip strategies share
+#   (combined_audio, asr_model) -> {speaker_id: text}
+# The method-name sets are derived from the registries, so registering a new
+# strategy here is the only change needed to make it selectable.
+# ---------------------------------------------------------------------------
+
+
+def _energy_trim_strategy(audio_path, speaker, segments, silence_settings, timestamp_settings, pyannote_settings):
+    return preprocess_energy_trim(
+        audio_path,
+        max_silence_ms=silence_settings.get("max_silence_ms", 400),
+        min_silence_len=silence_settings.get("min_silence_len", 500),
+        silence_thresh=silence_settings.get("silence_thresh", -40),
+    )
+
+
+def _timestamp_trim_strategy(audio_path, speaker, segments, silence_settings, timestamp_settings, pyannote_settings):
+    if not segments:
+        dur = get_audio_duration(audio_path)
+        return audio_path, dur, dur
+    return preprocess_timestamp_trim(
+        audio_path,
+        segments,
+        speaker,
+        padding_ms=timestamp_settings.get("padding_ms", 100),
+    )
+
+
+def _no_trim_strategy(audio_path, speaker, segments, silence_settings, timestamp_settings, pyannote_settings):
+    return preprocess_no_trim(audio_path)
+
+
+def _pyannote_vad_strategy(audio_path, speaker, segments, silence_settings, timestamp_settings, pyannote_settings):
+    return preprocess_pyannote_vad(
+        audio_path,
+        gap_ms=pyannote_settings.get("vad_gap_ms", 400),
+    )
+
+
+PER_CHANNEL_STRATEGIES = {
+    "energy_trim": _energy_trim_strategy,
+    "timestamp_trim": _timestamp_trim_strategy,
+    "no_trim": _no_trim_strategy,
+    "pyannote_vad": _pyannote_vad_strategy,
+}
+
+PER_CLIP_STRATEGIES = {
+    "scribe_diarize": run_scribe_diarize,
+    "pyannote_diarize": run_pyannote_diarize,
+}
+
+# Methods that operate on per-channel audio (one API call per speaker)
+PER_CHANNEL_METHODS = frozenset(PER_CHANNEL_STRATEGIES)
+# Methods that operate on combined audio (one API call for both speakers)
+PER_CLIP_METHODS = frozenset(PER_CLIP_STRATEGIES)
+# Methods requiring pyannote
+PYANNOTE_METHODS = frozenset({"pyannote_vad", "pyannote_diarize"})
