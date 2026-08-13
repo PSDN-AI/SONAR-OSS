@@ -3,11 +3,13 @@
 Multi-language ASR (automatic speech recognition) evaluation toolkit — metrics,
 reporting, and benchmarks. Distributed as the `psdn-sonar` Python package.
 
-> **Status: pre-release.** The package skeleton, tooling, and CI are in place;
-> the library (metrics, language processors, dataset loaders, evaluators,
-> reporting, CLI) is being imported incrementally. See
-> [`docs/import-gate.md`](docs/import-gate.md) for the checklist every import
-> must pass.
+![Architecture](docs/architecture.png)
+
+> **Status: pre-release.** The library (metrics, language processors, dataset
+> loaders, evaluators, reporting, CLI) is in place and heading toward a first
+> `0.1.0` release; see [`CHANGELOG.md`](CHANGELOG.md). Content imported from
+> the upstream codebase passes the checklist in
+> [`docs/import-gate.md`](docs/import-gate.md).
 
 ## Requirements
 
@@ -49,7 +51,9 @@ are required only for optional hosted-model backends).
 ## Usage
 
 See [`docs/USAGE.md`](docs/USAGE.md) for a short quickstart with runnable
-examples (scoring a pair, evaluating a model over a dataset, listing models).
+examples (scoring a pair, evaluating a model over a dataset, listing models),
+and [`docs/FAQ.md`](docs/FAQ.md) for common workflows: CLI commands, required
+input files, output layout, and how success is measured.
 
 ## Development
 
