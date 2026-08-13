@@ -135,7 +135,11 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+# Pinned: the backend decides the wheel's Metadata-Version, and the release
+# path validates and publishes with pinned tools (release.yml). A floating
+# backend broke the v0.1.0.dev2 release build when hatchling moved to
+# metadata 2.5. Bump deliberately, together with the twine pin in release.yml.
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
