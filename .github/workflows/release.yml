@@ -1,24 +1,24 @@
 name: Release
 
-# Main-only, maintainer-triggered TestPyPI release via Trusted Publishing
-# (OIDC) — no stored token anywhere. The tag is data, never the source of
-# the workflow or its verifier. The workflow filename and the `testpypi`
+# Default-branch TestPyPI release via Trusted Publishing (OIDC) — no stored
+# token anywhere. repository_dispatch always uses the default branch's
+# workflow; the tag is untrusted data in client_payload, never the source of
+# the workflow or verifier. The workflow filename and the `testpypi`
 # environment name are load-bearing: both are registered in the index-side
 # Trusted Publisher and must match exactly (M3-REL-02a). Production PyPI is
-# M3-REL-02c.
+# M3-REL-02c. The testpypi environment must allow only the main branch.
+# Maintainer trigger:
+#   gh api --method POST repos/PSDN-AI/SONAR-OSS/dispatches \
+#     -f event_type=release-testpypi -f 'client_payload[tag]=vX.Y.Z'
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing v* tag to publish"
-        required: true
-        type: string
+  repository_dispatch:
+    types: [release-testpypi]
 
 permissions: {}
 
 concurrency:
   # Never cancel an in-progress release for the same tag.
-  group: release-${{ inputs.tag }}
+  group: release-${{ github.event.client_payload.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: refs/tags/${{ github.event.client_payload.tag }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -66,7 +66,7 @@ jobs:
       - name: Release gate (tag ↔ version consistency)
         id: gate
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.client_payload.tag }}
         run: |
           set -euo pipefail
 
@@ -137,6 +137,7 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
 
   verify-release-commit:
     name: Verify release commit
@@ -161,7 +162,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ github.event.client_payload.tag }}
         run: |
           set -euo pipefail
           python trusted-release-gate/scripts/verify_release_commit.py "$SOURCE_COMMIT" \
@@ -359,7 +360,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.client_payload.tag }}
           SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
         run: |
           set -euo pipefail
@@ -387,7 +388,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.client_payload.tag }}
           VERSION: ${{ needs.build.outputs.version }}
           SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
           SMOKE_RESULT: ${{ needs.smoke-test.result }}

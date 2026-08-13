@@ -71,7 +71,7 @@
     "testpypi": {
       "can_admins_bypass": true,
       "custom_branch_policies": true,
-      "deployment_policies": ["tag:v*"],
+      "deployment_policies": ["branch:main"],
       "reviewers": []
     }
   }
