@@ -207,7 +207,7 @@ def _canned_responses():
         },
         "/environments/testpypi/deployment-branch-policies?per_page=100": {
             "total_count": 1,
-            "branch_policies": [{"name": "v*", "type": "tag"}],
+            "branch_policies": [{"name": "main", "type": "branch"}],
         },
     }
 
