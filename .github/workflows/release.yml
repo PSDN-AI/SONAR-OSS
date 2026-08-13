@@ -113,7 +113,10 @@ jobs:
         run: uv build --clear --no-sources --out-dir dist
 
       - name: Validate distribution metadata
-        run: uvx --from twine==6.2.0 twine check --strict dist/*
+        # Keep in sync with package.yml and with the twine bundled in the
+        # pinned pypa/gh-action-pypi-publish (both 7.0.0): hatchling 1.32
+        # emits Metadata-Version 2.5, which twine < 7 rejects.
+        run: uvx --from twine==7.0.0 twine check --strict dist/*
 
       # Same gate as package.yml runs on every PR, executed here against
       # the exact artifact about to be published.
