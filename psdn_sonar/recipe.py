@@ -86,9 +86,14 @@ class Recipe:
     models: List[Dict]
     datasets: List[Dict]
 
+    @property
+    def language_code(self) -> str:
+        """ISO 639-1 code for the recipe language."""
+        return _LANGUAGE_CODES[self.language]
+
     def normalize(self, text: str) -> str:
         """Normalize text with the canonical pipeline used during evaluation."""
-        return normalize_text_unified(text, language=_LANGUAGE_CODES[self.language])
+        return normalize_text_unified(text, language=self.language_code)
 
     @staticmethod
     def tokenize(text: str) -> List[str]:

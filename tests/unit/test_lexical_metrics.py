@@ -3,7 +3,53 @@ from psdn_sonar.reporting.metrics.lexical import (
     calculate_lexical_diversity_metrics,
     calculate_ngram_diversity,
     calculate_ngram_diversity_chunked,
+    compute_vocabulary_growth,
+    compute_zipf_law,
 )
+
+
+class TestComputeVocabularyGrowth:
+    def test_growth_is_monotonic(self):
+        texts = ["the cat sat", "the dog ran", "a bird flew"]
+        growth = compute_vocabulary_growth(texts)
+
+        assert growth[0]["tokens"] == 1
+        vocab_sizes = [p["vocab_size"] for p in growth]
+        assert vocab_sizes == sorted(vocab_sizes)
+        assert growth[-1]["vocab_size"] == 8
+
+    def test_repeated_words_do_not_grow_vocab(self):
+        growth = compute_vocabulary_growth(["hello hello hello"])
+
+        assert [p["vocab_size"] for p in growth] == [1, 1, 1]
+
+    def test_sampling_limits_points(self):
+        texts = ["word%d" % i for i in range(5000)]
+        growth = compute_vocabulary_growth(texts, sample_points=100)
+
+        assert len(growth) <= 101
+
+    def test_empty_returns_empty(self):
+        assert compute_vocabulary_growth([]) == []
+
+
+class TestComputeZipfLaw:
+    def test_frequencies_descend_by_rank(self):
+        texts = ["the the the cat cat sat"]
+        zipf = compute_zipf_law(texts)
+
+        assert zipf[0] == {"rank": 1, "frequency": 3}
+        freqs = [p["frequency"] for p in zipf]
+        assert freqs == sorted(freqs, reverse=True)
+
+    def test_sampling_limits_points(self):
+        texts = ["word%d" % i for i in range(5000)]
+        zipf = compute_zipf_law(texts, sample_points=100)
+
+        assert len(zipf) <= 101
+
+    def test_empty_returns_empty(self):
+        assert compute_zipf_law([]) == []
 
 
 class TestCalculateNgramDiversity:
