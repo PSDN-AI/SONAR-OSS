@@ -443,6 +443,7 @@ def run_discover(args):
         sys.exit(0)
 
     output_base = Path(args.output) if args.output else Path("data") / args.language
+    prepared, failed = [], []
     for ds in available:
         logger.info("Preparing: %s (%s, config=%s)", ds.name, ds.hf_id, ds.config)
         try:
@@ -455,11 +456,18 @@ def run_discover(args):
                 skip_audio_validation=args.skip_audio_validation,
             )
             preparer.prepare()
+            prepared.append(ds.name)
         except Exception as e:
             logger.error(f"Failed to prepare {ds.name}: {e}", exc_info=True)
-            continue
+            failed.append(ds.name)
 
-    logger.info("All datasets prepared. Output: %s/", output_base)
+    if not prepared:
+        logger.error("All %d dataset(s) failed to prepare: %s", len(failed), ", ".join(failed))
+        sys.exit(1)
+    if failed:
+        logger.warning("Prepared %d dataset(s); %d failed: %s", len(prepared), len(failed), ", ".join(failed))
+    else:
+        logger.info("All %d dataset(s) prepared. Output: %s/", len(prepared), output_base)
 
 
 def run_custom(args):

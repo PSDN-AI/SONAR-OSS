@@ -38,6 +38,10 @@ class TestRecipeCreation:
             assert get_recipe(alias).language == name
             assert get_recipe(name.title()).language == name
 
+    def test_language_code_property(self):
+        for alias, code in [("bengali", "bn"), ("hindi", "hi"), ("english", "en"), ("korean", "ko")]:
+            assert get_recipe(alias).language_code == code
+
     def test_user_dataset_appended(self):
         recipe = get_recipe("hindi", "path/to/my/data.tsv")
         assert recipe.datasets[-1] == {"name": "user_dataset", "path": "path/to/my/data.tsv"}

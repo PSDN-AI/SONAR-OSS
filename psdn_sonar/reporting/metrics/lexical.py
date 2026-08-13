@@ -107,6 +107,58 @@ def calculate_lexical_diversity_metrics(
     return results
 
 
+def compute_vocabulary_growth(
+    texts: List[str],
+    sample_points: int = 1000,
+    max_tokens: int = 1_000_000,
+) -> List[Dict]:
+    """Vocabulary growth curve: cumulative unique words per token seen.
+
+    Returns at most *sample_points* evenly spaced ``{"tokens", "vocab_size"}``
+    rows, truncated at *max_tokens* for storage efficiency.
+    """
+    all_words = []
+    vocab_sizes = []
+    seen_vocab = set()
+
+    for text in texts:
+        for word in text.split():
+            all_words.append(word)
+            seen_vocab.add(word)
+            vocab_sizes.append(len(seen_vocab))
+
+    if not all_words:
+        return []
+
+    token_counts = range(1, len(all_words) + 1)
+    sample_rate = max(1, len(all_words) // sample_points)
+    return [
+        {"tokens": tc, "vocab_size": vs}
+        for tc, vs in zip(token_counts[::sample_rate], vocab_sizes[::sample_rate])
+        if tc <= max_tokens
+    ]
+
+
+def compute_zipf_law(texts: List[str], sample_points: int = 1000) -> List[Dict]:
+    """Zipf distribution: word frequencies by rank, descending.
+
+    Returns at most *sample_points* evenly spaced ``{"rank", "frequency"}`` rows.
+    """
+    from collections import Counter
+
+    all_words = []
+    for text in texts:
+        all_words.extend(text.split())
+
+    if not all_words:
+        return []
+
+    frequencies = sorted(Counter(all_words).values(), reverse=True)
+    ranks = range(1, len(frequencies) + 1)
+    sample_rate = max(1, len(frequencies) // sample_points)
+    return [{"rank": r, "frequency": f} for r, f in zip(ranks[::sample_rate], frequencies[::sample_rate])]
+
+
 def calculate_gini_coefficient(frequencies: List[int]) -> float:
     """Gini coefficient of a frequency distribution (0 = uniform, →1 = concentrated)."""
     sorted_freq = np.array(sorted(frequencies))
