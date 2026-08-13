@@ -9,7 +9,10 @@ import csv
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, cast
+
+if TYPE_CHECKING:
+    from datasets import Dataset
 
 import yaml
 
@@ -92,7 +95,9 @@ def prepare_dataset(config: CustomEvalConfig, output_dir: str, max_samples: int 
         load_args.append(config.hf_subset)
 
     try:
-        ds = load_dataset(*load_args, split=config.hf_split)
+        # A concrete split= always yields a Dataset, but the stubs declare
+        # the full DatasetDict/IterableDataset union.
+        ds = cast("Dataset", load_dataset(*load_args, split=config.hf_split))
     except Exception as first_err:
         raise RuntimeError(
             f"Could not load HuggingFace dataset '{config.hf_dataset_id}' "

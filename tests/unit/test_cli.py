@@ -1,6 +1,6 @@
 """Tests for the psdn-sonar command-line interface."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -106,6 +106,38 @@ class TestSingleSpeakerDispatch:
         with pytest.raises(SystemExit) as exc_info:
             run_cli("single", "--input", tsv, "--language", "xx")
         assert exc_info.value.code == 1
+
+
+class TestDiscoverDispatch:
+    @staticmethod
+    def _fake_dataset():
+        fake = MagicMock()
+        fake.name = "fleurs"
+        fake.hf_id = "google/fleurs"
+        fake.config = "en_us"
+        fake.revision = "a" * 40
+        return fake
+
+    def test_all_preparers_failing_exits_nonzero(self):
+        with (
+            patch("psdn_sonar.data.discovery.DatasetDiscovery.discover", return_value=[self._fake_dataset()]),
+            patch("psdn_sonar.data.preparer.DatasetPreparer.prepare", side_effect=RuntimeError("decode failed")),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli("discover", "--language", "en")
+        assert exc_info.value.code == 1
+
+    def test_partial_failure_still_succeeds(self, tmp_path):
+        ok, bad = self._fake_dataset(), self._fake_dataset()
+        bad.name = "voxpopuli"
+        with (
+            patch("psdn_sonar.data.discovery.DatasetDiscovery.discover", return_value=[ok, bad]),
+            patch(
+                "psdn_sonar.data.preparer.DatasetPreparer.prepare",
+                side_effect=[tmp_path, RuntimeError("decode failed")],
+            ),
+        ):
+            run_cli("discover", "--language", "en", "--output", str(tmp_path))
 
 
 class TestMultiSpeakerDispatch:

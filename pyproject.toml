@@ -44,7 +44,12 @@ dependencies = [
     "scipy>=1.10",
     "pandas>=2.0.0",
     "plotnine>=0.13.0",
-    "datasets>=2.14.0",
+    # ``datasets`` 4.x switched Audio decoding to torchcodec, which requires
+    # torch (unacceptable in core deps) and returns AudioDecoder objects
+    # instead of the ``{"array", "sampling_rate"}`` dicts the dataset
+    # preparer, custom eval, and HF examples consume. Pin to 3.x until the
+    # loaders are migrated to the torchcodec API.
+    "datasets>=2.14.0,<4.0.0",
     "omegaconf>=2.3.0",
     "pyyaml>=6.0",
     "tqdm>=4.60.0",

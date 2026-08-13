@@ -161,6 +161,84 @@ class SingleSpeakerEvaluator:
         return data
 
     @staticmethod
+    def _result_row(
+        audio_path: str,
+        ground_truth: str,
+        aq: Dict,
+        *,
+        prediction: str = "",
+        wer: Optional[float] = None,
+        cer: Optional[float] = None,
+        significant_wer: Optional[bool] = None,
+        inference_latency_s: Optional[float] = None,
+        ttft_s: Optional[float] = None,
+        complete_s: Optional[float] = None,
+        error: Optional[str] = None,
+    ) -> Dict:
+        """Build one per-utterance result row.
+
+        Key order is the CSV column order (the writer derives fieldnames from
+        the first row), so all rows must come from this single builder.
+        """
+        return {
+            "audio_path": audio_path,
+            "ground_truth": ground_truth,
+            "prediction": prediction,
+            "wer": wer,
+            "cer": cer,
+            "semantic_similarity": None,
+            "poseidon_score": None,
+            "significant_wer": significant_wer,
+            "inference_latency_s": inference_latency_s,
+            "ttft_s": ttft_s,
+            "complete_s": complete_s,
+            **aq,
+            "error": error,
+        }
+
+    @staticmethod
+    def _compute_audio_quality(item: Dict) -> tuple:
+        """Audio-quality metrics for one sample; empty metrics for missing files."""
+        ap = item["audio_path"]
+        if os.path.exists(ap):
+            return ap, compute_audio_quality_metrics(ap)
+        return ap, {
+            "snr_db": None,
+            "clipping_ratio": None,
+            "silence_ratio": None,
+            "snr_tier": None,
+            "quality_warnings": "",
+            **_EMPTY_MOS,
+        }
+
+    @staticmethod
+    def _apply_batch_semantics(results: List[Dict], sem_pairs: List[tuple]) -> None:
+        """Encode all deferred similarity pairs in one batched model.encode() call.
+
+        Fills ``semantic_similarity`` and (when CER/WER are present)
+        ``poseidon_score`` in-place on the referenced rows.
+        """
+        if not sem_pairs:
+            return
+        try:
+            from sentence_transformers import util
+
+            from psdn_sonar.utils.metrics import _get_semantic_model
+
+            sem_model = _get_semantic_model()
+            all_texts = [t for _, gt, pred in sem_pairs for t in (gt, pred or "")]
+            embeds = sem_model.encode(all_texts, convert_to_tensor=False, show_progress_bar=False)
+            for i, (result_idx, _, _) in enumerate(sem_pairs):
+                e1, e2 = embeds[2 * i], embeds[2 * i + 1]
+                sim = float(util.cos_sim(e1[None], e2[None])[0][0])
+                r = results[result_idx]
+                results[result_idx]["semantic_similarity"] = sim
+                if r["cer"] is not None and r["wer"] is not None:
+                    results[result_idx]["poseidon_score"] = calculate_poseidon_score(r["cer"], r["wer"], sim)
+        except Exception:
+            logger.warning("Batch semantic similarity failed", exc_info=True)
+
+    @staticmethod
     def evaluate_one(
         model: Any,
         data: List[Dict],
@@ -194,22 +272,9 @@ class SingleSpeakerEvaluator:
         # Each entry: (result_idx, gt_norm, pred_norm)
         _sem_pairs: List[tuple] = []
 
-        def _compute_aq(item):
-            ap = item["audio_path"]
-            if os.path.exists(ap):
-                return ap, compute_audio_quality_metrics(ap)
-            return ap, {
-                "snr_db": None,
-                "clipping_ratio": None,
-                "silence_ratio": None,
-                "snr_tier": None,
-                "quality_warnings": "",
-                **_EMPTY_MOS,
-            }
-
         aq_max_workers = min(_resolve_aq_workers(), os.cpu_count() or 1)
         with ThreadPoolExecutor(max_workers=aq_max_workers) as executor:
-            _aq_cache = dict(executor.map(_compute_aq, data))
+            _aq_cache = dict(executor.map(SingleSpeakerEvaluator._compute_audio_quality, data))
 
         from tqdm import tqdm
 
@@ -244,21 +309,15 @@ class SingleSpeakerEvaluator:
                 if not prediction:
                     failed += 1
                     results.append(
-                        {
-                            "audio_path": audio_path,
-                            "ground_truth": ground_truth,
-                            "prediction": "",
-                            "wer": None,
-                            "cer": None,
-                            "semantic_similarity": None,
-                            "poseidon_score": None,
-                            "significant_wer": None,
-                            "inference_latency_s": inference_latency_s,
-                            "ttft_s": ttft_s,
-                            "complete_s": complete_s,
-                            **aq,
-                            "error": "Empty prediction",
-                        }
+                        SingleSpeakerEvaluator._result_row(
+                            audio_path,
+                            ground_truth,
+                            aq,
+                            inference_latency_s=inference_latency_s,
+                            ttft_s=ttft_s,
+                            complete_s=complete_s,
+                            error="Empty prediction",
+                        )
                     )
                     continue
 
@@ -279,62 +338,36 @@ class SingleSpeakerEvaluator:
                     _sem_pairs.append((len(results), gt_norm, pred_norm))
 
                 results.append(
-                    {
-                        "audio_path": audio_path,
-                        "ground_truth": ground_truth,
-                        "prediction": prediction,
-                        "wer": wer,
-                        "cer": cer,
-                        "semantic_similarity": None,
-                        "poseidon_score": None,
-                        "significant_wer": is_significant_wer(wer, significant_wer_threshold),
-                        "inference_latency_s": inference_latency_s,
-                        "ttft_s": ttft_s,
-                        "complete_s": complete_s,
-                        **aq,
-                        "error": None,
-                    }
+                    SingleSpeakerEvaluator._result_row(
+                        audio_path,
+                        ground_truth,
+                        aq,
+                        prediction=prediction,
+                        wer=wer,
+                        cer=cer,
+                        significant_wer=is_significant_wer(wer, significant_wer_threshold),
+                        inference_latency_s=inference_latency_s,
+                        ttft_s=ttft_s,
+                        complete_s=complete_s,
+                    )
                 )
             except Exception as e:
                 failed += 1
                 logger.error(f"[{idx}/{len(data)}] Error: {str(e)}")
                 results.append(
-                    {
-                        "audio_path": audio_path,
-                        "ground_truth": ground_truth,
-                        "prediction": "",
-                        "wer": None,
-                        "cer": None,
-                        "semantic_similarity": None,
-                        "poseidon_score": None,
-                        "significant_wer": None,
-                        "inference_latency_s": inference_latency_s,
-                        "ttft_s": ttft_s,
-                        "complete_s": complete_s,
-                        **aq,
-                        "error": str(e),
-                    }
+                    SingleSpeakerEvaluator._result_row(
+                        audio_path,
+                        ground_truth,
+                        aq,
+                        inference_latency_s=inference_latency_s,
+                        ttft_s=ttft_s,
+                        complete_s=complete_s,
+                        error=str(e),
+                    )
                 )
 
-        # Batch encode all deferred similarity pairs in a single model.encode() call.
-        if compute_sem and _sem_pairs:
-            try:
-                from sentence_transformers import util
-
-                from psdn_sonar.utils.metrics import _get_semantic_model
-
-                _sem_model = _get_semantic_model()
-                _all_texts = [t for _, gt, pred in _sem_pairs for t in (gt, pred or "")]
-                _embeds = _sem_model.encode(_all_texts, convert_to_tensor=False, show_progress_bar=False)
-                for i, (result_idx, _, _) in enumerate(_sem_pairs):
-                    e1, e2 = _embeds[2 * i], _embeds[2 * i + 1]
-                    sim = float(util.cos_sim(e1[None], e2[None])[0][0])
-                    r = results[result_idx]
-                    results[result_idx]["semantic_similarity"] = sim
-                    if r["cer"] is not None and r["wer"] is not None:
-                        results[result_idx]["poseidon_score"] = calculate_poseidon_score(r["cer"], r["wer"], sim)
-            except Exception:
-                logger.warning("Batch semantic similarity failed", exc_info=True)
+        if compute_sem:
+            SingleSpeakerEvaluator._apply_batch_semantics(results, _sem_pairs)
 
         elapsed = time.time() - start
         avg_wer = total_wer / successful if successful > 0 else 0.0
