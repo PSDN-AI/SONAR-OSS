@@ -1,0 +1,158 @@
+schema_version: 1
+benchmarks:
+  common_voice:
+    display_name: Mozilla Common Voice 17.0
+    enabled: false
+    source:
+      kind: archive
+      identifier: common-voice/cv-corpus-17.0-2024-03-15.json
+      url: https://github.com/common-voice/cv-dataset/blob/f99d8239d2796131b73ac99f92ee7cb4443bf3ba/datasets/scripted-speech/cv-corpus-17.0-2024-03-15.json
+      revision: sha256:d1c77b3672a3af20e06fa184e30b1d1dc0f9d613b4dcab35fd6a9b3101ac20d6
+    config_template: "{lang}"
+    license: CC0-1.0
+    license_url: https://common-voice.github.io/community-playbook/sub_pages/cc0waiver_process.html
+    attribution: Mozilla Common Voice contributors.
+    text_column: sentence
+    review:
+      decision: pending
+      rationale: The former Hugging Face source is retired; an MDC access and no-rehosting decision is pending.
+
+  fleurs:
+    display_name: Google FLEURS
+    source:
+      kind: huggingface
+      identifier: google/fleurs
+      url: https://huggingface.co/datasets/google/fleurs
+      revision: 70bb2e84b976b7e960aa89f1c648e09c59f894dd
+    config_template: "{fleurs}"
+    allowed_configs: [af_za, ar_eg, bn_in, cs_cz, da_dk, de_de, el_gr, en_us, es_419, fi_fi, fr_fr, he_il, hi_in, hu_hu, id_id, it_it, ja_jp, ko_kr, mr_in, ms_my, nl_nl, nb_no, pl_pl, pt_br, ro_ro, ru_ru, sv_se, sw_ke, ta_in, te_in, th_th, tr_tr, uk_ua, ur_pk, vi_vn, cmn_hans_cn]
+    splits: [train, validation, test]
+    license: CC-BY-4.0
+    license_url: https://huggingface.co/datasets/google/fleurs/blob/70bb2e84b976b7e960aa89f1c648e09c59f894dd/README.md
+    attribution: Conneau et al., FLEURS; Google LLC.
+    text_column: transcription
+    review:
+      decision: pending
+      rationale: License evidence is recorded; project-specific redistribution approval is still pending.
+      fingerprints:
+        af_za::train: sha256:ba743a5fc9c0ab78c3a05916f7a7ab91d9ac8b4d00e1dbc4d330310852fe3186
+        af_za::validation: sha256:6f3f228e1dfd4621ac01ae746b2dbad9d8258a6d63059429954af4afb554c0ed
+        af_za::test: sha256:1eca03e55c63a5cc80b2c4c7f732962369fd878621d7a70c79a814888f63347f
+        ur_pk::train: sha256:16640f8d5df26fe767d075593443bf426f62053c93101911e4bf73d8deb72230
+        ur_pk::validation: sha256:537b77ec1ee6d0fc109b99f02d3a870904a5c852d449bb3ab09ea3c561c321b0
+        ur_pk::test: sha256:9dddbfbcd666506f59082d6243d9bd5d699065a66e7ea555834f1217f9ae4aae
+        ar_eg::train: sha256:0403e8b43343110d8013471f851ec1907d2165569ecd3b2ef42b58575bbb0956
+        ar_eg::validation: sha256:8c3ed285620d0387fb3b1d19abe3918884f426a3a59734404bfe33a0f4373458
+        ar_eg::test: sha256:9b373ac506dcf1534f3853e59524c88cd2c32fb2c3afa5b16fe0ebf008303d56
+        bn_in::train: sha256:1c18d9da45058960b41ec2fc52ea72d5cb6826c5df7c628d80526f20b81f2811
+        bn_in::validation: sha256:1b282a1522d7c947500d6f7be9473517d359ea4f32f8a502e12f945bc236a762
+        bn_in::test: sha256:e4d17eda5eac15e179a848549e87716b7ec68e887b2868fd518f78469efda9c3
+
+  zeroth:
+    display_name: Zeroth Korean
+    source:
+      kind: huggingface
+      identifier: Bingsu/zeroth-korean
+      url: https://huggingface.co/datasets/Bingsu/zeroth-korean
+      revision: bd173fe2c8ed0dccd47acb4eda77542593651622
+    splits: [train, test]
+    license: CC-BY-4.0
+    license_url: https://huggingface.co/datasets/Bingsu/zeroth-korean/blob/bd173fe2c8ed0dccd47acb4eda77542593651622/README.md
+    attribution: Zeroth Project contributors and the Bingsu Hugging Face mirror maintainer.
+    text_column: text
+    review:
+      decision: pending
+      rationale: License evidence is recorded; mirror and redistribution approval is still pending.
+      fingerprints:
+        _default::train: sha256:dde401c5659fd7705d38ffe4671a96afe268005136d7e8d3fc07324f71c9709a
+        _default::test: sha256:6656b026003552dc15020edf1f47a5a6dd5d6d2322241613d157a16a32408534
+
+  voxpopuli:
+    display_name: Meta VoxPopuli
+    source:
+      kind: huggingface
+      identifier: facebook/voxpopuli
+      url: https://huggingface.co/datasets/facebook/voxpopuli
+      revision: 42f01879c780b4a2e90ec0b4f616c2ece526e4f1
+    config_template: "{lang}"
+    allowed_configs: [cs, de, en, es, fi, fr, hu, it, nl, pl, ro]
+    splits: [train, validation, test]
+    license: CC0-1.0 AND LicenseRef-European-Parliament
+    license_url: https://huggingface.co/datasets/facebook/voxpopuli/blob/42f01879c780b4a2e90ec0b4f616c2ece526e4f1/README.md
+    attribution: Wang et al., VoxPopuli; European Parliament source recordings.
+    text_column: raw_text
+    review:
+      decision: pending
+      rationale: The dataset card references both CC0 and European Parliament source terms; review is pending.
+
+  multilingual_librispeech:
+    display_name: Meta Multilingual LibriSpeech
+    source:
+      kind: huggingface
+      identifier: facebook/multilingual_librispeech
+      url: https://huggingface.co/datasets/facebook/multilingual_librispeech
+      revision: 2e83e61823b4c47dcbcb1980bb88601274127609
+    config_template: "{mls}"
+    allowed_configs: [dutch, french, german, italian, polish, portuguese, spanish]
+    splits: [train, dev, test]
+    license: CC-BY-4.0
+    license_url: https://huggingface.co/datasets/facebook/multilingual_librispeech/blob/2e83e61823b4c47dcbcb1980bb88601274127609/README.md
+    attribution: Pratap et al., Multilingual LibriSpeech; LibriVox contributors.
+    text_column: transcript
+    review:
+      decision: pending
+      rationale: License evidence is recorded; project-specific redistribution approval is still pending.
+
+  openslr37_bd:
+    display_name: OpenSLR 37 Bangladesh Bengali
+    source:
+      kind: openslr
+      identifier: SLR37/checksum.md5
+      url: https://www.openslr.org/resources/37/checksum.md5
+      revision: sha256:7e97ea1f141d9f32af4e35227f28b7468ff4c0be4ac2c3725795f990582b96bb
+    splits: [all]
+    license: CC-BY-SA-4.0
+    license_url: https://www.openslr.org/resources/37/LICENSE.txt
+    attribution: Google Bengali TTS corpus; Sodimana et al. (SLTU 2018).
+    text_column: transcription
+    selection: sorted_archive_members@1
+    preprocessing: psdn_sonar.local_loader@1
+    review:
+      decision: pending
+      rationale: The checksum manifest is pinned, but redistribution review is still pending.
+
+  openslr37_in:
+    display_name: OpenSLR 37 Indian Bengali
+    source:
+      kind: openslr
+      identifier: SLR37/checksum.md5
+      url: https://www.openslr.org/resources/37/checksum.md5
+      revision: sha256:7e97ea1f141d9f32af4e35227f28b7468ff4c0be4ac2c3725795f990582b96bb
+    splits: [all]
+    license: CC-BY-SA-4.0
+    license_url: https://www.openslr.org/resources/37/LICENSE.txt
+    attribution: Google Bengali TTS corpus; Sodimana et al. (SLTU 2018).
+    text_column: transcription
+    selection: sorted_archive_members@1
+    preprocessing: psdn_sonar.local_loader@1
+    review:
+      decision: pending
+      rationale: The checksum manifest is pinned, but redistribution review is still pending.
+
+  openslr53:
+    display_name: OpenSLR 53 Bengali ASR
+    source:
+      kind: openslr
+      identifier: SLR53/checksum.md5
+      url: https://www.openslr.org/resources/53/checksum.md5
+      revision: sha256:4287fbacabc03c17c33fde77e13551396a8dad3970f604c6d722ce3373755888
+    splits: [all]
+    license: CC-BY-SA-4.0
+    license_url: https://www.openslr.org/resources/53/LICENSE
+    attribution: Google Bengali ASR corpus; Kjartansson et al. (SLTU 2018).
+    text_column: transcription
+    selection: sorted_archive_members@1
+    preprocessing: psdn_sonar.local_loader@1
+    review:
+      decision: pending
+      rationale: The checksum manifest is pinned, but redistribution review is still pending.

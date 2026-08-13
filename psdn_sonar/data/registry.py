@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .catalog import load_catalog
+
 
 @dataclass(frozen=True)
 class DatasetSpec:
@@ -17,6 +19,7 @@ class DatasetSpec:
 
     hf_id: str
     config_template: str
+    revision: str
     text_column: str = "sentence"
     audio_column: str = "audio"
     splits: tuple[str, ...] = ("train", "validation", "test")
@@ -31,6 +34,7 @@ class AvailableDataset:
     name: str
     hf_id: str
     config: str
+    revision: str
     splits: list[str] = field(default_factory=list)
     num_examples: Optional[dict[str, int]] = None
     text_column: str = "sentence"
@@ -76,41 +80,28 @@ FLEURS_CONFIG: dict[str, str] = {
     "zh": "cmn_hans_cn",
 }
 
+_BENCHMARK_CATALOG = load_catalog()
+
+
+def _hf_dataset_spec(name: str, **kwargs) -> DatasetSpec:
+    benchmark = _BENCHMARK_CATALOG.get(name)
+    if benchmark.source.kind != "huggingface" or not benchmark.enabled:
+        raise ValueError(f"catalog benchmark {name!r} is not an enabled Hugging Face source")
+    return DatasetSpec(
+        hf_id=benchmark.source.identifier,
+        config_template=benchmark.config_template,
+        text_column=benchmark.text_column,
+        audio_column=benchmark.audio_column,
+        revision=benchmark.source.revision,
+        splits=benchmark.splits,
+        **kwargs,
+    )
+
+
 DATASET_REGISTRY: dict[str, DatasetSpec] = {
-    "common_voice": DatasetSpec(
-        hf_id="mozilla-foundation/common_voice_17_0",
-        config_template="{lang}",
-        text_column="sentence",
-        audio_column="audio",
-    ),
-    "fleurs": DatasetSpec(
-        hf_id="google/fleurs",
-        config_template="{fleurs}",
-        text_column="transcription",
-        audio_column="audio",
-    ),
-    "zeroth": DatasetSpec(
-        hf_id="Bingsu/zeroth-korean",
-        config_template="",
-        text_column="text",
-        audio_column="audio",
-        splits=("train", "test"),
-        no_config_langs=frozenset({"ko"}),
-    ),
-    "voxpopuli": DatasetSpec(
-        hf_id="facebook/voxpopuli",
-        config_template="{lang}",
-        text_column="raw_text",
-        audio_column="audio",
-        splits=("train", "validation", "test"),
-    ),
-    "multilingual_librispeech": DatasetSpec(
-        hf_id="facebook/multilingual_librispeech",
-        config_template="{lang}",
-        text_column="text",
-        audio_column="audio",
-        splits=("train", "validation", "test"),
-    ),
+    "fleurs": _hf_dataset_spec("fleurs"),
+    "zeroth": _hf_dataset_spec("zeroth", no_config_langs=frozenset({"ko"})),
+    "voxpopuli": _hf_dataset_spec("voxpopuli"),
 }
 
 VOXPOPULI_LANGS = frozenset(
@@ -126,26 +117,11 @@ VOXPOPULI_LANGS = frozenset(
         "nl",
         "pl",
         "ro",
-        "sv",
-    }
-)
-
-MLS_LANGS = frozenset(
-    {
-        "de",
-        "en",
-        "es",
-        "fr",
-        "it",
-        "nl",
-        "pl",
-        "pt",
     }
 )
 
 _DATASET_LANG_GATES: dict[str, frozenset[str]] = {
     "voxpopuli": VOXPOPULI_LANGS,
-    "multilingual_librispeech": MLS_LANGS,
     "zeroth": frozenset({"ko"}),
 }
 

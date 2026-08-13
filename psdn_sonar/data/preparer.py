@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from .catalog import validate_huggingface_revision
 from .registry import DATASET_REGISTRY, AvailableDataset, resolve_config
 
 if TYPE_CHECKING:
@@ -75,9 +76,9 @@ def prepare_dataset(
     # A concrete split= always yields a Dataset, but the stubs declare the
     # full DatasetDict/IterableDataset union.
     if config:
-        ds = cast("Dataset", load_dataset(spec.hf_id, config, split=split))
+        ds = cast("Dataset", load_dataset(spec.hf_id, config, split=split, revision=spec.revision))
     else:
-        ds = cast("Dataset", load_dataset(spec.hf_id, split=split))
+        ds = cast("Dataset", load_dataset(spec.hf_id, split=split, revision=spec.revision))
 
     total = len(ds)
     if max_samples and max_samples < total:
@@ -128,6 +129,10 @@ class DatasetPreparer:
     ):
         from psdn_sonar.config_loader import get_run_seed
 
+        try:
+            validate_huggingface_revision(dataset.revision)
+        except ValueError as exc:
+            raise ValueError("DatasetPreparer requires an immutable source revision") from exc
         self.dataset = dataset
         self.language = language
         self.output_dir = Path(output_dir) / dataset.name
@@ -165,9 +170,14 @@ class DatasetPreparer:
                         self.dataset.hf_id,
                         self.dataset.config,
                         split=split,
+                        revision=self.dataset.revision,
                     )
                 else:
-                    ds = load_dataset(self.dataset.hf_id, split=split)
+                    ds = load_dataset(
+                        self.dataset.hf_id,
+                        split=split,
+                        revision=self.dataset.revision,
+                    )
             except Exception as exc:
                 logger.warning("Could not load split '%s': %s", split, exc)
                 continue
@@ -292,6 +302,7 @@ class DatasetPreparer:
     def _write_metadata(self, split_map: dict[str, list[dict]]) -> None:
         meta = {
             "source": self.dataset.hf_id,
+            "source_revision": self.dataset.revision,
             "config": self.dataset.config,
             "language": self.language,
             "split_sizes": {k: len(v) for k, v in split_map.items()},

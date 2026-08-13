@@ -115,6 +115,7 @@ class TestDiscoverDispatch:
         fake.name = "fleurs"
         fake.hf_id = "google/fleurs"
         fake.config = "en_us"
+        fake.revision = "a" * 40
         return fake
 
     def test_all_preparers_failing_exits_nonzero(self):
