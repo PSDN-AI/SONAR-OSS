@@ -36,6 +36,14 @@ python scripts/precompute_benchmarks.py --language english --tsv commonvoice=pat
 | `download_data.py` | Sync remote directories/files to local disk from a YAML config (see `download_config.example.yaml`) |
 | `download_commonvoice_english.sh` | Download Common Voice Spontaneous Speech (English) from Mozilla Data Collective |
 
+## Data preparation
+
+| Script | Role |
+|--------|------|
+| `prepare_data.py` | Convert a transcript-JSON delivery (audio + per-recording JSON) to eval + metadata TSVs |
+| `convert_commonvoice_to_tsv.py` | Convert a Common Voice archive or extracted dir (classic or Spontaneous Speech layout) to the toolkit TSV |
+| `convert_zeroth_korean_to_tsv.py` | Convert an extracted Zeroth-Korean (OpenSLR SLR40) directory to the toolkit TSV |
+
 `download_data.py` is a thin wrapper over the packaged
 `psdn_sonar.utils.data_downloader.sync_from_config`, so the same sync can be
 driven programmatically from an installed wheel. Cloud scripts never embed
