@@ -19,6 +19,7 @@ part of the installable `psdn_sonar` package; run them from the repo root with
 | `precompute_benchmarks.py` | Evaluate public datasets with a language's registered models and compute lexical statistics, producing the cached benchmark data under `psdn_sonar/benchmarks/` |
 | `extract_benchmarks.py` | Aggregate `raw-evaluations/<model>/<dataset>.csv` files into `public_benchmarks.csv` (per-model per-dataset mean/std) |
 | `build_macro_summary.py` | Unweighted macro-mean leaderboard across locales from the benchmarks CSV (one vote per locale) |
+| `snr_vs_wer.py` | Enrich evaluation results with audio-quality metrics (SNR, clipping, silence) and render SNR-vs-WER plots |
 
 ```bash
 # Korean: prepare FLEURS + Zeroth from HuggingFace, evaluate, compute stats
