@@ -14,15 +14,11 @@ from typing import List, Optional
 from .audio_utils import get_audio_duration
 from .methods import (
     PER_CHANNEL_METHODS,
+    PER_CHANNEL_STRATEGIES,
     PER_CLIP_METHODS,
+    PER_CLIP_STRATEGIES,
     PYANNOTE_METHODS,
     dual_assignment_score,
-    preprocess_energy_trim,
-    preprocess_no_trim,
-    preprocess_pyannote_vad,
-    preprocess_timestamp_trim,
-    run_pyannote_diarize,
-    run_scribe_diarize,
 )
 from .pyannote_utils import PYANNOTE_AVAILABLE
 
@@ -40,37 +36,15 @@ def _preprocess_only(
     timestamp_settings: dict,
     pyannote_settings: dict,
 ) -> tuple:
-    """Preprocess audio with one per-channel method — no ASR involved.
+    """Preprocess audio with one per-channel strategy — no ASR involved.
 
     Returns ``(processed_path, original_duration_s, trimmed_duration_s)``.
     ``timestamp_trim`` without segments degrades to a passthrough.
     """
-    if method_name == "energy_trim":
-        return preprocess_energy_trim(
-            audio_path,
-            max_silence_ms=silence_settings.get("max_silence_ms", 400),
-            min_silence_len=silence_settings.get("min_silence_len", 500),
-            silence_thresh=silence_settings.get("silence_thresh", -40),
-        )
-    elif method_name == "timestamp_trim":
-        if not segments:
-            dur = get_audio_duration(audio_path)
-            return audio_path, dur, dur
-        return preprocess_timestamp_trim(
-            audio_path,
-            segments,
-            speaker,
-            padding_ms=timestamp_settings.get("padding_ms", 100),
-        )
-    elif method_name == "no_trim":
-        return preprocess_no_trim(audio_path)
-    elif method_name == "pyannote_vad":
-        return preprocess_pyannote_vad(
-            audio_path,
-            gap_ms=pyannote_settings.get("vad_gap_ms", 400),
-        )
-    else:
+    strategy = PER_CHANNEL_STRATEGIES.get(method_name)
+    if strategy is None:
         raise ValueError(f"Unknown per-channel method: {method_name}")
+    return strategy(audio_path, speaker, segments, silence_settings, timestamp_settings, pyannote_settings)
 
 
 def _score_preprocessed(processed_path, orig_dur: float, trim_dur: float) -> float:
@@ -431,12 +405,10 @@ def _first_valid(results: list) -> Optional[dict]:
 
 def _run_per_clip_method(method_name, combined_audio, asr_model, ref_a, ref_b, metric_fn):
     """Diarize-transcribe combined audio and dual-assign the speaker texts."""
-    if method_name == "scribe_diarize":
-        speaker_texts = run_scribe_diarize(combined_audio, asr_model)
-    elif method_name == "pyannote_diarize":
-        speaker_texts = run_pyannote_diarize(combined_audio, asr_model)
-    else:
+    strategy = PER_CLIP_STRATEGIES.get(method_name)
+    if strategy is None:
         raise ValueError(f"Unknown per-clip method: {method_name}")
+    speaker_texts = strategy(combined_audio, asr_model)
 
     result_a, result_b = dual_assignment_score(speaker_texts, ref_a, ref_b, metric_fn)
     for r in (result_a, result_b):
