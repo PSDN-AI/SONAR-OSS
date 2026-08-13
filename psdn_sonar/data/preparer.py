@@ -8,8 +8,12 @@ import logging
 import random
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from .registry import DATASET_REGISTRY, AvailableDataset, resolve_config
+
+if TYPE_CHECKING:
+    from datasets import Dataset
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +72,12 @@ def prepare_dataset(
 
     from datasets import load_dataset
 
+    # A concrete split= always yields a Dataset, but the stubs declare the
+    # full DatasetDict/IterableDataset union.
     if config:
-        ds = load_dataset(spec.hf_id, config, split=split)
+        ds = cast("Dataset", load_dataset(spec.hf_id, config, split=split))
     else:
-        ds = load_dataset(spec.hf_id, split=split)
+        ds = cast("Dataset", load_dataset(spec.hf_id, split=split))
 
     total = len(ds)
     if max_samples and max_samples < total:
