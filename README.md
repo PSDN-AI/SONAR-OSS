@@ -24,6 +24,47 @@ PyTorch trees). Open an issue if an install fails on a supported Python.
 
 ## Installation
 
+### Install the pre-release from TestPyPI (for testing)
+
+The current pre-release (`0.1.0.dev2`) is published to
+[TestPyPI](https://test.pypi.org/project/psdn-sonar/), not yet to PyPI. To
+install the package exactly as released:
+
+1. Check that your Python is 3.10–3.12:
+
+   ```bash
+   python3 --version
+   ```
+
+2. Create and activate a fresh virtual environment:
+
+   ```bash
+   python3 -m venv sonar-env
+   source sonar-env/bin/activate   # Windows: sonar-env\Scripts\activate
+   ```
+
+3. Install from TestPyPI (the package comes from TestPyPI; its dependencies
+   resolve from regular PyPI):
+
+   ```bash
+   pip install --index-url https://test.pypi.org/simple/ \
+       --extra-index-url https://pypi.org/simple/ \
+       "psdn-sonar==0.1.0.dev2"
+   ```
+
+4. Verify the install:
+
+   ```bash
+   psdn-sonar --version                                           # psdn-sonar 0.1.0.dev2
+   python -c "import psdn_sonar; print(psdn_sonar.__version__)"   # 0.1.0.dev2
+   ```
+
+Then follow [`docs/USAGE.md`](docs/USAGE.md) for runnable examples. Optional
+extras install the same way, e.g. `"psdn-sonar[ml]==0.1.0.dev2"`. Once `0.1.0`
+is released, this section becomes a plain `pip install psdn-sonar`.
+
+### Contributor install (from source)
+
 Contributors install the frozen, locked environment (exactly what CI runs):
 
 ```bash
