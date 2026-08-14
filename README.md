@@ -1,5 +1,10 @@
 # SONAR-OSS
 
+[![CI](https://github.com/PSDN-AI/SONAR-OSS/actions/workflows/ci.yml/badge.svg)](https://github.com/PSDN-AI/SONAR-OSS/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/psdn-sonar.svg)](https://pypi.org/project/psdn-sonar/)
+[![Python versions](https://img.shields.io/pypi/pyversions/psdn-sonar.svg)](https://pypi.org/project/psdn-sonar/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Multi-language ASR (automatic speech recognition) evaluation toolkit — metrics,
 reporting, and benchmarks. Distributed as the `psdn-sonar` Python package.
 
