@@ -4,8 +4,9 @@ SONAR (`psdn-sonar`) scores ASR (speech-to-text) output with reproducible
 metrics: **WER**, **CER**, semantic similarity, and the composite **POSEIDON**
 score.
 
-> The library is being imported incrementally, so these examples use the Python
-> API. A `psdn-sonar` command-line interface arrives in a later release.
+> These examples use the Python API. The same workflows are available from the
+> `psdn-sonar` command-line interface — see the CLI examples in
+> [`docs/FAQ.md`](FAQ.md) and `psdn-sonar --help`.
 
 ## Install
 
