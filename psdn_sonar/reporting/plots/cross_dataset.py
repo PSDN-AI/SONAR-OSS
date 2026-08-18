@@ -22,7 +22,7 @@ from ._common import prettify_model_name
 logger = logging.getLogger(__name__)
 
 DATASET_DISPLAY = {
-    "user_dataset": "User Dataset",
+    "user_dataset": "Your dataset",
     "commonvoice": "Common Voice",
     "fleurs": "FLEURS",
     "zeroth": "Zeroth",

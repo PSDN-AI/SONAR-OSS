@@ -129,14 +129,14 @@ def _setup_section(stats: dict, language: str) -> list:
     benchmarks = _BENCHMARK_COVERAGE.get(language.lower())
     if benchmarks:
         coverage_rows = [
-            f"| **Dataset Coverage** | User Dataset + {benchmarks} |",
-            f"| **Sample Size** | User dataset: {stats['total_transcripts']:,} samples evaluated"
-            "<br>Public benchmarks: Pre-computed from full datasets |",
+            f"| **Dataset Coverage** | Your dataset + {benchmarks} |",
+            f"| **Sample Size** | Your dataset: {stats['total_transcripts']:,} samples evaluated"
+            "<br>Public benchmarks: reference numbers shown for comparison |",
         ]
     else:
         coverage_rows = [
             f"| **Language** | {language.title()} (custom evaluation) |",
-            f"| **Dataset Coverage** | User Dataset ({stats['total_transcripts']:,} samples) |",
+            f"| **Dataset Coverage** | Your dataset ({stats['total_transcripts']:,} samples) |",
             "| **Public Benchmarks** | Not available for this language |",
         ]
 
@@ -404,7 +404,7 @@ def _insights_section(language: str) -> list:
     return [
         "## Key Insights",
         "",
-        f"1. **User dataset shows strong diversity metrics compared to public {language.title()} benchmarks:**",
+        f"1. **Your dataset shows strong diversity metrics compared to public {language.title()} benchmarks:**",
         "",
         "   The dataset demonstrates minimal repetitive patterns and highly varied sentence structures, "
         "indicating rich linguistic diversity.",

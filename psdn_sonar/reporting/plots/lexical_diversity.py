@@ -181,7 +181,7 @@ def plot_vocabulary_growth(
     dataset_colors = {ds: _DATASET_COLORS[i % len(_DATASET_COLORS)] for i, ds in enumerate(sorted(all_datasets))}
 
     title = (
-        "Vocabulary Growth Curve: User Dataset vs Public Benchmarks" if has_benchmarks else "Vocabulary Growth Curve"
+        "Vocabulary Growth Curve: Your dataset vs Public Benchmarks" if has_benchmarks else "Vocabulary Growth Curve"
     )
     if title_prefix and not include_public_benchmarks:
         title = f"{title} ({title_prefix})"
@@ -250,7 +250,7 @@ def plot_zipf_law(all_transcripts, output_path, title_prefix="", include_public_
     dataset_colors = {ds: _DATASET_COLORS[i % len(_DATASET_COLORS)] for i, ds in enumerate(sorted(all_datasets))}
 
     title = (
-        "Zipf's Law: User Dataset vs Public Benchmarks" if has_benchmarks else "Zipf's Law: Word Frequency Distribution"
+        "Zipf's Law: Your dataset vs Public Benchmarks" if has_benchmarks else "Zipf's Law: Word Frequency Distribution"
     )
 
     plot_zipf = (

@@ -138,7 +138,7 @@ def prepare_comparison_data(user_stats: dict, metric: str, language: str = "beng
     if metric in user_stats:
         rows.append(
             {
-                "dataset": "User Dataset",
+                "dataset": "Your dataset",
                 "condition": "Overall",
                 "mean": user_stats[metric]["overall"],
                 "std": user_stats[metric]["overall_std"],
@@ -146,7 +146,7 @@ def prepare_comparison_data(user_stats: dict, metric: str, language: str = "beng
         )
         rows.append(
             {
-                "dataset": "User Dataset",
+                "dataset": "Your dataset",
                 "condition": "Hard Negatives",
                 "mean": user_stats[metric]["hard"],
                 "std": user_stats[metric]["hard_std"],
@@ -179,7 +179,7 @@ def prepare_comparison_data(user_stats: dict, metric: str, language: str = "beng
 def create_comparison_plot(df: pd.DataFrame, metric_name: str, output_path: str) -> None:
     """Dodged bar plot of overall vs. hard-negative means, user dataset first."""
     present = df["dataset"].unique().tolist()
-    dataset_order = ["User Dataset"] + [d for d in present if d != "User Dataset"]
+    dataset_order = ["Your dataset"] + [d for d in present if d != "Your dataset"]
     df["dataset"] = pd.Categorical(df["dataset"], categories=dataset_order, ordered=True)
 
     df["ymin"] = (df["mean"] - df["std"]).clip(lower=0)
@@ -195,7 +195,7 @@ def create_comparison_plot(df: pd.DataFrame, metric_name: str, output_path: str)
         )
         + scale_fill_manual(values=condition_colors, name="Condition")
         + labs(
-            title=f"{metric_name}: User Dataset vs Public Benchmarks",
+            title=f"{metric_name}: Your dataset vs Public Benchmarks",
             x="Dataset",
             y=metric_name,
         )
@@ -222,7 +222,7 @@ def generate_hard_negatives_comparison(results_csv: str, output_dir: str, langua
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Hard Negatives Analysis: User Dataset vs Public Benchmarks (%s)", language.title())
+    logger.info("Hard Negatives Analysis: Your dataset vs Public Benchmarks (%s)", language.title())
     logger.info("Analyzing user dataset: %s", results_csv)
     user_stats = _calculate_user_stats(results_csv)
 
