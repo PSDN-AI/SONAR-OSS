@@ -97,7 +97,7 @@ class TestHardNegativesStats:
     def test_prepare_comparison_puts_user_first(self):
         stats = {"wer": {"overall": 0.3, "overall_std": 0.1, "hard": 0.8, "hard_std": 0.2}}
         df = prepare_comparison_data(stats, "wer", language="en")
-        assert df.iloc[0]["dataset"] == "User Dataset"
+        assert df.iloc[0]["dataset"] == "Your dataset"
         assert set(df["condition"]) == {"Overall", "Hard Negatives"}
 
 
