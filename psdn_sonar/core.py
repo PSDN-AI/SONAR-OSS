@@ -546,4 +546,11 @@ def process_manifest_with_asr(
 
         logger.info(f"Stats saved to: {stats_file}")
     else:
-        logger.error("No clips were successfully processed")
+        # A run that scored nothing must not look like a completed evaluation
+        # (issue #102): raise so callers (and the CLI) exit non-zero. The CSV
+        # written above still carries the header plus any per-clip error rows.
+        raise RuntimeError(
+            "No clips were successfully processed — 0 evaluated rows. "
+            f"See the warnings above and the per-clip rows in {output_csv} for the reasons "
+            "(missing transcripts/audio, preprocessing failures, or missing optional dependencies)."
+        )

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Runs that evaluate zero samples no longer exit 0 looking like clean runs
+  (#102): unknown model names raise a `ValueError` listing the registered ids,
+  a run with zero successful samples raises `NoSamplesEvaluatedError` after
+  writing artifacts, `wer_mean`/`cer_mean` are `null` (not `0.0`) when
+  `successful == 0`, TSV rows with missing/blank fields are counted in
+  `failed` with per-row error entries instead of being silently dropped,
+  per-utterance CSVs always carry a header, a multi run that processes zero
+  clips raises instead of logging completion, and `--method pyannote_vad`
+  without the `[pyannote]` extra fails fast with the install hint.
+
 - `calculate_poseidon_score` now raises an actionable `TypeError` naming the
   missing `psdn-sonar[ml]` extra when given the `None` that
   `compute_semantic_similarity` returns without sentence-transformers, instead

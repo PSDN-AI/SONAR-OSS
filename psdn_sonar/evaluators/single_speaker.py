@@ -33,6 +33,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class NoSamplesEvaluatedError(RuntimeError):
+    """Raised when an evaluation run finishes with zero successful samples.
+
+    Artifacts (per-utterance CSV, ``scores_*.json``) are still written before
+    this is raised, so per-row errors remain inspectable; the exception exists
+    so a run that scored nothing cannot exit 0 and masquerade as a clean run.
+    """
+
+
+_EMPTY_AUDIO_QUALITY = {
+    "snr_db": None,
+    "clipping_ratio": None,
+    "silence_ratio": None,
+    "snr_tier": None,
+    "quality_warnings": "",
+    **_EMPTY_MOS,
+}
+
+
 def _default_submission_for_model(
     model_name: str,
     *,
@@ -132,7 +151,13 @@ class SingleSpeakerEvaluator:
 
     @staticmethod
     def load_data(tsv_path: str, allow_absolute_audio_paths: bool = True) -> List[Dict]:
-        """Load TSV with audio_path and transcription columns."""
+        """Load TSV with audio_path and transcription columns.
+
+        Rows with a missing/blank ``audio_path`` or ``transcription`` are not
+        silently dropped: they are returned with a ``load_error`` key so the
+        evaluator can count them as failed and emit an error row, keeping the
+        artifacts honest about how much of the input was actually evaluated.
+        """
         data = []
         path = Path(tsv_path)
         dataset_root = path.parent.resolve()
@@ -144,20 +169,26 @@ class SingleSpeakerEvaluator:
             if missing_columns:
                 raise ValueError(f"TSV missing required columns: {', '.join(missing_columns)}")
 
-            for row in reader:
+            # Header is line 1; the first data row is line 2.
+            for line_num, row in enumerate(reader, start=2):
                 ap = (row.get("audio_path") or "").strip()
                 gt = (row.get("transcription") or "").strip()
-                if ap and gt:
-                    data.append(
-                        {
-                            "audio_path": _resolve_audio_path(
-                                ap,
-                                dataset_root=dataset_root,
-                                allow_absolute_audio_paths=allow_absolute_audio_paths,
-                            ),
-                            "ground_truth": gt,
-                        }
-                    )
+                if not ap or not gt:
+                    blank = "audio_path" if not ap else "transcription"
+                    load_error = f"TSV line {line_num}: missing or empty {blank}"
+                    logger.warning("%s — row will be counted as failed, not dropped", load_error)
+                    data.append({"audio_path": ap, "ground_truth": gt, "load_error": load_error})
+                    continue
+                data.append(
+                    {
+                        "audio_path": _resolve_audio_path(
+                            ap,
+                            dataset_root=dataset_root,
+                            allow_absolute_audio_paths=allow_absolute_audio_paths,
+                        ),
+                        "ground_truth": gt,
+                    }
+                )
         return data
 
     @staticmethod
@@ -200,16 +231,14 @@ class SingleSpeakerEvaluator:
     def _compute_audio_quality(item: Dict) -> tuple:
         """Audio-quality metrics for one sample; empty metrics for missing files."""
         ap = item["audio_path"]
-        if os.path.exists(ap):
+        if ap and os.path.exists(ap):
             return ap, compute_audio_quality_metrics(ap)
-        return ap, {
-            "snr_db": None,
-            "clipping_ratio": None,
-            "silence_ratio": None,
-            "snr_tier": None,
-            "quality_warnings": "",
-            **_EMPTY_MOS,
-        }
+        return ap, dict(_EMPTY_AUDIO_QUALITY)
+
+    @classmethod
+    def _csv_fieldnames(cls) -> List[str]:
+        """Canonical per-utterance CSV column order (from the row builder)."""
+        return list(cls._result_row("", "", dict(_EMPTY_AUDIO_QUALITY)).keys())
 
     @staticmethod
     def _apply_batch_semantics(results: List[Dict], sem_pairs: List[tuple]) -> None:
@@ -282,7 +311,21 @@ class SingleSpeakerEvaluator:
             audio_path = item["audio_path"]
             ground_truth = item["ground_truth"]
 
-            aq = _aq_cache[audio_path]
+            aq = _aq_cache.get(audio_path, dict(_EMPTY_AUDIO_QUALITY))
+
+            load_error = item.get("load_error")
+            if load_error:
+                failed += 1
+                logger.warning(f"[{idx}/{len(data)}] Skipping transcription: {load_error}")
+                results.append(
+                    SingleSpeakerEvaluator._result_row(
+                        audio_path,
+                        ground_truth,
+                        aq,
+                        error=load_error,
+                    )
+                )
+                continue
 
             inference_latency_s = None
             ttft_s = None
@@ -370,8 +413,10 @@ class SingleSpeakerEvaluator:
             SingleSpeakerEvaluator._apply_batch_semantics(results, _sem_pairs)
 
         elapsed = time.time() - start
-        avg_wer = total_wer / successful if successful > 0 else 0.0
-        avg_cer = total_cer / successful if successful > 0 else 0.0
+        # None (null in scores.json), not 0.0: a run with zero successful
+        # samples must not report the best possible error rates (issue #102).
+        avg_wer = total_wer / successful if successful > 0 else None
+        avg_cer = total_cer / successful if successful > 0 else None
 
         avg_sem = None
         avg_poseidon = None
@@ -397,7 +442,12 @@ class SingleSpeakerEvaluator:
 
         logger.info(f"Evaluation completed in {elapsed:.2f}s")
         logger.info(f"Successful: {successful}, Failed: {failed}")
-        if avg_poseidon is not None:
+        if avg_wer is None:
+            logger.warning(
+                "No samples were successfully evaluated — WER/CER aggregates are undefined (null). "
+                "See the per-utterance error column for the failure reasons."
+            )
+        elif avg_poseidon is not None:
             logger.info(
                 f"Average WER: {avg_wer:.4f}, CER: {avg_cer:.4f}, Sem: {avg_sem:.4f}, POSEIDON: {avg_poseidon:.4f}"
             )
@@ -483,6 +533,7 @@ class SingleSpeakerEvaluator:
         _prewarm_thread.start()
 
         all_results = {}
+        skipped_models = []
         for model_name in models:
             logger.info(f"\n{'=' * 60}")
             logger.info(f"Evaluating model: {model_name}")
@@ -490,7 +541,12 @@ class SingleSpeakerEvaluator:
 
             model = _model_factory(model_name, custom_hf_model=_custom_hf_model, language=language)
             if model is None:
-                logger.error(f"Model {model_name} not found")
+                logger.error(
+                    "Model %s not found in the registry; skipping. Registered ids: %s",
+                    model_name,
+                    ", ".join(cls.AVAILABLE_MODELS),
+                )
+                skipped_models.append(model_name)
                 continue
 
             _prewarm_thread.join()  # ensure quality models are loaded before AQ computation starts
@@ -507,11 +563,12 @@ class SingleSpeakerEvaluator:
 
             output_file = Path(output_dir) / f"asr_detailed_{model_name}.csv"
             with open(output_file, "w", encoding="utf-8", newline="") as f:
-                if result["results"]:
-                    fieldnames = result["results"][0].keys()
-                    writer = csv.DictWriter(f, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(result["results"])
+                # Always write the header so consumers reading the CSV (e.g.
+                # pandas.read_csv) never hit a zero-byte file on empty runs.
+                fieldnames = result["results"][0].keys() if result["results"] else cls._csv_fieldnames()
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(result["results"])
 
             logger.info(f"Results saved to {output_file}")
 
@@ -533,5 +590,20 @@ class SingleSpeakerEvaluator:
                 )
                 write_scores_json(scores_path, artifact)
                 logger.info(f"Scores saved to {scores_path}")
+
+        if not all_results:
+            raise ValueError(
+                f"None of the requested models could be constructed: {', '.join(skipped_models)}. "
+                f"Registered model ids: {', '.join(cls.AVAILABLE_MODELS)}. "
+                "Pass a registered id via --models or a HuggingFace repo id via --hf-model."
+            )
+
+        total_successful = sum(r["summary"]["successful"] for r in all_results.values())
+        if total_successful == 0:
+            raise NoSamplesEvaluatedError(
+                f"Evaluation finished with 0 successful samples across {len(all_results)} model(s). "
+                f"Per-row failure reasons are in {output_dir}/asr_detailed_<model>.csv "
+                "(error column) and scores_<model>.json; WER/CER aggregates are null."
+            )
 
         return all_results

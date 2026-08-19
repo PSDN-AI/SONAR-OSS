@@ -184,6 +184,16 @@ def run_single_method(
 
     all_results = {"A": [], "B": []}
 
+    if method_name in PYANNOTE_METHODS and not PYANNOTE_AVAILABLE:
+        # Same actionable message run_sweep emits; recorded as the per-speaker
+        # error so the CSV names the missing extra instead of a generic
+        # "No module named 'pyannote'" per clip.
+        err = f"Skipping {method_name}: pyannote.audio not installed. Install with: pip install 'psdn-sonar[pyannote]'"
+        logger.warning(f"{entry.audio_id}: {err}")
+        for speaker in ("A", "B"):
+            all_results[speaker].append(_error_result(method_name, err))
+        return all_results, None, None
+
     per_channel = [m for m in active_methods if m in PER_CHANNEL_METHODS]
     per_clip = [m for m in active_methods if m in PER_CLIP_METHODS]
 

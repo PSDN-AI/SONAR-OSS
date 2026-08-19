@@ -106,7 +106,7 @@ def _filter_unavailable_api_defaults(models: list) -> list:
 
 def run_single_speaker(args):
     """Run single-speaker evaluation."""
-    from psdn_sonar.evaluators.single_speaker import SingleSpeakerEvaluator
+    from psdn_sonar.evaluators.single_speaker import NoSamplesEvaluatedError, SingleSpeakerEvaluator
 
     args.language = _resolve_language(args)
 
@@ -193,6 +193,11 @@ def run_single_speaker(args):
                 else:
                     logger.warning(f"No results CSV found for {model}, skipping report")
 
+    except (ValueError, FileNotFoundError, NoSamplesEvaluatedError) as e:
+        # Expected input/configuration failures: clean actionable message,
+        # non-zero exit, no traceback noise.
+        logger.error(f"Evaluation failed: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Evaluation failed: {e}", exc_info=True)
         sys.exit(1)
@@ -267,6 +272,12 @@ def run_multi_speaker(args):
 
         logger.info("All evaluations complete.")
 
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
+        # Expected input/configuration failures (unknown model, missing
+        # manifest, zero clips processed, missing optional dependency):
+        # clean actionable message, non-zero exit, no traceback noise.
+        logger.error(f"Evaluation failed: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Evaluation failed: {e}", exc_info=True)
         sys.exit(1)
@@ -298,6 +309,9 @@ def display_aggregate_stats(results_csv, model_name):
 
     try:
         df = pd.read_csv(results_csv)
+        if df.empty:
+            logger.info("No evaluated rows in %s for %s — nothing to summarize.", results_csv, model_name)
+            return
 
         if "cer_conv" in df.columns:
             cer_col, wer_col = "cer_conv", "wer_conv"

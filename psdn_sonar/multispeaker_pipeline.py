@@ -40,14 +40,28 @@ def run_multispeaker_evaluation(
     Raises:
         FileNotFoundError: If the manifest does not exist.
         ValueError: If the model name is not registered.
+        RuntimeError: If an explicitly requested method needs pyannote.audio
+            and it is not installed, or if no clip could be processed.
     """
     from psdn_sonar.core import process_manifest_with_asr
     from psdn_sonar.models.registry import create_model
     from psdn_sonar.preprocessing.config_loader import load_multi_speaker_config
+    from psdn_sonar.preprocessing.methods import PYANNOTE_METHODS
+    from psdn_sonar.preprocessing.pyannote_utils import PYANNOTE_AVAILABLE
 
     manifest_file = Path(manifest_path)
     if not manifest_file.exists():
         raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
+
+    if method in PYANNOTE_METHODS and not PYANNOTE_AVAILABLE:
+        # Fail fast: the explicit method applies to every clip, so the whole
+        # run is doomed. Surface the actionable install hint instead of one
+        # generic per-clip warning per speaker.
+        raise RuntimeError(
+            f"Preprocessing method '{method}' requires pyannote.audio, which is not installed. "
+            "Install with: pip install 'psdn-sonar[pyannote]' "
+            "(pyannote models are gated on HuggingFace — set HF_TOKEN after accepting the model terms)."
+        )
 
     config = load_multi_speaker_config()
     if methods:
