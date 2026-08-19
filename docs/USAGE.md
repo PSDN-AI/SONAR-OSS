@@ -25,25 +25,38 @@ running HuggingFace models need the `[ml]` extra.
 
 ## 1. Score a single reference vs. hypothesis
 
-```python
-from psdn_sonar.utils.metrics import calculate_cer_wer
+Score the way an evaluation run scores: normalize both sides for the target
+language, then compute CER/WER. `UtteranceEvaluator.score_single_variant` is
+the same per-utterance code path `SingleSpeakerEvaluator` uses:
 
-cer, wer = calculate_cer_wer("the quick brown fox", "the quick brown box")
-print(f"WER={wer:.2f}  CER={cer:.2f}")
+```python
+from psdn_sonar.evaluators.utterance import UtteranceEvaluator
+
+cer, wer, ref_norm, hyp_norm = UtteranceEvaluator.score_single_variant(
+    "Hello, World!", "hello world", language="en"
+)
+print(f"WER={wer:.2f}  CER={cer:.2f}")   # WER=0.00  CER=0.00
 ```
+
+Case and punctuation differences normalize away (`ref_norm` and `hyp_norm`
+both come back as `hello world`), so a perfect transcription scores WER 0.0
+here exactly as it does in an evaluation report.
+
+The lower-level primitive `calculate_cer_wer(reference, hypothesis)` scores
+**raw text with no normalization** — on the pair above it reports WER 1.0,
+because both raw tokens differ in case or punctuation. Use it only for inputs
+you have already normalized (or deliberately want compared raw); evaluation
+runs always normalize both sides first.
 
 Add the composite POSEIDON score (needs `[ml]`):
 
 ```python
-from psdn_sonar.utils.metrics import (
-    calculate_cer_wer,
-    calculate_poseidon_score,
-    compute_semantic_similarity,
-)
+from psdn_sonar.evaluators.utterance import UtteranceEvaluator
+from psdn_sonar.utils.metrics import calculate_poseidon_score, compute_semantic_similarity
 
 ref, hyp = "the quick brown fox", "the quick brown box"
-cer, wer = calculate_cer_wer(ref, hyp)
-sim = compute_semantic_similarity(ref, hyp)
+cer, wer, ref_norm, hyp_norm = UtteranceEvaluator.score_single_variant(ref, hyp, language="en")
+sim = compute_semantic_similarity(ref_norm, hyp_norm)
 print(f"POSEIDON={calculate_poseidon_score(cer, wer, sim):.3f}")
 ```
 

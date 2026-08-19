@@ -20,6 +20,19 @@ def test_score_single_variant_returns_metrics_and_normalized_text():
     assert wer >= 0.0
 
 
+def test_score_single_variant_normalizes_case_and_punctuation():
+    """USAGE.md section 1 promises the evaluation-path score: WER/CER 0 for a
+    transcription that differs only in case and punctuation (issue #100)."""
+    cer, wer, ref_norm, hyp_norm = UtteranceEvaluator.score_single_variant(
+        "Hello, World!",
+        "hello world",
+        language="en",
+    )
+    assert ref_norm == hyp_norm == "hello world"
+    assert cer == 0.0
+    assert wer == 0.0
+
+
 def test_score_single_variant_preserves_none_cer_wer(monkeypatch):
     monkeypatch.setattr(
         "psdn_sonar.utils.metrics.calculate_cer_wer",
