@@ -100,6 +100,10 @@ Or with plain pip (editable, freshly resolved):
 pip install -e ".[dev]"
 ```
 
+Neither path installs the `[ml]` extra. To run local HuggingFace models or
+POSEIDON's semantic similarity from a source checkout, add it:
+`uv pip install -e ".[ml]"` (after `make setup`) or `pip install -e ".[dev,ml]"`.
+
 Note that `pip` does not read `uv.lock`: pip installs resolve dependency
 versions fresh from PyPI within the ranges in `pyproject.toml`, so they are
 not byte-for-byte reproducible the way `uv sync --frozen` is. This is the

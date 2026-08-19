@@ -68,7 +68,7 @@ def compute_semantic_similarity(reference: str, hypothesis: str) -> Optional[flo
     except ImportError:
         logger.warning(
             "sentence-transformers is not installed — semantic similarity unavailable. "
-            "Install with: pip install sentence-transformers"
+            'Install with: pip install "psdn-sonar[ml]"'
         )
         return None
     except Exception:
@@ -93,7 +93,29 @@ def calculate_poseidon_score(
     When called without explicit weights, the global defaults from config are
     used (WER=0.35, CER=0.20, Similarity=0.45, configurable via env vars).
     Supply all three weights to override; they must sum to 1.0.
+
+    Raises:
+        TypeError: If ``cer``, ``wer``, or ``similarity`` is ``None``. The
+            upstream helpers (:func:`calculate_cer_wer`,
+            :func:`compute_semantic_similarity`) return ``None`` when a
+            metric could not be computed; the error message names the likely
+            cause and fix instead of failing on an opaque comparison.
+        ValueError: If explicit weights do not sum to 1.0.
     """
+    if similarity is None:
+        raise TypeError(
+            "calculate_poseidon_score: similarity is None. "
+            "compute_semantic_similarity() returns None when sentence-transformers "
+            'is not installed (install with: pip install "psdn-sonar[ml]") or the '
+            "reference is empty. Check the similarity for None before computing POSEIDON."
+        )
+    if cer is None or wer is None:
+        raise TypeError(
+            "calculate_poseidon_score: cer/wer is None. "
+            "calculate_cer_wer() returns (None, None) when the reference is empty or "
+            "jiwer is unavailable. Check CER/WER for None before computing POSEIDON."
+        )
+
     w_wer = wer_weight if wer_weight is not None else config.wer_weight
     w_cer = cer_weight if cer_weight is not None else config.cer_weight
     w_sem = semantic_weight if semantic_weight is not None else config.semantic_weight

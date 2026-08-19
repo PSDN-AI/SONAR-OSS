@@ -47,6 +47,11 @@ sim = compute_semantic_similarity(ref, hyp)
 print(f"POSEIDON={calculate_poseidon_score(cer, wer, sim):.3f}")
 ```
 
+Without `[ml]`, `compute_semantic_similarity()` returns `None` and
+`calculate_poseidon_score()` rejects it with a `TypeError` telling you to
+install `psdn-sonar[ml]`. Handle the `None` explicitly if semantic similarity
+is optional in your pipeline.
+
 ## 2. Evaluate a model over a dataset
 
 Create a tab-separated `eval.tsv` with `audio_path` and `transcription` columns:
