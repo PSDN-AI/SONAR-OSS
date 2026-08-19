@@ -1,4 +1,10 @@
-from psdn_sonar.utils.metrics import calculate_cer_wer, compute_semantic_similarity
+import pytest
+
+from psdn_sonar.utils.metrics import (
+    calculate_cer_wer,
+    calculate_poseidon_score,
+    compute_semantic_similarity,
+)
 from psdn_sonar.utils.text_processing import normalize_text_unified
 
 
@@ -40,6 +46,27 @@ class TestMetrics:
         if similarity is None:
             return  # sentence-transformers not available in CI
         assert 0.0 <= similarity <= 1.0
+
+    def test_poseidon_score_happy_path(self):
+        score = calculate_poseidon_score(0.0, 0.0, 1.0)
+        assert score == 1.0
+        score = calculate_poseidon_score(1.0, 1.0, 0.0)
+        assert score == 0.0
+
+    def test_poseidon_score_none_similarity_names_ml_extra(self):
+        """Issue #101: None similarity must raise an actionable error, not an
+
+        opaque comparison TypeError. compute_semantic_similarity returns None
+        when sentence-transformers ([ml] extra) is missing.
+        """
+        with pytest.raises(TypeError, match=r"psdn-sonar\[ml\]"):
+            calculate_poseidon_score(0.1, 0.2, None)
+
+    def test_poseidon_score_none_cer_wer_is_actionable(self):
+        with pytest.raises(TypeError, match="calculate_cer_wer"):
+            calculate_poseidon_score(None, 0.2, 0.9)
+        with pytest.raises(TypeError, match="calculate_cer_wer"):
+            calculate_poseidon_score(0.1, None, 0.9)
 
     def test_normalize_text_unified(self):
         text = "  এটি   একটি  পরীক্ষা  "

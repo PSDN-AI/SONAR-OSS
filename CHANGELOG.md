@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `calculate_poseidon_score` now raises an actionable `TypeError` naming the
+  missing `psdn-sonar[ml]` extra when given the `None` that
+  `compute_semantic_similarity` returns without sentence-transformers, instead
+  of an opaque comparison error (#101). README and USAGE now flag that the
+  `[dev]` install does not include `[ml]`.
 - `psdn-sonar multi --hf-model` now loads the HuggingFace checkpoint instead of
   calling `create_model(None)`. `--language` is passed through to scoring.
 - Language-default `single` runs skip hosted API models unless their keys are
