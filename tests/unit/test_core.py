@@ -235,15 +235,20 @@ class TestProcessManifestWithASR:
             scores = json.loads(row["all_method_scores"])
             assert scores["no_trim"] >= 0.6
 
-    def test_missing_transcript_skips_clip(self, tmp_path):
+    def test_missing_transcript_raises_when_nothing_processed(self, tmp_path):
+        """A run that processed zero clips must raise (issue #102), not end
+        looking like a completed evaluation. The CSV still gets its header."""
         manifest = _write_manifest_dataset(tmp_path)
         (tmp_path / "transcripts" / "conv_001.json").unlink()
         output = tmp_path / "out.csv"
 
-        process_manifest_with_asr(str(manifest), _StubModel(), str(output), methods=["no_trim"], language="en")
+        with pytest.raises(RuntimeError, match="No clips were successfully processed"):
+            process_manifest_with_asr(str(manifest), _StubModel(), str(output), methods=["no_trim"], language="en")
 
         with open(output, encoding="utf-8") as f:
-            assert list(csv.DictReader(f)) == []
+            reader = csv.DictReader(f)
+            assert reader.fieldnames  # header written even for an empty run
+            assert list(reader) == []
 
     def test_explicit_method_recorded_in_stats(self, tmp_path):
         manifest = _write_manifest_dataset(tmp_path)

@@ -186,10 +186,10 @@ def _evaluate_model_on_dataset(
 
         results_csv = Path(output_dir) / f"asr_detailed_{model_name}.csv"
         with open(results_csv, "w", encoding="utf-8", newline="") as f:
-            if result["results"]:
-                writer = csv.DictWriter(f, fieldnames=result["results"][0].keys())
-                writer.writeheader()
-                writer.writerows(result["results"])
+            fieldnames = result["results"][0].keys() if result["results"] else SingleSpeakerEvaluator._csv_fieldnames()
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(result["results"])
 
         logger.info("Results saved: %s", results_csv)
         return str(results_csv)

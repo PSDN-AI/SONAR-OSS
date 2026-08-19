@@ -341,9 +341,11 @@ def test_run_evaluation_preserves_caller_submission_snapshot(tmp_path: Path, mon
     fake_result = {
         "model_name": "whisper_api",
         "results": [],
+        # successful=1 so run_evaluation does not raise NoSamplesEvaluatedError;
+        # this test is about the submission snapshot, not zero-sample handling.
         "summary": {
-            "total_samples": 0,
-            "successful": 0,
+            "total_samples": 1,
+            "successful": 1,
             "failed": 0,
             "avg_wer": 0.0,
             "avg_cer": 0.0,

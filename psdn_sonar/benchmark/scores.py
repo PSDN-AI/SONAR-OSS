@@ -32,8 +32,10 @@ _UTTERANCE_EXPORT_FIELDS = (
 class RunAggregate(BaseModel):
     """Headline metrics for one model run."""
 
-    cer_mean: float
-    wer_mean: float
+    # ``None`` when the run had zero successful samples: a run that scored
+    # nothing must not report the best possible (0.0) error rates.
+    cer_mean: Optional[float] = None
+    wer_mean: Optional[float] = None
     semantic_similarity_mean: Optional[float] = None
     poseidon_score_mean: Optional[float] = None
     # Fraction of utterances whose WER >= ``significant_wer_threshold``.
@@ -103,9 +105,12 @@ def build_run_scores(
         threshold=significant_wer_threshold,
     )
 
+    avg_cer = summary.get("avg_cer")
+    avg_wer = summary.get("avg_wer")
+
     aggregate = RunAggregate(
-        cer_mean=float(summary.get("avg_cer", 0.0)),
-        wer_mean=float(summary.get("avg_wer", 0.0)),
+        cer_mean=float(avg_cer) if avg_cer is not None else None,
+        wer_mean=float(avg_wer) if avg_wer is not None else None,
         semantic_similarity_mean=avg_sem if compute_sem else None,
         poseidon_score_mean=avg_poseidon if compute_sem else None,
         significant_wer_rate=sig_rate,
