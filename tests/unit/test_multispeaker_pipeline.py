@@ -28,7 +28,7 @@ class TestRunMultispeakerEvaluation:
             captured.update(kwargs)
 
         monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", fake_process)
-        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name: f"model:{name}")
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: f"model:{name}")
 
         output_dir = tmp_path / "out"
         result = run_multispeaker_evaluation(
@@ -48,12 +48,13 @@ class TestRunMultispeakerEvaluation:
         assert captured["max_samples"] == 3
         assert captured["sweep"] is True
         assert captured["method"] == "energy_trim"
+        assert captured["language"] == "bn"
         assert captured["methods"] == captured["config_settings"]["methods"]
 
     def test_methods_override_config(self, manifest, tmp_path, monkeypatch):
         captured = {}
         monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: captured.update(kw))
-        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name: object())
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
 
         run_multispeaker_evaluation(
             str(manifest),
@@ -64,3 +65,29 @@ class TestRunMultispeakerEvaluation:
 
         assert captured["methods"] == ["energy_trim", "no_trim"]
         assert captured["config_settings"]["methods"] == ["energy_trim", "no_trim"]
+
+    def test_custom_hf_model_and_language_forwarded(self, manifest, tmp_path, monkeypatch):
+        captured = {}
+        created = {}
+
+        def fake_create(name, **kwargs):
+            created["name"] = name
+            created.update(kwargs)
+            return "custom-model"
+
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", fake_create)
+
+        run_multispeaker_evaluation(
+            str(manifest),
+            "custom_openai_whisper_tiny",
+            output_dir=str(tmp_path / "out"),
+            language="en",
+            custom_hf_model="openai/whisper-tiny",
+        )
+
+        assert created["name"] == "custom_openai_whisper_tiny"
+        assert created["custom_hf_model"] == "openai/whisper-tiny"
+        assert created["language"] == "en"
+        assert captured["language"] == "en"
+        assert captured["asr_model"] == "custom-model"

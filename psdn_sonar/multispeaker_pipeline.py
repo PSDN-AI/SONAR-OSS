@@ -20,6 +20,8 @@ def run_multispeaker_evaluation(
     methods: Optional[List[str]] = None,
     sweep: bool = False,
     method: Optional[str] = None,
+    language: str = "bn",
+    custom_hf_model: Optional[str] = None,
 ) -> Path:
     """Evaluate a manifest with one ASR model and return the results CSV path.
 
@@ -31,6 +33,9 @@ def run_multispeaker_evaluation(
         methods: Preprocessing methods; ``None`` uses config defaults.
         sweep: Run all methods with oracle selection (inflates metrics).
         method: Explicit method name to use for all clips.
+        language: ISO 639-1 code used for WER/CER normalization.
+        custom_hf_model: HuggingFace repo id; when set, ``model_name`` is only
+            used as the results-file stem.
 
     Raises:
         FileNotFoundError: If the manifest does not exist.
@@ -49,13 +54,14 @@ def run_multispeaker_evaluation(
         config["methods"] = methods
 
     logger.info(
-        "Multi-speaker evaluation: manifest=%s model=%s max_samples=%s",
+        "Multi-speaker evaluation: manifest=%s model=%s language=%s max_samples=%s",
         manifest_path,
         model_name,
+        language,
         max_samples if max_samples > 0 else "all",
     )
 
-    model = create_model(model_name)
+    model = create_model(model_name, custom_hf_model=custom_hf_model, language=language)
 
     output_dir_path = Path(output_dir)
     output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -67,6 +73,7 @@ def run_multispeaker_evaluation(
         output_csv=str(output_csv),
         max_samples=max_samples,
         asr_model_name=model_name,
+        language=language,
         methods=config["methods"],
         config_settings=config,
         sweep=sweep,

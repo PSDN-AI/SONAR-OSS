@@ -4,39 +4,53 @@
 
 ## Q1: What CLI commands to issue, and what files are needed?
 
-**Dataset discovery** — find and download public datasets for a language:
+**Dataset discovery** — find and download public datasets for a language.
+`--datasets` accepts registry names currently wired into discover: `fleurs`,
+`voxpopuli` (English among the four supported eval languages), and `zeroth`
+(Korean). Common Voice is not discoverable.
 
 ```bash
-psdn-sonar discover --language bn --dry-run          # list what's available
-psdn-sonar discover --language bn --output data/bn   # download + prepare
-psdn-sonar discover --language ko --max-samples 500  # limit sample count
+psdn-sonar discover --language en --dry-run                        # list what's available
+psdn-sonar discover --language en --datasets fleurs --output data/en
+psdn-sonar discover --language ko --datasets fleurs --max-samples 10
 ```
 
-**Single-speaker evaluation** — the main workhorse:
+**Single-speaker evaluation** — the main workhorse. Always pass `--language`
+and `--models` (or `--hf-model`). Hosted IDs such as `whisper_api` need API
+keys; local IDs such as `whisper_base_en` need `psdn-sonar[ml]`.
 
 ```bash
 psdn-sonar single \
   --input data/test.tsv \
-  --models wav2vec2_bengali whisper_api elevenlabs_api \
+  --models whisper_base_en \
+  --language en \
   --output results/single-speaker-eval \
   --report
 ```
 
-**Multi-speaker evaluation** — for conversational audio:
+Omitting `--models` runs the language's default *local* models. Hosted API
+defaults are skipped unless their keys are set. Omitting `--language`
+defaults to Bengali (`bn`) and logs a warning — pass the code explicitly.
+
+**Multi-speaker evaluation** — for conversational audio. The input is a
+`manifest.jsonl` in the schema below (not a TSV). `--models` or `--hf-model`
+is required.
 
 ```bash
 psdn-sonar multi \
-  --input data/manifest.jsonl \
-  --models elevenlabs_api \
-  --method energy_trim \
-  --demographics --dataset-dir /path/to/dataset \
+  --input examples/test_manifest.jsonl \
+  --models whisper_base_en \
+  --language en \
+  --method no_trim \
   --output results/multi-eval
 ```
 
-**Custom / BYOL evaluation** — bring your own language:
+**Custom / BYOL evaluation** — bring your own language. Pass `--max-samples`
+on first run; the example config downloads FLEURS Portuguese unless you point
+it at a local TSV.
 
 ```bash
-psdn-sonar custom --config examples/custom_eval_portuguese.yaml --report
+psdn-sonar custom --config examples/custom_eval_portuguese.yaml --max-samples 10 --report
 ```
 
 ### Files needed before running
@@ -51,18 +65,35 @@ psdn-sonar custom --config examples/custom_eval_portuguese.yaml --report
 
 ### Manifest format (multi-speaker)
 
-Each line of `manifest.jsonl` is a JSON object describing one recording.
-Paths are relative to the manifest's directory:
+Each line of `manifest.jsonl` is a JSON object. Paths are relative to the
+manifest's directory. The transcript must be JSON (not `.txt`).
 
 ```json
 {
-  "audio_id": "REC001",
-  "audio_a_path": "REC001/speaker_a.wav",
-  "audio_b_path": "REC001/speaker_b.wav",
-  "combined_audio_path": "REC001/combined.wav",
-  "transcript_path": "REC001/transcript.txt"
+  "audio_id": "TEST001",
+  "audio_filepaths": {
+    "speaker_a": "sample_audio/TEST001/speaker_a.wav",
+    "speaker_b": "sample_audio/TEST001/speaker_b.wav"
+  },
+  "transcript_filepath": "sample_audio/TEST001/transcript.json",
+  "num_speakers": 2
 }
 ```
+
+Transcript JSON:
+
+```json
+{
+  "segments": [
+    {"speaker": "speaker_a", "text": "hello from speaker a", "start": 0.0, "end": 0.4},
+    {"speaker": "speaker_b", "text": "hello from speaker b", "start": 0.65, "end": 1.05}
+  ]
+}
+```
+
+Optional combined / mixed audio, when used for VAD or diarization, must be
+named `{audio_id}_Combined_Audio.wav` in the same directory as `speaker_a`
+(for example `sample_audio/TEST001/TEST001_Combined_Audio.wav`).
 
 See `examples/test_manifest.jsonl` for a working sample.
 
@@ -76,11 +107,9 @@ All outputs land under the `results/` directory (or wherever `--output` points).
 
 ```
 results/single-speaker-eval/
-├── asr_detailed_wav2vec2_bengali.csv    # per-utterance results
-├── asr_detailed_whisper_api.csv         # one CSV per model
-├── asr_detailed_elevenlabs_api.csv
-├── scores_wav2vec2_bengali.json         # machine-readable run artifact
-└── scores_whisper_api.json              # (see psdn_sonar/benchmark/README.md)
+├── asr_detailed_whisper_base_en.csv     # per-utterance results
+├── scores_whisper_base_en.json          # machine-readable run artifact
+└── analysis/whisper_base_en/            # only when --report is set
 ```
 
 ### After adding `--report`
@@ -98,19 +127,19 @@ results/single-speaker-eval/analysis/<model>/
 │   └── <metric>_by_dataset_model.png
 ├── hard-negatives-analysis/
 │   └── wer/cer hard-negatives comparisons
-└── audio-quality-analysis/
-    ├── snr_vs_wer_scatter.png
-    ├── snr_distribution.png
-    ├── latency_boxplot.png
-    └── quality_summary.json
+├── audio-quality-analysis/
+│   ├── snr_vs_wer_scatter.png
+│   ├── snr_distribution.png
+│   └── quality_summary.json
+└── latency-analysis/
 ```
 
 ### After multi-speaker eval
 
 ```
 results/multi-eval/
-├── asr_eval_results_elevenlabs_api_manifest.csv
-├── asr_eval_results_elevenlabs_api_manifest_stats.txt
+├── asr_eval_results_whisper_base_en_manifest.csv
+├── asr_eval_results_whisper_base_en_manifest.txt
 └── demographic-analysis/       # if --demographics was used
     ├── cer_by_gender.png
     ├── wer_by_age_group.png
@@ -166,7 +195,7 @@ synced locally with `scripts/download_data.py --config your_sync.yaml` — see
 - [ ] TSV file has correct tab-separated columns: `audio_path` and `transcription`
 - [ ] Audio files actually exist at the paths referenced in the TSV
 - [ ] Audio files are in a supported format (`.wav`, `.flac`, `.mp3`)
-- [ ] For multi-speaker: `manifest.jsonl` has valid audio and transcript paths
+- [ ] For multi-speaker: `manifest.jsonl` uses `audio_filepaths` + `transcript_filepath` (JSON), and those files exist
 
 **Previous results (if re-running):**
 
@@ -185,7 +214,7 @@ synced locally with `scripts/download_data.py --config your_sync.yaml` — see
 | **CER** | Character-level transcription accuracy | < 0.15 |
 | **WER** | Word-level transcription accuracy | < 0.25 |
 | **Semantic Similarity** | Meaning preservation (cosine similarity of sentence embeddings) | > 0.85 |
-| **PSDN Score** | Weighted composite: `w_wer×(1−WER) + w_cer×(1−CER) + w_sem×Similarity` (defaults: 0.35 / 0.20 / 0.45, configurable per-call or via env vars) | > 0.75 |
+| **POSEIDON** | Weighted composite: `w_wer×(1−WER) + w_cer×(1−CER) + w_sem×Similarity` (defaults: 0.35 / 0.20 / 0.45, configurable per-call or via env vars) | > 0.75 |
 
 ### Secondary metrics
 

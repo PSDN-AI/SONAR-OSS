@@ -14,7 +14,9 @@ dataset:
   audio_column: audio
 
 api_models:
-  enabled: true
+  # Hosted APIs are skipped automatically when their keys are unset.
+  # Leave enabled=false for a local-only first run.
+  enabled: false
   include:
     - whisper_api
     - elevenlabs_api

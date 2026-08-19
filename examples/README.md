@@ -30,14 +30,14 @@ python examples/huggingface_complete_workflow.py --dataset google/fleurs --confi
 ```
 
 ```bash
-# Single-speaker evaluation on the bundled sample data
-python examples/single_speaker_audio_dataset.py --tsv-path examples/test_data.tsv --models whisper_api
+# Single-speaker evaluation on the bundled sample clip (needs [ml])
+psdn-sonar single --input examples/test_data.tsv --models whisper_base_en --language en --output results/example-single
 
-# Multi-speaker evaluation
-python examples/multispeaker_audio_dataset.py --manifest examples/test_manifest.jsonl --model elevenlabs_api
+# Multi-speaker evaluation on the bundled two-speaker fixture (needs [ml])
+psdn-sonar multi --input examples/test_manifest.jsonl --models whisper_base_en --language en --method no_trim --output results/example-multi
 
-# Custom-language evaluation from a YAML config
-psdn-sonar custom --config examples/custom_eval_portuguese.yaml --output results/custom-eval --report
+# Custom-language evaluation from a YAML config (downloads FLEURS pt_br unless you change the dataset)
+psdn-sonar custom --config examples/custom_eval_portuguese.yaml --max-samples 10 --output results/custom-eval --report
 ```
 
 ## Analysis and data utilities
@@ -59,6 +59,10 @@ python examples/visualization.py --summary-csv results/summary.csv --output-dir 
 
 ## Sample data
 
-- `test_data.tsv` — minimal single-speaker TSV (Bengali).
-- `test_manifest.jsonl` — minimal multi-speaker manifest; each entry points
-  to per-speaker audio, combined audio, and a transcript.
+- `test_data.tsv` — one-row single-speaker TSV pointing at `sample_audio/single/sample.wav`.
+- `test_manifest.jsonl` — one two-speaker clip. Each line must have `audio_id`,
+  `audio_filepaths` (`speaker_a` / `speaker_b`), `transcript_filepath` (JSON),
+  and `num_speakers`. Combined audio, when present, is
+  `{audio_id}_Combined_Audio.wav` next to the speaker files.
+- `sample_audio/TEST001/` — short synthetic tones plus `transcript.json`
+  (format fixture, not real speech).

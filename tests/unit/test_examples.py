@@ -88,11 +88,23 @@ class TestSampleData:
         assert len(df) > 0
 
     def test_sample_manifest_entries_are_valid(self):
-        lines = (EXAMPLES_DIR / "test_manifest.jsonl").read_text().strip().splitlines()
+        from psdn_sonar.loaders.manifest import get_clip_files, load_manifest
+
+        manifest_path = EXAMPLES_DIR / "test_manifest.jsonl"
+        lines = manifest_path.read_text().strip().splitlines()
         assert lines
         for line in lines:
             entry = json.loads(line)
-            assert {"audio_id", "audio_a_path", "audio_b_path", "transcript_path"}.issubset(entry)
+            assert {"audio_id", "audio_filepaths", "transcript_filepath", "num_speakers"}.issubset(entry)
+            assert "speaker_a" in entry["audio_filepaths"]
+            assert "speaker_b" in entry["audio_filepaths"]
+
+        loaded = load_manifest(str(manifest_path))
+        assert loaded
+        audio_a, audio_b, transcript = get_clip_files(loaded[0])
+        assert audio_a is not None and audio_a.is_file()
+        assert audio_b is not None and audio_b.is_file()
+        assert transcript.is_file()
 
     def test_portuguese_config_parses(self):
         from psdn_sonar.custom_eval import CustomEvalConfig

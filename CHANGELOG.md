@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `psdn-sonar multi --hf-model` now loads the HuggingFace checkpoint instead of
+  calling `create_model(None)`. `--language` is passed through to scoring.
+- Language-default `single` runs skip hosted API models unless their keys are
+  set, so `psdn-sonar single --language en` no longer tries ElevenLabs/OpenAI/
+  AssemblyAI on a fresh install.
+- Omitting `--language` logs a warning that scoring defaults to Bengali.
+- Multi-speaker FAQ/examples now use the runtime manifest schema
+  (`audio_filepaths`, JSON `transcript_filepath`) and ship a tiny fixture.
+
 ## [0.1.0] - 2026-08-17
 
 ### Added

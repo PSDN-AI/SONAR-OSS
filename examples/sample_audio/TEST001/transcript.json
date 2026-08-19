@@ -1,0 +1,16 @@
+{
+  "segments": [
+    {
+      "speaker": "speaker_a",
+      "text": "hello from speaker a",
+      "start": 0.0,
+      "end": 0.4
+    },
+    {
+      "speaker": "speaker_b",
+      "text": "hello from speaker b",
+      "start": 0.65,
+      "end": 1.05
+    }
+  ]
+}
