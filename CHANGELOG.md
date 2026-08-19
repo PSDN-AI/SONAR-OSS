@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Omitting `--language` logs a warning that scoring defaults to Bengali.
 - Multi-speaker FAQ/examples now use the runtime manifest schema
   (`audio_filepaths`, JSON `transcript_filepath`) and ship a tiny fixture.
+- `docs/USAGE.md` section 1 now scores through
+  `UtteranceEvaluator.score_single_variant` — the evaluation path, which
+  normalizes before computing CER/WER — and labels `calculate_cer_wer` as a
+  raw-text primitive, so the first documented number matches what an
+  evaluation run reports (#100).
 
 ## [0.1.0] - 2026-08-17
 
