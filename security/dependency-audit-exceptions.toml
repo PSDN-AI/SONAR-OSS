@@ -43,6 +43,14 @@ review_by = "2026-10-15"
 removal_condition = "Remove when the transformers pin is raised to >=5."
 
 [[exception]]
+id = "PYSEC-2026-3716"
+package = "datasets"
+owner = "RN0311"
+rationale = "Path traversal in folder-based dataset builders (crafted filename metadata escaping the dataset dir during save_to_disk/push_to_hub). Fixed only in datasets 5.0.1; the toolkit pins <4.0.0 because 4.x switched Audio decoding to torchcodec. psdn-sonar only calls load_dataset on registry-pinned Hub IDs and never uses folder-based builders, save_to_disk, or push_to_hub, so the vulnerable path is not reachable."
+review_by = "2026-10-15"
+removal_condition = "Remove when the datasets pin is raised to >=5.0.1 (blocked on the torchcodec audio-decoding migration), or if a fixed 3.x backport is published."
+
+[[exception]]
 id = "PYSEC-2026-3624"
 package = "lightning"
 owner = "RN0311"
