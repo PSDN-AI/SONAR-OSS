@@ -115,10 +115,38 @@ class TestSingleSpeakerDispatch:
         assert mock_eval.call_args[1]["language"] == "bn"
         assert "No --language specified" in caplog.text
 
-    def test_unsupported_language_without_models_exits(self, tsv):
-        with pytest.raises(SystemExit) as exc_info:
-            run_cli("single", "--input", tsv, "--language", "xx")
+    def test_unsupported_language_without_models_exits(self, tsv, caplog):
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli("single", "--input", tsv, "--language", "xx")
         assert exc_info.value.code == 1
+        assert "Unknown --language 'xx'" in caplog.text
+
+    def test_unknown_language_with_explicit_models_exits_before_scoring(self, tsv, caplog):
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        with caplog.at_level("ERROR"):
+            with patch(target) as mock_eval:
+                with pytest.raises(SystemExit) as exc_info:
+                    run_cli("single", "--input", tsv, "--models", "whisper_base_en", "--language", "xx")
+        assert exc_info.value.code == 1
+        assert "Unknown --language 'xx'" in caplog.text
+        mock_eval.assert_not_called()
+
+    def test_language_without_dedicated_normalizer_warns_and_proceeds(self, tsv, caplog):
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        with caplog.at_level("WARNING"):
+            with patch(target) as mock_eval:
+                mock_eval.return_value = {"results": []}
+                run_cli("single", "--input", tsv, "--models", "whisper_base_en", "--language", "pt")
+        assert "no dedicated normalizer" in caplog.text
+        assert mock_eval.call_args[1]["language"] == "pt"
+
+    def test_language_long_name_and_case_canonicalized(self, tsv):
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        with patch(target) as mock_eval:
+            mock_eval.return_value = {"results": []}
+            run_cli("single", "--input", tsv, "--models", "wav2vec2_bengali", "--language", "Bengali")
+        assert mock_eval.call_args[1]["language"] == "bn"
 
 
 class TestDiscoverDispatch:
@@ -186,6 +214,17 @@ class TestMultiSpeakerDispatch:
         assert kwargs["method"] == "energy_trim"
         assert kwargs["custom_hf_model"] is None
         assert kwargs["language"] == "bn"
+
+    def test_unknown_language_code_exits_before_pipeline(self, tmp_path, caplog):
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text("{}\n")
+        with caplog.at_level("ERROR"):
+            with patch("psdn_sonar.multispeaker_pipeline.run_multispeaker_evaluation") as mock_run:
+                with pytest.raises(SystemExit) as exc_info:
+                    run_cli("multi", "--input", str(manifest), "--models", "whisper_api", "--language", "xx")
+        assert exc_info.value.code == 1
+        assert "Unknown --language 'xx'" in caplog.text
+        mock_run.assert_not_called()
 
     def test_hf_model_forwards_custom_id(self, tmp_path):
         manifest = tmp_path / "manifest.jsonl"

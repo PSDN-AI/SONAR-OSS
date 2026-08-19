@@ -147,10 +147,11 @@ Examples:
       --max-samples 100 \\
       --output data/my-dataset/test.tsv
 
-  # Then evaluate
+  # Then evaluate (use a registered Bengali model; generic multilingual
+  # Whisper checkpoints hallucinate non-Bengali script on Bengali audio)
   psdn-sonar single \\
       --input data/my-dataset/test.tsv \\
-      --hf-model openai/whisper-small \\
+      --models wav2vec2_bengali \\
       --language bn
         """,
     )
@@ -180,7 +181,7 @@ Examples:
     )
 
     logger.info("Next steps:")
-    logger.info("  psdn-sonar single --input %s --hf-model openai/whisper-small --language bn", output_tsv)
+    logger.info("  psdn-sonar single --input %s --models wav2vec2_bengali --language bn", output_tsv)
 
 
 if __name__ == "__main__":
