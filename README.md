@@ -20,6 +20,7 @@ reporting, and benchmarks. Distributed as the `psdn-sonar` Python package.
 
 - Python 3.10–3.12
 - [`uv`](https://docs.astral.sh/uv/) (recommended) or `pip`
+- `ffmpeg` recommended for MP3 and some `pydub` paths; WAV evaluation works without it
 
 **Supported environments.** CI validates Linux x86_64 with CPython 3.10, 3.11,
 and 3.12. macOS and Windows are expected to work for the core package but are
@@ -31,9 +32,11 @@ PyTorch trees). Open an issue if an install fails on a supported Python.
 
 ### Install the pre-release from TestPyPI (for testing)
 
-The current pre-release (`0.1.0.dev2`) is published to
-[TestPyPI](https://test.pypi.org/project/psdn-sonar/), not yet to PyPI. To
-install the package exactly as released:
+This repository is version **`0.1.0`**. A TestPyPI wheel may still be
+published under an older dev tag (historically `0.1.0.dev2`). Check
+[TestPyPI](https://test.pypi.org/project/psdn-sonar/) for the latest
+filename before copying the commands below. The package is not yet on
+PyPI. To install a TestPyPI wheel exactly as released:
 
 1. Create and activate a fresh Python 3.10–3.12 virtual environment. These
    examples use Python 3.12; substitute 3.10 or 3.11 if needed.
@@ -59,6 +62,7 @@ install the package exactly as released:
 
    ```text
    python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --no-cache-dir --dest testpypi-dist "psdn-sonar==0.1.0.dev2"
+   # If 0.1.0 is on TestPyPI, substitute psdn-sonar==0.1.0 and the matching wheel name below.
    ```
 
 3. Install that wheel, resolving dependencies from PyPI only:
@@ -70,8 +74,8 @@ install the package exactly as released:
 4. Verify the install:
 
    ```bash
-   psdn-sonar --version                                           # psdn-sonar 0.1.0.dev2
-   python -c "import psdn_sonar; print(psdn_sonar.__version__)"   # 0.1.0.dev2
+   psdn-sonar --version                                           # matches the wheel you installed
+   python -c "import psdn_sonar; print(psdn_sonar.__version__)"
    ```
 
 Then follow [`docs/USAGE.md`](docs/USAGE.md) for runnable examples. To install

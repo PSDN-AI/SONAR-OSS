@@ -53,13 +53,65 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+_DEFAULT_LANGUAGE = "bn"
+_API_MODEL_ENV_VARS = {
+    "whisper_api": ("OPENAI_API_KEY",),
+    "elevenlabs_api": ("ELEVENLABS_API_KEY", "XI_API_KEY"),
+    "assemblyai_api": ("ASSEMBLYAI_API_KEY",),
+}
+
+
+def _custom_model_name(hf_model: str) -> str:
+    """Sanitize a HuggingFace repo id into a results-file stem."""
+    return f"custom_{hf_model.replace('/', '_').replace('-', '_')}"
+
+
+def _resolve_language(args) -> str:
+    """Return the run language, warning when the Bengali default is implicit."""
+    language = getattr(args, "language", None)
+    if language:
+        return language
+    logger.warning(
+        "No --language specified; defaulting to 'bn' (Bengali). "
+        "Pass --language en|hi|bn|ko so the correct normalizer is used."
+    )
+    return _DEFAULT_LANGUAGE
+
+
+def _filter_unavailable_api_defaults(models: list) -> list:
+    """Drop hosted API defaults when the matching credential is unset.
+
+    Explicit ``--models elevenlabs_api`` is not filtered; only the
+    language-default list is, so a first-time ``--language en`` run does
+    not fail (or bill) three hosted backends.
+    """
+    from psdn_sonar.config import load_env
+
+    load_env()
+    kept = []
+    for name in models:
+        env_vars = _API_MODEL_ENV_VARS.get(name)
+        if env_vars and not any(os.getenv(var) for var in env_vars):
+            logger.warning(
+                "Skipping default model %s: %s not set. "
+                "Pass --models %s after setting the key, or use a local --models / --hf-model.",
+                name,
+                " or ".join(env_vars),
+                name,
+            )
+            continue
+        kept.append(name)
+    return kept
+
 
 def run_single_speaker(args):
     """Run single-speaker evaluation."""
     from psdn_sonar.evaluators.single_speaker import SingleSpeakerEvaluator
 
+    args.language = _resolve_language(args)
+
     if args.hf_model:
-        custom_model_name = f"custom_{args.hf_model.replace('/', '_').replace('-', '_')}"
+        custom_model_name = _custom_model_name(args.hf_model)
         models = [custom_model_name]
         custom_hf_model = args.hf_model
         logger.info(f"Using custom HuggingFace model: {args.hf_model}")
@@ -78,9 +130,16 @@ def run_single_speaker(args):
                 f"language: {supported}"
             )
             sys.exit(1)
+        models = _filter_unavailable_api_defaults(models)
+        if not models:
+            logger.error(
+                "No runnable default models for language '%s'. Set API keys or pass --models / --hf-model explicitly.",
+                args.language,
+            )
+            sys.exit(1)
         custom_hf_model = None
         logger.info(
-            f"No --models specified. Running all {len(models)} default models "
+            f"No --models specified. Running {len(models)} default local/available model(s) "
             f"for language '{args.language}': {', '.join(models)}"
         )
 
@@ -143,14 +202,23 @@ def run_multi_speaker(args):
     """Run multi-speaker evaluation."""
     from psdn_sonar.multispeaker_pipeline import run_multispeaker_evaluation
 
-    if not args.models and not getattr(args, "hf_model", None):
+    args.language = _resolve_language(args)
+
+    if args.hf_model:
+        custom_model_name = _custom_model_name(args.hf_model)
+        models = [custom_model_name]
+        custom_hf_model = args.hf_model
+        logger.info("Using custom HuggingFace model: %s", args.hf_model)
+        logger.info("Results will be saved as: %s", custom_model_name)
+    elif args.models:
+        models = args.models if isinstance(args.models, list) else [args.models]
+        custom_hf_model = None
+    else:
         logger.error(
             "Either --models or --hf-model must be specified for multi-speaker mode. "
             "Language-based auto-selection is only supported for single-speaker mode."
         )
         sys.exit(1)
-
-    models = args.models if isinstance(args.models, list) else [args.models]
 
     try:
         logger.info(
@@ -168,6 +236,8 @@ def run_multi_speaker(args):
                 max_samples=args.max_samples,
                 sweep=getattr(args, "sweep", False),
                 method=getattr(args, "method", None),
+                language=args.language,
+                custom_hf_model=custom_hf_model,
             )
             output_csvs.append((model_name, output_csv))
             logger.info("Completed: %s", model_name)
@@ -500,33 +570,37 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Single-speaker evaluation with one model
-  psdn-sonar single --input dataset.tsv --models wav2vec2_bengali --max-samples 10
+  # Single-speaker evaluation with one local model
+  psdn-sonar single --input dataset.tsv --models wav2vec2_bengali --language bn --max-samples 10
 
-  # Single-speaker — run all default models for a language
+  # Single-speaker — run default *local* models for a language (hosted APIs
+  # are skipped unless their keys are set)
   psdn-sonar single --input dataset.tsv --language ko
 
   # Single-speaker with a custom HuggingFace model
   psdn-sonar single --input dataset.tsv --hf-model openai/whisper-small --language bn
 
   # Single-speaker with report generation
-  psdn-sonar single --input dataset.tsv --models wav2vec2_bengali --report
+  psdn-sonar single --input dataset.tsv --models wav2vec2_bengali --language bn --report
 
   # Custom language evaluation with YAML config
   psdn-sonar custom --config my_eval.yaml --output results/custom-eval --report
 
-  # Multi-speaker evaluation
-  psdn-sonar multi --input manifest.jsonl --models elevenlabs_api
+  # Multi-speaker evaluation (local model)
+  psdn-sonar multi --input manifest.jsonl --models whisper_base_en --language en
+
+  # Multi-speaker with a custom HuggingFace model
+  psdn-sonar multi --input manifest.jsonl --hf-model openai/whisper-tiny --language en
 
   # Multi-speaker with demographic analysis
-  psdn-sonar multi --input manifest.jsonl --models elevenlabs_api \\
+  psdn-sonar multi --input manifest.jsonl --models whisper_base_en --language en \\
       --demographics --dataset-dir /path/to/dataset
 
   # Discover available public datasets for a language
-  psdn-sonar discover --language ur
+  psdn-sonar discover --language en --dry-run
 
-  # Discover and download with sample limit
-  psdn-sonar discover --language ur --max-samples 500 --output data/ur
+  # Discover and download a small FLEURS subset
+  psdn-sonar discover --language en --datasets fleurs --max-samples 10 --output data/en
         """.strip(),
     )
 
@@ -553,8 +627,11 @@ Examples:
     single_parser.add_argument(
         "--language",
         type=str,
-        default="bn",
-        help="Language code (bn=Bengali, ko=Korean, hi=Hindi, en=English, default: bn)",
+        default=None,
+        help=(
+            "Language code (bn=Bengali, ko=Korean, hi=Hindi, en=English). "
+            "Defaults to bn if omitted — always pass this so the correct normalizer is used."
+        ),
     )
     single_parser.add_argument(
         "--output",
@@ -601,8 +678,11 @@ Examples:
     multi_parser.add_argument(
         "--language",
         type=str,
-        default="bn",
-        help="Language code (bn=Bengali, ko=Korean, hi=Hindi, en=English, default: bn)",
+        default=None,
+        help=(
+            "Language code (bn=Bengali, ko=Korean, hi=Hindi, en=English). "
+            "Defaults to bn if omitted — always pass this so the correct normalizer is used."
+        ),
     )
     multi_parser.add_argument(
         "--method",
@@ -642,7 +722,7 @@ Examples:
         "--datasets",
         type=str,
         default=None,
-        help="Comma-separated dataset filter (e.g. common_voice,fleurs). Default: all available.",
+        help="Comma-separated dataset filter (e.g. fleurs,voxpopuli). Default: all available.",
     )
     discover_parser.add_argument("--max-samples", type=int, default=0, help="Limit samples per split (0=all)")
     discover_parser.add_argument(

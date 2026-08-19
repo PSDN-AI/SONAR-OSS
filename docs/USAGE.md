@@ -10,6 +10,12 @@ score.
 
 ## Install
 
+New users: follow the package install in [`README.md`](../README.md)
+(`pip install "psdn-sonar[ml]"` once published, or the TestPyPI / source
+steps listed there).
+
+From a clone, the contributor install that includes local-model extras is:
+
 ```bash
 pip install -e ".[ml]"   # core + ML models/backends
 ```

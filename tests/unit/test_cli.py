@@ -92,7 +92,9 @@ class TestSingleSpeakerDispatch:
         assert kwargs["custom_hf_model"] == "openai/whisper-small"
         assert kwargs["models"] == ["custom_openai_whisper_small"]
 
-    def test_language_defaults_when_no_models(self, tsv):
+    def test_language_defaults_when_no_models(self, tsv, monkeypatch):
+        for var in ("OPENAI_API_KEY", "ELEVENLABS_API_KEY", "XI_API_KEY", "ASSEMBLYAI_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
         target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
         with patch(target) as mock_eval:
             mock_eval.return_value = {"results": []}
@@ -101,6 +103,17 @@ class TestSingleSpeakerDispatch:
         kwargs = mock_eval.call_args[1]
         assert kwargs["models"]
         assert all(isinstance(m, str) for m in kwargs["models"])
+        assert not any(name.endswith("_api") for name in kwargs["models"])
+
+    def test_implicit_language_defaults_to_bn(self, tsv, caplog):
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        with caplog.at_level("WARNING"):
+            with patch(target) as mock_eval:
+                mock_eval.return_value = {"results": []}
+                run_cli("single", "--input", tsv, "--models", "whisper_base_en")
+
+        assert mock_eval.call_args[1]["language"] == "bn"
+        assert "No --language specified" in caplog.text
 
     def test_unsupported_language_without_models_exits(self, tsv):
         with pytest.raises(SystemExit) as exc_info:
@@ -171,6 +184,31 @@ class TestMultiSpeakerDispatch:
         assert kwargs["model_name"] == "whisper_api"
         assert kwargs["sweep"] is True
         assert kwargs["method"] == "energy_trim"
+        assert kwargs["custom_hf_model"] is None
+        assert kwargs["language"] == "bn"
+
+    def test_hf_model_forwards_custom_id(self, tmp_path):
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text("{}\n")
+        out_csv = tmp_path / "out.csv"
+        out_csv.write_text("cer_conv\n0.1\n")
+
+        with patch("psdn_sonar.multispeaker_pipeline.run_multispeaker_evaluation") as mock_run:
+            mock_run.return_value = str(out_csv)
+            run_cli(
+                "multi",
+                "--input",
+                str(manifest),
+                "--hf-model",
+                "openai/whisper-tiny",
+                "--language",
+                "en",
+            )
+
+        kwargs = mock_run.call_args[1]
+        assert kwargs["model_name"] == "custom_openai_whisper_tiny"
+        assert kwargs["custom_hf_model"] == "openai/whisper-tiny"
+        assert kwargs["language"] == "en"
 
 
 class TestCustomDispatch:
