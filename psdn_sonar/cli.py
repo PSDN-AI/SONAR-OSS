@@ -54,6 +54,9 @@ os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 _DEFAULT_LANGUAGE = "bn"
+# Languages with a dedicated normalizer branch in normalize_text_unified().
+_NORMALIZER_LANGUAGES = ("bn", "en", "hi", "ko")
+_LANGUAGE_LONG_NAMES = {"bengali": "bn", "english": "en", "hindi": "hi", "korean": "ko"}
 _API_MODEL_ENV_VARS = {
     "whisper_api": ("OPENAI_API_KEY",),
     "elevenlabs_api": ("ELEVENLABS_API_KEY", "XI_API_KEY"),
@@ -67,15 +70,47 @@ def _custom_model_name(hf_model: str) -> str:
 
 
 def _resolve_language(args) -> str:
-    """Return the run language, warning when the Bengali default is implicit."""
+    """Return the validated run language, exiting on codes the toolkit cannot score.
+
+    The language selects the normalization branch, so a typo silently changes
+    every WER/CER in the run. Unknown codes are rejected before any model is
+    loaded or any score is written; recognized ISO codes without a dedicated
+    normalizer proceed with an explicit fallback warning.
+    """
     language = getattr(args, "language", None)
-    if language:
-        return language
-    logger.warning(
-        "No --language specified; defaulting to 'bn' (Bengali). "
-        "Pass --language en|hi|bn|ko so the correct normalizer is used."
-    )
-    return _DEFAULT_LANGUAGE
+    if not language:
+        logger.warning(
+            "No --language specified; defaulting to 'bn' (Bengali). "
+            "Pass --language en|hi|bn|ko so the correct normalizer is used."
+        )
+        return _DEFAULT_LANGUAGE
+
+    from psdn_sonar.language_codes import LANG_CODE_TO_NAME
+
+    language = language.lower()
+    language = _LANGUAGE_LONG_NAMES.get(language, language)
+
+    if language not in LANG_CODE_TO_NAME:
+        logger.error(
+            "Unknown --language '%s': not a recognized ISO 639-1 code, so no scores were written. "
+            "Languages with dedicated normalizers: %s. "
+            "Run `psdn-sonar discover --language <code> --dry-run` to check dataset support for a code.",
+            language,
+            ", ".join(_NORMALIZER_LANGUAGES),
+        )
+        sys.exit(1)
+
+    if language not in _NORMALIZER_LANGUAGES:
+        logger.warning(
+            "Language '%s' (%s) has no dedicated normalizer; WER/CER will use the generic "
+            "fallback normalization, which can shift metrics. Dedicated normalizers exist for: %s. "
+            "For other languages, prefer `psdn-sonar custom` with a YAML config.",
+            language,
+            LANG_CODE_TO_NAME[language],
+            ", ".join(_NORMALIZER_LANGUAGES),
+        )
+
+    return language
 
 
 def _filter_unavailable_api_defaults(models: list) -> list:
@@ -591,8 +626,9 @@ Examples:
   # are skipped unless their keys are set)
   psdn-sonar single --input dataset.tsv --language ko
 
-  # Single-speaker with a custom HuggingFace model
-  psdn-sonar single --input dataset.tsv --hf-model openai/whisper-small --language bn
+  # Single-speaker with a custom HuggingFace model (pair generic multilingual
+  # checkpoints with English; for bn/hi/ko prefer the registered per-language models)
+  psdn-sonar single --input dataset.tsv --hf-model openai/whisper-small --language en
 
   # Single-speaker with report generation
   psdn-sonar single --input dataset.tsv --models wav2vec2_bengali --language bn --report

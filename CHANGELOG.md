@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `psdn-sonar single`/`multi` now validate `--language` before scoring (#103):
+  unrecognized codes (e.g. `xx`) exit 1 with an actionable error instead of
+  silently scoring with the fallback normalizer, recognized ISO codes without
+  a dedicated normalizer (e.g. `pt`) log an explicit fallback warning, and
+  long names / mixed case (`Bengali`, `KO`) are canonicalized to the ISO code
+  so they select the intended normalizer. The CLI epilogue, examples, and QA
+  guide no longer pair Bengali with generic `openai/whisper-small`, which
+  hallucinates non-Bengali script (WER ≈ 1.04); they recommend the registered
+  `wav2vec2_bengali` instead.
 - Runs that evaluate zero samples no longer exit 0 looking like clean runs
   (#102): unknown model names raise a `ValueError` listing the registered ids,
   a run with zero successful samples raises `NoSamplesEvaluatedError` after

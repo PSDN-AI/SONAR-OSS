@@ -34,8 +34,8 @@ How to use this document:
 | E2E-EN | en | FLEURS test (≤10) | `whisper_base_en` | Single | CSV + `scores_*.json`; WER/CER/sem/POSEIDON present | |
 | E2E-EN-HF | en | FLEURS test (≤5) | `--hf-model openai/whisper-tiny` | Single | Results saved as `custom_openai_whisper_tiny` | |
 | E2E-HI | hi | FLEURS test (≤10) | `whisper_small_hi` | Single | Hindi processor used; metrics + scores.json | |
-| E2E-BN | bn | FLEURS test (≤10) | `--hf-model openai/whisper-small` | Single | Bengali WER path used; metrics + scores.json | |
-| E2E-BN-REG | bn | FLEURS test (≤5) | `wav2vec2_bengali` | Single | Registered Bengali CTC model loads and scores | |
+| E2E-BN | bn | FLEURS test (≤10) | `wav2vec2_bengali` | Single | Registered Bengali CTC model; Bengali-script predictions; metrics + scores.json | |
+| E2E-BN-HF | bn | FLEURS test (≤5) | `--hf-model openai/whisper-small` | Single | BYO mechanics only; WER ≈ 1.0 expected (whisper-small hallucinates on bn) | |
 | E2E-KO | ko | FLEURS test (≤10) | `whisper_small_ko` | Single | Korean processor used; metrics + scores.json | |
 | E2E-KO-Z | ko | Zeroth test (≤5) | `wav2vec2_base_korean` | Single | Second Korean public corpus evaluates | |
 | MULTI-01 Fixture + `no_trim` | en | Constructed 2-speaker FLEURS mix | `whisper_base_en` | Multi | Per-speaker CSV rows; `best_method=no_trim` | |
@@ -96,7 +96,7 @@ Use these IDs with `--models`. Do not invent names such as `whisper-ko` or `whis
 | `whisper_small_en` | `openai/whisper-small` | en | ~244M params, ~500 MB |
 | `whisper_small_hi` | `openai/whisper-small` (`language=hi`) | hi | Same weights as whisper-small; forced Hindi decode. **Preferred Hindi smoke model.** |
 | `whisper_hindi_large_v2` | `vasista22/whisper-hindi-large-v2` | hi | Whisper large-v2 class, ~1.5 GB. Skip for smoke. |
-| `wav2vec2_bengali` | `arijitx/wav2vec2-xls-r-300m-bengali` | bn | ~300M CTC, ~1.2 GB |
+| `wav2vec2_bengali` | `arijitx/wav2vec2-xls-r-300m-bengali` | bn | ~300M CTC, ~1.2 GB. **Preferred Bengali smoke model** — do not use generic `openai/whisper-small` for Bengali (cross-script hallucinations, WER ≈ 1.04). |
 | `banglaspeech2text` | `anuragshas/whisper-large-v2-bn` | bn | large-v2. Skip for smoke. |
 | `khushids_bengali` | `KhushiDS/whisper-large-v3-Bengali` | bn | PEFT on whisper-large-v3; needs `[bengali]` (`peft`). Skip for smoke. |
 | `tugstugi_bengali` | `bengaliAI/tugstugi_bengaliai-asr_whisper-medium` | bn | medium. Skip for smoke. |
@@ -651,38 +651,13 @@ psdn-sonar single \
 
 ## 5. Bengali E2E
 
-### 5.1 E2E-BN — BYO Whisper (recommended smoke)
+### 5.1 E2E-BN — Registered Bengali model (recommended smoke)
 
-**Purpose:** FLEURS Bengali through the full metric path without downloading a 1 GB+ Bengali-specific checkpoint.
+**Purpose:** FLEURS Bengali → `wav2vec2_bengali` (`arijitx/wav2vec2-xls-r-300m-bengali`, ~1.2 GB) → Bengali normalization → metrics.
 
-**Prerequisites:** DISC-BN-FLEURS.
+Do **not** smoke-test Bengali with generic `openai/whisper-small`: on Bengali audio it hallucinates Latin/wrong-script output against Bengali references (measured WER ≈ 1.04). A registered Bengali checkpoint is required for meaningful Bengali numbers.
 
-**Command:**
-
-```bash
-psdn-sonar single \
-  --input data/qa/bn/fleurs/test.tsv \
-  --hf-model openai/whisper-small \
-  --language bn \
-  --max-samples 10 \
-  --output results/e2e-bn \
-  --report
-```
-
-**Expected result:**
-
-- `asr_detailed_custom_openai_whisper_small.csv`
-- `scores_custom_openai_whisper_small.json` with `"language_code": "bn"`
-- Ground truth is Bengali script (U+0980–U+09FF)
-- Metrics populated
-
-Bengali **evaluation** normalization is `normalize_bengali_for_wer()` (suffix splitting, nasals, number variants). That is **not** identical to `BengaliProcessor.normalize()`. Example: `এটি একটি পরীক্ষা` becomes `এ টি এক টি পরীক্ষা` on the WER path. See section 9.
-
-**Pass/fail:** PASS if files exist and `successful > 0`. FAIL if language_code is not `bn`.
-
-### 5.2 E2E-BN-REG — Registered Bengali model
-
-**Purpose:** Exercise a registry ID (`wav2vec2_bengali` → `arijitx/wav2vec2-xls-r-300m-bengali`).
+**Prerequisites:** DISC-BN-FLEURS. First load may take several minutes.
 
 **Command:**
 
@@ -691,13 +666,40 @@ psdn-sonar single \
   --input data/qa/bn/fleurs/test.tsv \
   --models wav2vec2_bengali \
   --language bn \
-  --max-samples 5 \
-  --output results/e2e-bn-reg
+  --max-samples 10 \
+  --output results/e2e-bn \
+  --report
 ```
 
-**Expected result:** `asr_detailed_wav2vec2_bengali.csv`. First load may take several minutes.
+**Expected result:**
 
-**Pass/fail:** PASS if the model loads and at least one row has a non-empty `prediction`. FAIL if `Unknown model` or import/`peft` errors (this adapter does not need peft; `khushids_bengali` does).
+- `asr_detailed_wav2vec2_bengali.csv`
+- `scores_wav2vec2_bengali.json` with `"language_code": "bn"`
+- Ground truth is Bengali script (U+0980–U+09FF)
+- Metrics populated; predictions are mostly Bengali script
+
+Bengali **evaluation** normalization is `normalize_bengali_for_wer()` (suffix splitting, nasals, number variants). That is **not** identical to `BengaliProcessor.normalize()`. Example: `এটি একটি পরীক্ষা` becomes `এ টি এক টি পরীক্ষা` on the WER path. See section 9.
+
+**Pass/fail:** PASS if files exist, `successful > 0`, and predictions are Bengali script. FAIL if `Unknown model` or import/`peft` errors (this adapter does not need peft; `khushids_bengali` does), or if language_code is not `bn`.
+
+### 5.2 E2E-BN-HF — BYO mechanics only (not a quality test)
+
+**Purpose:** Exercise the `--hf-model` bring-your-own path on Bengali input. This validates the **mechanism** (custom model load, file naming, Bengali WER path), not transcription quality — generic multilingual Whisper hallucinates on Bengali, so expect WER near 1.0.
+
+**Command:**
+
+```bash
+psdn-sonar single \
+  --input data/qa/bn/fleurs/test.tsv \
+  --hf-model openai/whisper-small \
+  --language bn \
+  --max-samples 5 \
+  --output results/e2e-bn-hf
+```
+
+**Expected result:** `asr_detailed_custom_openai_whisper_small.csv` and `scores_custom_openai_whisper_small.json` written; run completes. WER ≈ 1.0 and non-Bengali predictions are **expected** here and are not a failure of the harness.
+
+**Pass/fail:** PASS if files exist and the run exits 0. FAIL only on crash, `Unknown model`, or missing output files. Do not file the high WER as a bug; it is the documented behavior of this pairing.
 
 There is **no second Bengali dataset** in `discover`. OpenSLR 37/53 exist only as catalog + `core.py` loaders, not as CLI discover targets.
 
@@ -1232,9 +1234,9 @@ cp data/qa/en/fleurs/audio/test_000000.wav data/qa/neg/clip.wav
 psdn-sonar single --input data/qa/neg/empty-ref.tsv --models whisper_base_en --language en --output results/neg-empty-ref
 ```
 
-**Expected:** `Loaded 0 samples` (rows need both `audio_path` and `transcription`). Completes with empty results / zeros. Current code does not error on an empty dataset.
+**Expected:** the empty-reference row is kept and counted as **failed** with a per-row `error` in the CSV (`Row missing/empty 'transcription' field`); since no samples succeed, the run logs `No samples were successfully evaluated` and exits **1**. `avg_wer`/`avg_cer` in the summary and `wer_mean`/`cer_mean` in `scores_*.json` are `null`, and the results CSV still has its header.
 
-**Pass:** no crash. **Fail if** you believe empty input should be a hard error — record as a product gap, not a QA script mistake.
+**Pass:** exit 1 with the per-row error recorded and null means. **Fail:** exit 0, or the row silently dropped with no error recorded.
 
 ### 10.6 NEG-WRONG-LANGUAGE-CODE
 
@@ -1251,27 +1253,32 @@ psdn-sonar single \
 
 **Pass:** completes. File as a usability issue if there is no warning that references fail `validate_text`.
 
-### 10.7 NEG-UNSUPPORTED-LANGUAGE (no defaults)
+### 10.7 NEG-UNSUPPORTED-LANGUAGE
+
+Unknown codes are rejected before any model is loaded or any score is written, with or without `--models`:
 
 ```bash
 psdn-sonar single --input data/qa/en/fleurs/test.tsv --language xx
-```
-
-**Expected (exact):**
-
-```text
-No --models specified and no default model list found for language 'xx'. Either pass --models explicitly or use a supported language: ['bn', 'ko', 'hi', 'en', 'bengali', 'korean', 'hindi', 'english']
-```
-
-Exit code `1`.
-
-With an explicit model, `xx` is still accepted as a normalization key (fallback / empty processor path). That is a separate case:
-
-```bash
 psdn-sonar single --input data/qa/en/fleurs/test.tsv --models whisper_base_en --language xx --max-samples 1 --output results/neg-lang-xx
 ```
 
-**Expected:** should not crash. Record how WER is computed.
+**Expected:** both commands exit **1** with:
+
+```text
+Unknown --language 'xx': not a recognized ISO 639-1 code, so no scores were written. Languages with dedicated normalizers: bn, en, hi, ko. ...
+```
+
+No `results/neg-lang-xx` scores are written.
+
+A **recognized** ISO code without a dedicated normalizer (e.g. `pt`) is a separate case — it proceeds but warns:
+
+```bash
+psdn-sonar single --input data/qa/en/fleurs/test.tsv --models whisper_base_en --language pt --max-samples 1 --output results/neg-lang-pt
+```
+
+**Expected:** run completes; warning `Language 'pt' (portuguese) has no dedicated normalizer; WER/CER will use the generic fallback normalization ...` appears before evaluation starts.
+
+**Pass:** `xx` → exit 1 with no scores; `pt` → completes with the fallback warning. **Fail:** any unknown code producing a `scores_*.json`.
 
 ### 10.8 NEG-INVALID-HF-MODEL
 
@@ -1533,6 +1540,8 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D23 | FAQ audio formats | Open | No hard allow-list in `single`; MP3 needs ffmpeg. |
 | D24 | `core.py` docstring | Open | Library loaders for CV/OpenSLR are not `discover`. |
 | D25 | PyPI badge vs TestPyPI status | Open | Badge vs “not yet on PyPI” paragraph. |
+| D26 | `--language` accepted any string | **Fixed** | `single`/`multi` now exit 1 on unknown codes before scoring; recognized codes without a dedicated normalizer (e.g. `pt`) warn about generic fallback. See 10.7. |
+| D27 | Bengali paired with `openai/whisper-small` | **Fixed (docs)** | CLI epilogue, examples, and this guide now use `wav2vec2_bengali` for Bengali; the BYO whisper-small run is kept as a mechanics-only test (WER ≈ 1.0 expected). |
 
 ---
 
@@ -1606,7 +1615,8 @@ Copy this into the test report.
 - [ ] Missing input file → exit 2, exact argparse text
 - [ ] Missing TSV columns → `TSV missing required columns`
 - [ ] Invalid HF model → exit 1
-- [ ] Unsupported language without `--models` → exit 1 with supported list
+- [ ] Unknown language code (`xx`) → exit 1 before scoring, with or without `--models`
+- [ ] Recognized code without normalizer (`pt`) → runs with explicit fallback warning
 - [ ] `--models` + `--hf-model` → exit 2
 - [ ] Silent / corrupt / short audio did not crash
 
