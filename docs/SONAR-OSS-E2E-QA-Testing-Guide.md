@@ -1564,6 +1564,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D27 | Bengali paired with `openai/whisper-small` | **Fixed (docs)** | CLI epilogue, examples, and this guide now use `wav2vec2_bengali` for Bengali; the BYO whisper-small run is kept as a mechanics-only test (WER ≈ 1.0 expected). |
 | D28 | `--datasets` accepted any string, exit 0 | **Fixed** | Entries are validated per name (unknown / disabled / non-HF source / not wired), zero matches with a filter exit 1, and the error blames the filter rather than the language. Summary prints a catalog scope note. See 10.13. |
 | D29 | Silent audio scored `silence_ratio=0.0`, `snr_db=inf` | **Fixed** | Uniformly quiet files (loudest RMS frame below ~-60 dBFS) now score `1.0` and trip the `high_silence` gate; SNR is `None` (blank) for signal-less audio and capped at 100 dB for noise-free audio. See 10.18. |
+| D30 | Multi-speaker assignment scored perfect CER/WER (0.0) as worst case | **Fixed** | The `dual_assignment_score` heuristic used `or` fallbacks, so a perfect transcription could lose to a swapped pairing with higher similarity, corrupting both speakers' WER/CER. Missing metrics now default via explicit `None` checks. |
 
 ---
 
