@@ -112,10 +112,19 @@ def dual_assignment_score(
         return {"cer": cer, "wer": wer, "similarity": sim}
 
     def _heuristic(scores):
-        """Selection heuristic: avg((1-cer) + (1-wer) + sim) / 3."""
-        cer = scores.get("cer") or 1.0
-        wer = scores.get("wer") or 1.0
-        sim = scores.get("similarity") or 0.0
+        """Selection heuristic: avg((1-cer) + (1-wer) + sim) / 3.
+
+        Missing metrics count as worst case via explicit None checks so a
+        legitimate 0.0 survives — ``or`` turned a perfect CER/WER of 0.0
+        into 1.0, which could flip the winning assignment and charge both
+        speakers the swapped pairing's error rates (issue #106).
+        """
+        cer = scores.get("cer")
+        wer = scores.get("wer")
+        sim = scores.get("similarity")
+        cer = 1.0 if cer is None else cer
+        wer = 1.0 if wer is None else wer
+        sim = 0.0 if sim is None else sim
         return ((1 - cer) + (1 - wer) + sim) / 3
 
     if len(sids) == 0:
@@ -128,8 +137,10 @@ def dual_assignment_score(
         text = speaker_texts[sids[0]]
         scores_a = _score(ref_a, text) if ref_a else {"cer": None, "wer": None, "similarity": None}
         scores_b = _score(ref_b, text) if ref_b else {"cer": None, "wer": None, "similarity": None}
-        sim_a = scores_a.get("similarity") or 0.0
-        sim_b = scores_b.get("similarity") or 0.0
+        sim_a = scores_a.get("similarity")
+        sim_b = scores_b.get("similarity")
+        sim_a = 0.0 if sim_a is None else sim_a
+        sim_b = 0.0 if sim_b is None else sim_b
 
         if sim_a >= sim_b:
             return (

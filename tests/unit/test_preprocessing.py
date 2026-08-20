@@ -156,6 +156,48 @@ class TestDualAssignmentScore:
         assert a["text"] == "ref a"
         assert b["text"] == "ref b"
 
+    def test_perfect_scores_beat_higher_similarity_with_errors(self):
+        # Regression for issue #106: `or` fallbacks turned a perfect CER/WER
+        # of 0.0 into worst-case 1.0, so a swapped pairing with real errors
+        # but slightly higher cosine similarity outscored the correct one
+        # and both speakers were charged the swapped pairing's error rates.
+        table = {
+            ("ref a", "hyp a"): (0.0, 0.0, 0.90),
+            ("ref b", "hyp b"): (0.0, 0.0, 0.90),
+            ("ref a", "hyp b"): (0.4, 0.4, 0.95),
+            ("ref b", "hyp a"): (0.4, 0.4, 0.95),
+        }
+
+        def metric_fn(ref, hyp):
+            c, w, s = table[(ref, hyp)]
+            return (c, w, s, 0.0)
+
+        a, b = dual_assignment_score({"s0": "hyp a", "s1": "hyp b"}, "ref a", "ref b", metric_fn)
+        assert a["text"] == "hyp a" and a["cer"] == 0.0 and a["wer"] == 0.0
+        assert b["text"] == "hyp b" and b["cer"] == 0.0 and b["wer"] == 0.0
+
+    def test_none_metrics_still_count_as_worst_case(self):
+        # None (metric unavailable) must keep its worst-case default: a
+        # pairing with real scores beats one with missing scores.
+        def metric_fn(ref, hyp):
+            if (ref, hyp) in {("ref a", "hyp a"), ("ref b", "hyp b")}:
+                return (0.2, 0.3, 0.8, 0.0)
+            return (None, None, None, None)
+
+        a, b = dual_assignment_score({"s0": "hyp a", "s1": "hyp b"}, "ref a", "ref b", metric_fn)
+        assert a["text"] == "hyp a" and a["cer"] == 0.2
+        assert b["text"] == "hyp b" and b["wer"] == 0.3
+
+    def test_single_speaker_zero_similarity_assigned_to_a(self):
+        # Legitimate 0.0 similarity on both sides: the tie goes to A and no
+        # None-vs-0.0 confusion creeps in.
+        def metric_fn(ref, hyp):
+            return (0.5, 0.5, 0.0, 0.0)
+
+        a, b = dual_assignment_score({"s0": "some text"}, "ref a", "ref b", metric_fn)
+        assert a["text"] == "some text" and a["similarity"] == 0.0
+        assert "error" in b
+
 
 class TestLoadMultiSpeakerConfig:
     def test_default_package_config_loads(self):

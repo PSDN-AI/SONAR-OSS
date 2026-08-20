@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Multi-speaker assignment no longer treats a perfect score as missing
+  (#106): the `dual_assignment_score` selection heuristic defaulted
+  missing metrics with `or`, which also fires on a legitimate `0.0` —
+  a perfect transcription (CER/WER 0.0) was scored as worst case, so a
+  swapped speaker-to-reference pairing with real errors but slightly
+  higher similarity could win and corrupt both speakers' reported
+  WER/CER. Missing metrics now default via explicit `None` checks,
+  matching the equivalent computation in `core.py`.
 - Fully silent audio no longer passes the quality gate (#105):
   `calculate_silence_ratio` measures frames relative to the file's own
   loudest frame, so uniformly quiet files scored `0.0` — identical to
