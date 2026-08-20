@@ -29,6 +29,28 @@ _UTTERANCE_EXPORT_FIELDS = (
 )
 
 
+class RunLineage(BaseModel):
+    """Provenance facts needed to compare two runs like-for-like.
+
+    Added for issue #120: a published number could not be checked against a
+    reproduction because neither the checkpoint revision nor the
+    normalization rule set in force were recorded anywhere. All fields are
+    best-effort and ``None`` when unresolvable (e.g. hosted API models have
+    no local HF checkpoint).
+    """
+
+    # HuggingFace repo id actually loaded (from the resolved transformers
+    # config), which may differ from the registry name in ``model_name``.
+    hf_model_id: Optional[str] = None
+    # Commit SHA of the checkpoint revision actually loaded. The model
+    # registry pins no revisions, so this is the only record of which
+    # weights produced the numbers.
+    hf_revision: Optional[str] = None
+    # WER normalization contract in force, e.g. ``"bn:v1+bnlp"`` — see
+    # ``psdn_sonar.utils.text_processing.wer_normalization_contract``.
+    normalization: Optional[str] = None
+
+
 class RunAggregate(BaseModel):
     """Headline metrics for one model run."""
 
@@ -69,6 +91,7 @@ class RunScoresArtifact(BaseModel):
     submission: SubmissionConfig
     model_name: str
     aggregate: RunAggregate
+    lineage: Optional[RunLineage] = None
     utterances: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -82,6 +105,7 @@ def build_run_scores(
     *,
     compute_sem: bool = False,
     significant_wer_threshold: float = DEFAULT_SIGNIFICANT_WER_THRESHOLD,
+    lineage: Optional[RunLineage] = None,
 ) -> RunScoresArtifact:
     """Build a scores artifact from ``SingleSpeakerEvaluator.evaluate_one`` output.
 
@@ -132,6 +156,7 @@ def build_run_scores(
         submission=submission,
         model_name=model_name,
         aggregate=aggregate,
+        lineage=lineage,
         utterances=[_slim_utterance(row) for row in results],
     )
 

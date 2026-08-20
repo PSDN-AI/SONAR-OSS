@@ -311,6 +311,40 @@ def _tokenize_bengali(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# WER normalization contract versions
+# ---------------------------------------------------------------------------
+
+# Version of each language's WER normalization rule set. Bump a language's
+# number whenever its rule set or rule order changes, so scores produced under
+# different rule sets are never compared as if they were like-for-like.
+# Recorded per run in ``scores.json`` (see issue #120: published numbers could
+# not be compared against a reproduction because the rule set in force at
+# publish time was not recorded anywhere).
+WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 1, "en": 1, "hi": 1, "ko": 1}
+
+
+def wer_normalization_contract(language: str) -> str:
+    """Identifier of the WER normalization rule set in force for *language*.
+
+    Format ``"<lang>:v<version>"`` for languages with a versioned rule set,
+    ``"<lang>:unversioned"`` otherwise. Bengali additionally carries
+    ``"+bnlp"`` or ``"-bnlp"`` because :func:`_tokenize_bengali` silently
+    falls back to whitespace splitting when the optional ``bnlp`` package is
+    not installed — two environments running identical code can tokenize
+    (and therefore score) Bengali differently, so the marker is part of the
+    contract.
+    """
+    lang = (language or "").lower()
+    version = WER_NORMALIZATION_CONTRACTS.get(lang)
+    if version is None:
+        return f"{lang}:unversioned"
+    contract = f"{lang}:v{version}"
+    if lang == "bn":
+        contract += "+bnlp" if _BNLP_TOKENIZER_AVAILABLE else "-bnlp"
+    return contract
+
+
+# ---------------------------------------------------------------------------
 # Canonical Bengali normalization (for WER)
 # ---------------------------------------------------------------------------
 

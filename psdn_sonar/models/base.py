@@ -55,6 +55,38 @@ class ASRModel:
 
     supports_latency_metrics: bool = False
 
+    def get_hf_lineage(self) -> Tuple[Optional[str], Optional[str]]:
+        """Best-effort ``(model_id, revision)`` of the loaded HF checkpoint.
+
+        Introspects the ``transformers`` config of the loaded model
+        (``config._name_or_path`` / ``config._commit_hash``) via the
+        conventional adapter attributes ``self.model`` or ``self.pipe``.
+        Returns ``(None, None)`` for adapters without a local HuggingFace
+        checkpoint (hosted APIs) or when the attributes are absent.
+
+        Recorded in ``scores.json`` so a run can be reproduced against the
+        exact checkpoint it used — the registry pins no revisions, so
+        without this the checkpoint behind a published number is
+        unrecoverable (issue #120). For adapters that merge PEFT weights
+        onto a base model, the lineage reflects the loaded base config and
+        is therefore approximate.
+        """
+        for attr in ("model", "pipe"):
+            wrapper = getattr(self, attr, None)
+            if wrapper is None:
+                continue
+            for candidate in (wrapper, getattr(wrapper, "model", None)):
+                config = getattr(candidate, "config", None) if candidate is not None else None
+                if config is None:
+                    continue
+                model_id = getattr(config, "_name_or_path", None)
+                revision = getattr(config, "_commit_hash", None)
+                model_id = model_id if isinstance(model_id, str) and model_id else None
+                revision = revision if isinstance(revision, str) and revision else None
+                if model_id or revision:
+                    return (model_id, revision)
+        return (None, None)
+
     def transcribe(self, audio_path: str) -> TranscribeResult:
         raise NotImplementedError
 

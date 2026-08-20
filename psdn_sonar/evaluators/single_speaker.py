@@ -80,6 +80,33 @@ def _default_submission_for_model(
     )
 
 
+def _run_lineage(model, language: str):
+    """Build the best-effort ``RunLineage`` block for ``scores.json``.
+
+    Never fails the run: test doubles and third-party adapters may not
+    implement ``get_hf_lineage``, and lineage is diagnostic metadata.
+    """
+    from psdn_sonar.benchmark.scores import RunLineage
+    from psdn_sonar.utils.text_processing import wer_normalization_contract
+
+    hf_model_id = None
+    hf_revision = None
+    try:
+        resolved = model.get_hf_lineage()
+        if isinstance(resolved, tuple) and len(resolved) == 2:
+            candidate_id, candidate_revision = resolved
+            hf_model_id = candidate_id if isinstance(candidate_id, str) else None
+            hf_revision = candidate_revision if isinstance(candidate_revision, str) else None
+    except Exception:
+        logger.debug("Could not resolve HF lineage for %s", type(model).__name__, exc_info=True)
+
+    return RunLineage(
+        hf_model_id=hf_model_id,
+        hf_revision=hf_revision,
+        normalization=wer_normalization_contract(language),
+    )
+
+
 def _model_factory(
     name: str,
     kwargs: Optional[dict] = None,
@@ -549,6 +576,14 @@ class SingleSpeakerEvaluator:
                 skipped_models.append(model_name)
                 continue
 
+            lineage = _run_lineage(model, language)
+            if lineage.hf_model_id or lineage.hf_revision:
+                logger.info(
+                    "Model lineage: %s @ %s",
+                    lineage.hf_model_id or "<unknown id>",
+                    lineage.hf_revision or "<unknown revision>",
+                )
+
             _prewarm_thread.join()  # ensure quality models are loaded before AQ computation starts
             result = cls.evaluate_one(
                 model,
@@ -587,6 +622,7 @@ class SingleSpeakerEvaluator:
                     result,
                     compute_sem=compute_sem,
                     significant_wer_threshold=significant_wer_threshold,
+                    lineage=lineage,
                 )
                 write_scores_json(scores_path, artifact)
                 logger.info(f"Scores saved to {scores_path}")

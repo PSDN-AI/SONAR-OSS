@@ -20,6 +20,7 @@ Multi-model runs use one `scores_<model>.json` per model to avoid clobbering.
 | `submission` | `SubmissionConfig` — provider, model snapshot, region, protocol, env |
 | `model_name` | Registry model id for this run |
 | `aggregate` | Mean CER/WER, optional sem/POSEIDON, latency avg/median/p95, counts |
+| `lineage` | `RunLineage` — resolved HF checkpoint (`hf_model_id`, `hf_revision`) and the WER normalization contract in force (`normalization`, e.g. `"bn:v1+bnlp"`). Best-effort; fields are `null` for hosted API models. Recorded because the registry pins no model revisions, so without it the exact weights and rule set behind a number are unrecoverable. |
 | `utterances` | Slim per-row metrics (paths, WER/CER, sem, POSEIDON, latency, errors) |
 
 ### Example
@@ -44,6 +45,11 @@ Multi-model runs use one `scores_<model>.json` per model to avoid clobbering.
     "timestamp_utc": "2026-05-22T12:00:00Z"
   },
   "model_name": "whisper_api",
+  "lineage": {
+    "hf_model_id": null,
+    "hf_revision": null,
+    "normalization": "bn:v1+bnlp"
+  },
   "aggregate": {
     "cer_mean": 0.12,
     "wer_mean": 0.18,

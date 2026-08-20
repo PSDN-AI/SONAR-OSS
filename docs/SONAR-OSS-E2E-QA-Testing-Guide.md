@@ -48,7 +48,7 @@ How to use this document:
 | CLI-DISCOVER | — | — | — | — | `--help` + dry-run + small prepare | |
 | NORM-EN/HI/BN/KO | all | Controlled strings | Python API | — | Exact normalize + WER=0 on equivalent pairs | |
 | NEG-* | various | Synthetic | various | — | Clear error or explicit per-row `error` | |
-| REPRO-01 | en | Same TSV | `whisper_base_en` | Single | Second run writes `scores_*.json` with seed/git/model | |
+| REPRO-01 | en | Same TSV | `whisper_base_en` | Single | Second run writes `scores_*.json` with seed/git/model + `lineage` (HF revision, normalization contract) | |
 
 ---
 
@@ -523,6 +523,11 @@ MOS columns (`dnsmos_*`, UTMOS, SQUIM) may be null if those optional scorers fai
     "timestamp_utc": "<ISO-8601 Z>"
   },
   "model_name": "whisper_base_en",
+  "lineage": {
+    "hf_model_id": "openai/whisper-base",
+    "hf_revision": "<40-char checkpoint sha>",
+    "normalization": "en:v1"
+  },
   "aggregate": {
     "cer_mean": 0.0,
     "wer_mean": 0.0,
@@ -1493,6 +1498,9 @@ psdn-sonar single \
 | `submission.seed` | `42` (from `psdn_sonar/conf/config.yaml` `run.seed`) |
 | `submission.protocol` | `batch` |
 | `submission.git_sha` | same if run from the same git checkout |
+| `lineage.hf_model_id` | `openai/whisper-base` (the repo id actually loaded) |
+| `lineage.hf_revision` | same 40-char checkpoint SHA across both runs |
+| `lineage.normalization` | `en:v1` (Bengali runs also carry `+bnlp`/`-bnlp`) |
 | `aggregate.total_samples` | `5` |
 
 `timestamp_utc` **must differ** (or may differ). `elapsed_time_s` will differ.
@@ -1623,6 +1631,7 @@ Copy this into the test report.
 ### Reproducibility
 
 - [ ] Two runs share seed `42`, model id, language, package version
+- [ ] `lineage` block present: HF repo id, checkpoint SHA, normalization contract
 - [ ] Dataset `metadata.json` retained
 
 ### Release recommendation

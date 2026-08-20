@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `scores.json` now carries a `lineage` block recording the facts needed to
+  compare two runs like-for-like (#120): the HuggingFace repo id and
+  checkpoint commit SHA actually loaded (`hf_model_id`/`hf_revision` — the
+  model registry pins no revisions, so this is the only record of which
+  weights produced the numbers) and the WER normalization contract in force
+  (`normalization`, e.g. `bn:v1+bnlp`). The Bengali contract marks whether
+  the optional `bnlp` tokenizer was active, because its silent
+  whitespace-split fallback changes tokenization — and therefore absolute
+  WER/POSEIDON — between otherwise identical environments.
+
 ### Fixed
 
 - `psdn-sonar single`/`multi` now validate `--language` before scoring (#103):
