@@ -113,15 +113,17 @@ def load_transcripts(tsv_path: Path) -> list:
 
 
 def compute_lexical_stats(datasets: dict, language: str) -> None:
-    """Write vocabulary-growth/Zipf and n-gram diversity JSONs for the report loaders."""
+    """Write vocabulary-growth/Zipf, n-gram diversity, and utterance-length JSONs."""
     from psdn_sonar.reporting.metrics import (
         calculate_lexical_diversity_metrics,
+        compute_utterance_length_stats,
         compute_vocabulary_growth,
         compute_zipf_law,
     )
 
     lexical = {}
     diversity = {}
+    length_stats = {}
 
     for name, tsv_path in datasets.items():
         transcripts = load_transcripts(tsv_path)
@@ -143,14 +145,57 @@ def compute_lexical_stats(datasets: dict, language: str) -> None:
             "ttr": round(metrics["unigram_diversity"], 4),
             "total_samples": len(transcripts),
         }
+        length_stats[display] = compute_utterance_length_stats(transcripts)
         logger.info("Lexical stats for %s: %d transcripts", display, len(transcripts))
 
+    if length_stats:
+        # Utterance length drives score comparability (issue #119): WER on a
+        # 3-word utterance is quasi-binary, so datasets with very different
+        # length profiles must not be read against each other.
+        length_stats["_note"] = (
+            "Scores are comparable within a dataset only. Utterance-length "
+            "profiles differ across datasets; see docs/SCORE_INTERPRETATION.md."
+        )
+
     BENCHMARKS_ROOT.mkdir(parents=True, exist_ok=True)
-    for prefix, payload in [("public_lexical_data", lexical), ("public_diversity_stats", diversity)]:
+    payloads = [
+        ("public_lexical_data", lexical),
+        ("public_diversity_stats", diversity),
+        ("public_length_stats", length_stats),
+    ]
+    for prefix, payload in payloads:
         out_path = BENCHMARKS_ROOT / f"{prefix}_{language}.json"
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
         logger.info("Saved: %s", out_path)
+
+
+def write_domain_markers(models: list, datasets: dict, raw_eval_dir: Path) -> Path:
+    """Write per-cell training-overlap markers for the leaderboard to render.
+
+    ``domain_markers.json`` maps model -> dataset -> one of "in-domain" /
+    "not-declared" / "unknown", from HuggingFace model-card declarations
+    recorded in psdn_sonar.models.provenance (issue #119).
+    """
+    from psdn_sonar.models.provenance import evaluation_domain
+
+    markers = {model: {dataset: evaluation_domain(model, dataset) for dataset in datasets} for model in models}
+    payload = {
+        "note": (
+            "in-domain: the model card declares this dataset as training data; "
+            "not-declared: the audited card declares other corpora; "
+            "unknown: no audited declaration (unaudited card or hosted API). "
+            "Split hygiene cannot be verified from public metadata; see "
+            "docs/SCORE_INTERPRETATION.md."
+        ),
+        "markers": markers,
+    }
+    raw_eval_dir.mkdir(parents=True, exist_ok=True)
+    out_path = raw_eval_dir / "domain_markers.json"
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    logger.info("Saved: %s", out_path)
+    return out_path
 
 
 def main():
@@ -203,12 +248,21 @@ def main():
         sys.exit(1)
 
     if not args.skip_eval:
+        from psdn_sonar.models.provenance import IN_DOMAIN, evaluation_domain
+
         for model_name in models:
             required_key = _API_ENV_KEYS.get(model_name)
             if required_key and not os.getenv(required_key):
                 logger.warning("Skipping %s — %s not set", model_name, required_key)
                 continue
             for dataset_name, tsv_path in datasets.items():
+                if evaluation_domain(model_name, dataset_name) == IN_DOMAIN:
+                    logger.warning(
+                        "%s declares %s as training data in its model card — this cell is "
+                        "in-domain and will be marked as such in domain_markers.json",
+                        model_name,
+                        dataset_name,
+                    )
                 evaluate_dataset(
                     tsv_path,
                     dataset_name,
@@ -218,6 +272,7 @@ def main():
                     language=language_code,
                 )
 
+    write_domain_markers(models, datasets, raw_eval_dir)
     compute_lexical_stats(datasets, language)
 
     logger.info("Done. Raw evaluations: %s", raw_eval_dir)

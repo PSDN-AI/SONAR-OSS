@@ -120,6 +120,12 @@ examples (scoring a pair, evaluating a model over a dataset, listing models),
 and [`docs/FAQ.md`](docs/FAQ.md) for common workflows: CLI commands, required
 input files, output layout, and how success is measured.
 
+Before comparing published numbers, read
+[`docs/SCORE_INTERPRETATION.md`](docs/SCORE_INTERPRETATION.md): what the
+scores measure — multi-speaker results include preprocessing error, scores
+are comparable within a dataset only, and cells where a model is evaluated
+on its declared training corpus carry an in-domain marker.
+
 ## Development
 
 ```bash

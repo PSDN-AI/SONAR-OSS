@@ -74,6 +74,11 @@ def run_multispeaker_evaluation(
         language,
         max_samples if max_samples > 0 else "all",
     )
+    logger.info(
+        "Scope: multi-speaker WER/CER measures the preprocessing + ASR pipeline end to end "
+        "(trimming/VAD/diarization errors are charged to the run), not isolated model "
+        "capability. See docs/SCORE_INTERPRETATION.md."
+    )
 
     model = create_model(model_name, custom_hf_model=custom_hf_model, language=language)
 

@@ -1588,6 +1588,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D29 | Silent audio scored `silence_ratio=0.0`, `snr_db=inf` | **Fixed** | Uniformly quiet files (loudest RMS frame below ~-60 dBFS) now score `1.0` and trip the `high_silence` gate; SNR is `None` (blank) for signal-less audio and capped at 100 dB for noise-free audio. See 10.18. |
 | D30 | Multi-speaker assignment scored perfect CER/WER (0.0) as worst case | **Fixed** | The `dual_assignment_score` heuristic used `or` fallbacks, so a perfect transcription could lose to a swapped pairing with higher similarity, corrupting both speakers' WER/CER. Missing metrics now default via explicit `None` checks. |
 | D31 | TSV `audio_path` with `../` escaped the dataset directory and was opened | **Fixed** | The boundary guard existed but defaulted off and the CLI could not enable it. Relative paths escaping the TSV directory are now always rejected; `--strict-audio-paths` additionally rejects absolute paths and requires existing regular files. See 10.27. |
+| D32 | No stated position on what scores measure (preprocessing confound, cross-dataset length gap, unmarked in-domain cells) | **Documented / data emitted** | `docs/SCORE_INTERPRETATION.md` states the position on all three. Multi-speaker runs log their pipeline scope; `precompute_benchmarks.py` emits `public_length_stats_<language>.json` and per-cell `domain_markers.json` (from `psdn_sonar.models.provenance`). Leaderboard rendering is owned by `PSDN-AI/psdn-portals`. |
 
 ---
 

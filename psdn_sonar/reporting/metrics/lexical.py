@@ -159,6 +159,35 @@ def compute_zipf_law(texts: List[str], sample_points: int = 1000) -> List[Dict]:
     return [{"rank": r, "frequency": f} for r, f in zip(ranks[::sample_rate], frequencies[::sample_rate])]
 
 
+def compute_utterance_length_stats(transcripts: List[str]) -> Dict:
+    """Utterance-length distribution for one dataset's transcripts.
+
+    Published next to each dataset so readers can judge score comparability
+    (issue #119): WER on a 3-word utterance moves in steps of 1/3, so
+    short-utterance corpora produce quasi-binary scores that must not be
+    read against long-utterance corpora in the same columns.
+    """
+    if not transcripts:
+        return {}
+
+    word_counts = np.array([len(t.split()) for t in transcripts])
+    char_counts = np.array([len(t) for t in transcripts])
+    q1, median, q3 = (float(q) for q in np.percentile(word_counts, [25, 50, 75]))
+
+    return {
+        "total_utterances": int(len(transcripts)),
+        "words_min": int(word_counts.min()),
+        "words_q1": q1,
+        "words_median": median,
+        "words_q3": q3,
+        "words_max": int(word_counts.max()),
+        "words_mean": round(float(word_counts.mean()), 2),
+        "pct_5_words_or_fewer": round(float(np.mean(word_counts <= 5)), 4),
+        "chars_median": float(np.percentile(char_counts, 50)),
+        "chars_mean": round(float(char_counts.mean()), 2),
+    }
+
+
 def calculate_gini_coefficient(frequencies: List[int]) -> float:
     """Gini coefficient of a frequency distribution (0 = uniform, →1 = concentrated)."""
     sorted_freq = np.array(sorted(frequencies))

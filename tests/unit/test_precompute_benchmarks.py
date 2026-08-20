@@ -66,7 +66,7 @@ class TestLoadTranscripts:
 
 
 class TestComputeLexicalStats:
-    def test_writes_both_jsons(self, script, tmp_path, monkeypatch):
+    def test_writes_all_jsons(self, script, tmp_path, monkeypatch):
         monkeypatch.setattr(script, "BENCHMARKS_ROOT", tmp_path)
         tsv = tmp_path / "cv.tsv"
         pd.DataFrame({"transcription": ["the cat sat", "the dog ran"]}).to_csv(tsv, sep="\t", index=False)
@@ -75,11 +75,15 @@ class TestComputeLexicalStats:
 
         lexical = json.loads((tmp_path / "public_lexical_data_english.json").read_text())
         diversity = json.loads((tmp_path / "public_diversity_stats_english.json").read_text())
+        lengths = json.loads((tmp_path / "public_length_stats_english.json").read_text())
 
         assert lexical["Common Voice"]["total_transcripts"] == 2
         assert lexical["Common Voice"]["vocabulary_growth"][-1]["vocab_size"] == 5
         assert 0.0 < diversity["Common Voice"]["unigram_diversity"] <= 1.0
         assert diversity["Common Voice"]["ttr"] == diversity["Common Voice"]["unigram_diversity"]
+        assert lengths["Common Voice"]["words_median"] == 3.0
+        assert lengths["Common Voice"]["pct_5_words_or_fewer"] == 1.0
+        assert "comparable within a dataset" in lengths["_note"]
 
     def test_skips_datasets_without_transcripts(self, script, tmp_path, monkeypatch):
         monkeypatch.setattr(script, "BENCHMARKS_ROOT", tmp_path)
@@ -90,6 +94,37 @@ class TestComputeLexicalStats:
 
         lexical = json.loads((tmp_path / "public_lexical_data_english.json").read_text())
         assert lexical == {}
+
+
+class TestWriteDomainMarkers:
+    def test_marks_declared_training_overlap(self, script, tmp_path):
+        raw_eval = tmp_path / "raw-evaluations"
+        out = script.write_domain_markers(
+            ["kresnik_wav2vec2_large_xlsr_korean", "whisper_api"],
+            {"zeroth": Path("z.tsv"), "fleurs": Path("f.tsv")},
+            raw_eval,
+        )
+
+        payload = json.loads(out.read_text())
+        markers = payload["markers"]
+        assert markers["kresnik_wav2vec2_large_xlsr_korean"]["zeroth"] == "in-domain"
+        assert markers["kresnik_wav2vec2_large_xlsr_korean"]["fleurs"] == "not-declared"
+        assert markers["whisper_api"]["zeroth"] == "unknown"
+        assert markers["whisper_api"]["fleurs"] == "unknown"
+        assert "in-domain" in payload["note"]
+
+    def test_covers_every_model_dataset_pair(self, script, tmp_path):
+        out = script.write_domain_markers(
+            ["khushids_bengali", "wav2vec2_bengali"],
+            {"fleurs": Path("f.tsv"), "openslr53": Path("o.tsv")},
+            tmp_path,
+        )
+
+        markers = json.loads(out.read_text())["markers"]
+        assert markers["khushids_bengali"]["fleurs"] == "in-domain"
+        assert markers["wav2vec2_bengali"]["openslr53"] == "in-domain"
+        assert markers["khushids_bengali"]["openslr53"] == "not-declared"
+        assert markers["wav2vec2_bengali"]["fleurs"] == "not-declared"
 
 
 class TestEvaluateDataset:

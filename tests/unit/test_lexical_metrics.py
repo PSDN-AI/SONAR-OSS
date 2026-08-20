@@ -3,9 +3,39 @@ from psdn_sonar.reporting.metrics.lexical import (
     calculate_lexical_diversity_metrics,
     calculate_ngram_diversity,
     calculate_ngram_diversity_chunked,
+    compute_utterance_length_stats,
     compute_vocabulary_growth,
     compute_zipf_law,
 )
+
+
+class TestComputeUtteranceLengthStats:
+    def test_quartiles_and_mean(self):
+        transcripts = ["one", "one two", "one two three", "one two three four five six seven"]
+        stats = compute_utterance_length_stats(transcripts)
+
+        assert stats["total_utterances"] == 4
+        assert stats["words_min"] == 1
+        assert stats["words_median"] == 2.5
+        assert stats["words_max"] == 7
+        assert stats["words_mean"] == 3.25
+        assert stats["pct_5_words_or_fewer"] == 0.75
+
+    def test_char_stats(self):
+        stats = compute_utterance_length_stats(["ab", "abcd"])
+        assert stats["chars_median"] == 3.0
+        assert stats["chars_mean"] == 3.0
+
+    def test_short_utterance_corpus_profile_is_visible(self):
+        # The issue-#119 scenario: a corpus dominated by <=5-word utterances
+        # must be identifiable from the published stats alone.
+        short_corpus = ["w1 w2 w3"] * 97 + ["w1 w2 w3 w4 w5 w6 w7 w8 w9 w10"] * 3
+        stats = compute_utterance_length_stats(short_corpus)
+        assert stats["words_median"] == 3.0
+        assert stats["pct_5_words_or_fewer"] == 0.97
+
+    def test_empty_returns_empty_dict(self):
+        assert compute_utterance_length_stats([]) == {}
 
 
 class TestComputeVocabularyGrowth:
