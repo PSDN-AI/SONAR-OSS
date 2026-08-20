@@ -1476,6 +1476,28 @@ psdn-sonar: error: Config file not found: /nonexistent.yaml
 
 Exit 2.
 
+### 10.27 NEG-PATH-TRAVERSAL (audio_path escaping the TSV directory)
+
+**Purpose:** A relative `audio_path` with `../` must not be followed out of the dataset directory (a TSV received from someone else could otherwise read audio from anywhere on disk).
+
+```bash
+printf 'audio_path\ttranscription\n../../../../etc/hosts\tignored\n' > /tmp/traversal.tsv
+psdn-sonar single --input /tmp/traversal.tsv --models whisper_base_en --language en --output results/neg-traversal
+echo "exit=$?"
+```
+
+**Expected:** exit 1 with `ERROR ... audio_path escapes dataset root: ../../../../etc/hosts` before any model loads. The file is never opened — no audio-decoder error mentioning `/etc/hosts` appears.
+
+Absolute paths in the TSV remain allowed by default (SONAR's own `discover` output writes them, and they are explicit in the file). To also reject absolute paths and require every path to be an existing regular file inside the TSV's directory, pass `--strict-audio-paths`:
+
+```bash
+printf 'audio_path\ttranscription\n/etc/hosts\tignored\n' > /tmp/absolute.tsv
+psdn-sonar single --input /tmp/absolute.tsv --models whisper_base_en --language en --strict-audio-paths --output results/neg-absolute
+echo "exit=$?"
+```
+
+**Expected:** exit 1 with `ERROR ... audio_path must be relative inside bundle: /etc/hosts`.
+
 ---
 
 ## 11. Reproducibility tests
@@ -1565,6 +1587,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D28 | `--datasets` accepted any string, exit 0 | **Fixed** | Entries are validated per name (unknown / disabled / non-HF source / not wired), zero matches with a filter exit 1, and the error blames the filter rather than the language. Summary prints a catalog scope note. See 10.13. |
 | D29 | Silent audio scored `silence_ratio=0.0`, `snr_db=inf` | **Fixed** | Uniformly quiet files (loudest RMS frame below ~-60 dBFS) now score `1.0` and trip the `high_silence` gate; SNR is `None` (blank) for signal-less audio and capped at 100 dB for noise-free audio. See 10.18. |
 | D30 | Multi-speaker assignment scored perfect CER/WER (0.0) as worst case | **Fixed** | The `dual_assignment_score` heuristic used `or` fallbacks, so a perfect transcription could lose to a swapped pairing with higher similarity, corrupting both speakers' WER/CER. Missing metrics now default via explicit `None` checks. |
+| D31 | TSV `audio_path` with `../` escaped the dataset directory and was opened | **Fixed** | The boundary guard existed but defaulted off and the CLI could not enable it. Relative paths escaping the TSV directory are now always rejected; `--strict-audio-paths` additionally rejects absolute paths and requires existing regular files. See 10.27. |
 
 ---
 
@@ -1644,6 +1667,8 @@ Copy this into the test report.
 - [ ] Valid `--datasets` matching nothing for the language → exit 1 blaming the filter
 - [ ] `--models` + `--hf-model` → exit 2
 - [ ] Silent / corrupt / short audio did not crash
+- [ ] `audio_path` with `../` escaping the TSV directory → exit 1, file never opened
+- [ ] `--strict-audio-paths` rejects absolute `audio_path` values → exit 1
 
 ### Reproducibility
 

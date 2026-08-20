@@ -197,6 +197,7 @@ def run_single_speaker(args):
             compute_sem=True,
             custom_hf_model=custom_hf_model,
             language=args.language,
+            allow_absolute_audio_paths=not args.strict_audio_paths,
             significant_wer_threshold=significant_wer_threshold,
         )
         logger.info("Evaluation complete. Results: %s/", args.output)
@@ -715,6 +716,15 @@ Examples:
             "WER value at and above which an utterance is flagged as a significant error "
             "(per-row significant_wer column + run-level significant_wer_rate in scores.json). "
             "Default: 0.30. The threshold actually used is recorded in scores.json."
+        ),
+    )
+    single_parser.add_argument(
+        "--strict-audio-paths",
+        action="store_true",
+        help=(
+            "Reject absolute audio_path values in the TSV and require every path to be an "
+            "existing regular file inside the TSV's directory. Relative paths that escape "
+            "the TSV's directory (e.g. via ../) are always rejected, with or without this flag."
         ),
     )
     single_parser.add_argument(

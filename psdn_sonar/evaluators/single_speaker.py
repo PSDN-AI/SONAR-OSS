@@ -125,6 +125,17 @@ def _resolve_audio_path(
     dataset_root: Path,
     allow_absolute_audio_paths: bool,
 ) -> str:
+    """Resolve a TSV ``audio_path`` against the dataset root.
+
+    A relative path that resolves outside the dataset root (``../`` traversal)
+    is always rejected — this used to be gated behind the strict mode, so a
+    TSV received from someone else could silently read audio from anywhere on
+    disk (issue #127). Absolute paths remain allowed by default because they
+    are explicit in the TSV and SONAR's own dataset preparer writes them;
+    strict mode (``allow_absolute_audio_paths=False``, ``--strict-audio-paths``
+    on the CLI) additionally rejects absolute paths and requires each path to
+    be an existing regular file.
+    """
     candidate = Path(audio_path)
     if candidate.is_absolute():
         if not allow_absolute_audio_paths:
@@ -132,10 +143,14 @@ def _resolve_audio_path(
         resolved = candidate.resolve()
     else:
         resolved = (dataset_root / candidate).resolve()
+        if not resolved.is_relative_to(dataset_root):
+            raise ValueError(
+                f"audio_path escapes dataset root: {audio_path} "
+                f"(resolves to {resolved}, outside {dataset_root}). "
+                f"Use a path inside the TSV's directory, or an explicit absolute path."
+            )
 
     if not allow_absolute_audio_paths:
-        if not resolved.is_relative_to(dataset_root):
-            raise ValueError(f"audio_path escapes dataset root: {audio_path}")
         if not resolved.exists():
             raise FileNotFoundError(f"audio_path does not exist: {audio_path}")
         if not resolved.is_file():
@@ -184,6 +199,11 @@ class SingleSpeakerEvaluator:
         silently dropped: they are returned with a ``load_error`` key so the
         evaluator can count them as failed and emit an error row, keeping the
         artifacts honest about how much of the input was actually evaluated.
+
+        Relative ``audio_path`` values that resolve outside the TSV's
+        directory always raise ``ValueError`` (issue #127). With
+        ``allow_absolute_audio_paths=False``, absolute paths are rejected too
+        and every path must be an existing regular file.
         """
         data = []
         path = Path(tsv_path)

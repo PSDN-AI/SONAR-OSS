@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A TSV `audio_path` with `../` can no longer escape the dataset
+  directory (#127): the boundary guard in the single-speaker evaluator
+  existed but was gated behind a parameter that defaulted off and had no
+  CLI exposure, so a manifest received from someone else could read
+  audio from anywhere on disk. Relative paths that resolve outside the
+  TSV's directory are now always rejected with a clear error before any
+  model loads. Absolute paths remain allowed by default (they are
+  explicit in the TSV and `discover` output writes them); the new
+  `psdn-sonar single --strict-audio-paths` flag additionally rejects
+  absolute paths and requires every path to be an existing regular file.
 - Multi-speaker assignment no longer treats a perfect score as missing
   (#106): the `dual_assignment_score` selection heuristic defaulted
   missing metrics with `or`, which also fires on a legitimate `0.0` —
