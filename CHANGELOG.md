@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Documented what the published scores measure and made the caveats
+  machine-readable (#119): `docs/SCORE_INTERPRETATION.md` states the
+  project's position on the three reader traps — multi-speaker WER/CER
+  measures the preprocessing + ASR pipeline end to end (the multi CLI now
+  logs this scope at run start), scores are comparable within a dataset
+  only (`precompute_benchmarks.py` now publishes per-dataset
+  utterance-length stats as `public_length_stats_<language>.json`), and
+  cells where a model is evaluated on a corpus its card declares as
+  training data are marked (`psdn_sonar.models.provenance` records the
+  audited card declarations; the precompute script writes per-cell
+  `domain_markers.json` and warns when running an in-domain pair).
+  Leaderboard rendering of the markers is owned by `PSDN-AI/psdn-portals`.
 - `scores.json` now carries a `lineage` block recording the facts needed to
   compare two runs like-for-like (#120): the HuggingFace repo id and
   checkpoint commit SHA actually loaded (`hf_model_id`/`hf_revision` — the
