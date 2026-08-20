@@ -1404,7 +1404,7 @@ printf 'audio_path\ttranscription\nsilent.wav\thello world\n' > data/qa/neg/sile
 psdn-sonar single --input data/qa/neg/silent.tsv --models whisper_base_en --language en --output results/neg-silent
 ```
 
-**Expected:** Completes. Prediction often empty → `Empty prediction`. `silence_ratio` should be high; `quality_warnings` may contain `high_silence:`.
+**Expected:** `silence_ratio` = `1.0` (an all-zero file is fully silent — it no longer scores `0.0` against its own maximum), `snr_db` and `snr_tier` empty (SNR undefined without signal; no more `inf`/`High`), and `quality_warnings` contains `high_silence:`. Prediction is often empty → `Empty prediction`; if it is the only sample and the model returns nothing, the run exits 1 under the zero-successful-samples rule.
 
 ### 10.19 NEG-NOISY-AUDIO
 
@@ -1563,6 +1563,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D26 | `--language` accepted any string | **Fixed** | `single`/`multi` now exit 1 on unknown codes before scoring; recognized codes without a dedicated normalizer (e.g. `pt`) warn about generic fallback. See 10.7. |
 | D27 | Bengali paired with `openai/whisper-small` | **Fixed (docs)** | CLI epilogue, examples, and this guide now use `wav2vec2_bengali` for Bengali; the BYO whisper-small run is kept as a mechanics-only test (WER ≈ 1.0 expected). |
 | D28 | `--datasets` accepted any string, exit 0 | **Fixed** | Entries are validated per name (unknown / disabled / non-HF source / not wired), zero matches with a filter exit 1, and the error blames the filter rather than the language. Summary prints a catalog scope note. See 10.13. |
+| D29 | Silent audio scored `silence_ratio=0.0`, `snr_db=inf` | **Fixed** | Uniformly quiet files (loudest RMS frame below ~-60 dBFS) now score `1.0` and trip the `high_silence` gate; SNR is `None` (blank) for signal-less audio and capped at 100 dB for noise-free audio. See 10.18. |
 
 ---
 

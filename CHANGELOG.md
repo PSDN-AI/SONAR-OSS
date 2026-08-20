@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fully silent audio no longer passes the quality gate (#105):
+  `calculate_silence_ratio` measures frames relative to the file's own
+  loudest frame, so uniformly quiet files scored `0.0` — identical to
+  all-speech. Files whose loudest RMS frame is below an absolute silence
+  floor (`SONAR_SILENCE_FLOOR_AMP`, default 1e-3 ≈ -60 dBFS) now score
+  `1.0` and trip the `high_silence` warning; mixed-content behavior is
+  unchanged. `calculate_snr` returns `None` instead of `inf` for
+  signal-less audio (SNR is undefined; the old `inf` leaked into CSVs,
+  gave silent files an SNR tier of "High", and poisoned plot columns) and
+  caps noise-free audio at 100 dB.
 - `psdn-sonar discover` no longer reports failure as success (#104):
   `--datasets` entries are validated per name with distinct reasons — unknown
   name (with the discoverable list), catalogued-but-disabled

@@ -326,6 +326,6 @@ class DatasetPreparer:
 
             audio, _ = librosa.load(audio_path, sr=16000)
             snr = calculate_snr(audio)
-            return f"{snr:.2f}"
+            return f"{snr:.2f}" if snr is not None else ""
         except Exception:
             return ""
