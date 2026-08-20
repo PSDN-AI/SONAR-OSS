@@ -70,6 +70,9 @@ def _score_preprocessed(processed_path, orig_dur: float, trim_dur: float) -> flo
             return 0.0
         nonsilent = detect_nonsilent(audio, min_silence_len=500, silence_thresh=-40)
         speech_ms = sum(end - start for start, end in nonsilent)
+        # Absolute, VAD-based silence fraction used only for internal method
+        # scoring — a different definition from the frame-relative
+        # audio_quality.calculate_silence_ratio() reported in results CSVs.
         silence_ratio = 1.0 - (speech_ms / total_ms)
     except Exception:
         silence_ratio = 0.5

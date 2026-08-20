@@ -16,9 +16,23 @@ class TestCalculateSnr:
         snr = calculate_snr(sine_wave_audio)
         assert snr > 0.0
 
-    def test_all_zeros_returns_inf(self):
+    def test_all_zeros_returns_none_not_inf(self):
         audio = np.zeros(16_000, dtype=np.float32)
-        assert calculate_snr(audio) == float("inf")
+        assert calculate_snr(audio) is None
+
+    def test_empty_audio_returns_none(self):
+        assert calculate_snr(np.array([], dtype=np.float32)) is None
+
+    def test_noise_free_signal_capped_not_inf(self):
+        # Half signal, half digital silence: noise floor is exactly 0 but the
+        # signal is real, so SNR is capped rather than None or inf.
+        audio = np.concatenate([np.full(16_000, 0.5, dtype=np.float32), np.zeros(16_000, dtype=np.float32)])
+        assert calculate_snr(audio) == 100.0
+
+    def test_never_returns_inf(self, sine_wave_audio):
+        for audio in (sine_wave_audio, np.zeros(16_000, dtype=np.float32)):
+            snr = calculate_snr(audio)
+            assert snr is None or np.isfinite(snr)
 
     def test_constant_signal_returns_finite_snr(self):
         audio = np.full(16_000, 0.5, dtype=np.float32)
@@ -54,12 +68,26 @@ class TestCalculateClippingRatio:
 
 
 class TestCalculateSilenceRatio:
-    def test_near_silent_audio_detected(self):
+    def test_fully_silent_audio_scores_one(self):
+        # Regression for issue #105: relative-to-own-max scored this 0.0,
+        # identical to all-speech, and it passed the max_silence_ratio gate.
+        assert calculate_silence_ratio(np.zeros(16_000, dtype=np.float32)) == 1.0
+
+    def test_near_silent_audio_scores_one(self):
         rng = np.random.default_rng(0)
-        quiet = (rng.normal(0, 1e-5, 16_000)).astype(np.float32)
-        ratio = calculate_silence_ratio(quiet)
-        assert isinstance(ratio, float)
-        assert 0.0 <= ratio <= 1.0
+        quiet = (rng.normal(0, 1e-6, 16_000)).astype(np.float32)
+        assert calculate_silence_ratio(quiet) == 1.0
+
+    def test_all_speech_scores_near_zero(self):
+        rng = np.random.default_rng(42)
+        speech = (rng.normal(0, 0.2, 16_000)).astype(np.float32)
+        assert calculate_silence_ratio(speech) < 0.1
+
+    def test_half_speech_half_silence_scores_near_half(self):
+        rng = np.random.default_rng(42)
+        audio = np.concatenate([(rng.normal(0, 0.2, 8_000)).astype(np.float32), np.zeros(8_000, dtype=np.float32)])
+        ratio = calculate_silence_ratio(audio)
+        assert 0.3 <= ratio <= 0.7
 
     def test_loud_audio_not_silent(self, sine_wave_audio):
         ratio = calculate_silence_ratio(sine_wave_audio)
@@ -128,6 +156,20 @@ class TestComputeAudioQualityMetrics:
             decimals = len(snr_str.split(".")[1])
             assert decimals <= 2
 
+    def test_silent_file_flagged_not_clean(self, tmp_path):
+        # End-to-end regression for issue #105: an all-zero WAV used to
+        # report silence_ratio=0.0, snr_db=inf, snr_tier=High, no warnings.
+        import soundfile as sf
+
+        path = tmp_path / "silent.wav"
+        sf.write(str(path), np.zeros(16_000, dtype=np.float32), 16_000)
+
+        result = compute_audio_quality_metrics(str(path), include_mos=False)
+        assert result["silence_ratio"] == 1.0
+        assert result["snr_db"] is None
+        assert result["snr_tier"] is None
+        assert "high_silence" in result["quality_warnings"]
+
 
 class TestGetAudioQualityConfig:
     def test_returns_config_with_defaults(self):
@@ -135,6 +177,7 @@ class TestGetAudioQualityConfig:
         assert cfg.snr_tier_low_db == 10.0
         assert cfg.snr_tier_high_db == 20.0
         assert cfg.silence_thresh_db == -40.0
+        assert cfg.silence_floor_amplitude == 1e-3
         assert cfg.clipping_amplitude == 0.99
         assert cfg.min_snr_db == 10.0
         assert cfg.max_silence_ratio == 0.60
