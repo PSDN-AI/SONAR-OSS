@@ -533,7 +533,7 @@ def run_discover(args):
 
     dataset_filter = None
     if args.datasets:
-        dataset_filter = [d.strip() for d in args.datasets.split(",")]
+        dataset_filter = [d.strip() for d in args.datasets.split(",") if d.strip()]
 
     split_ratio = (80, 10, 10)
     if args.split_ratio:
@@ -545,15 +545,33 @@ def run_discover(args):
 
     logger.info("Dataset discovery for language: %s", args.language)
 
-    available = DatasetDiscovery.discover(
-        language=args.language,
-        dataset_filter=dataset_filter,
-        validate_remote=args.validate,
-    )
+    try:
+        available = DatasetDiscovery.discover(
+            language=args.language,
+            dataset_filter=dataset_filter,
+            validate_remote=args.validate,
+        )
+    except ValueError as e:
+        logger.error("%s", e)
+        sys.exit(1)
 
     DatasetDiscovery.print_summary(available, args.language)
 
     if not available:
+        if dataset_filter:
+            from psdn_sonar.data.discovery import dataset_language_support
+
+            hints = "; ".join(dataset_language_support(name) for name in dataset_filter)
+            logger.error(
+                "No datasets matched --datasets '%s' for language '%s'. "
+                "The --datasets filter, not the language, excluded everything (%s). "
+                "Run `psdn-sonar discover --language %s --dry-run` without --datasets to see what is available.",
+                ",".join(dataset_filter),
+                args.language,
+                hints,
+                args.language,
+            )
+            sys.exit(1)
         logger.warning("No datasets found for language '%s'", args.language)
         sys.exit(0)
 

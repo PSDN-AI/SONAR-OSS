@@ -168,6 +168,33 @@ class TestDiscoverDispatch:
                 run_cli("discover", "--language", "en")
         assert exc_info.value.code == 1
 
+    def test_unknown_datasets_filter_exits_nonzero(self, caplog):
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli("discover", "--language", "en", "--datasets", "commonvoice", "--dry-run")
+        assert exc_info.value.code == 1
+        assert "unknown dataset name" in caplog.text
+
+    def test_disabled_dataset_named_as_disabled(self, caplog):
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli("discover", "--language", "en", "--datasets", "common_voice", "--dry-run")
+        assert exc_info.value.code == 1
+        assert "catalogued but disabled" in caplog.text
+
+    def test_valid_filter_matching_nothing_blames_filter(self, caplog):
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli("discover", "--language", "en", "--datasets", "zeroth", "--dry-run")
+        assert exc_info.value.code == 1
+        assert "The --datasets filter, not the language" in caplog.text
+        assert "zeroth supports: ko" in caplog.text
+
+    def test_dry_run_with_valid_filter_exits_zero(self):
+        with pytest.raises(SystemExit) as exc_info:
+            run_cli("discover", "--language", "en", "--datasets", "fleurs", "--dry-run")
+        assert exc_info.value.code == 0
+
     def test_partial_failure_still_succeeds(self, tmp_path):
         ok, bad = self._fake_dataset(), self._fake_dataset()
         bad.name = "voxpopuli"

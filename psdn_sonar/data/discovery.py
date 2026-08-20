@@ -8,13 +8,62 @@ from typing import Optional
 from psdn_sonar.language_codes import LANG_CODE_TO_NAME
 
 from .registry import (
+    _BENCHMARK_CATALOG,
     _DATASET_LANG_GATES,
     DATASET_REGISTRY,
+    FLEURS_CONFIG,
     AvailableDataset,
     resolve_config,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def validate_dataset_filter(dataset_filter: list[str]) -> None:
+    """Reject filter entries that can never match, with one reason per entry.
+
+    A typo, a catalogued-but-disabled benchmark, and a catalogued non-HF
+    source used to behave identically (silently matching nothing), so the
+    caller could not tell them apart. Raises ``ValueError`` naming each bad
+    entry and why it cannot be discovered.
+    """
+    discoverable = ", ".join(sorted(DATASET_REGISTRY))
+    problems: list[str] = []
+    for name in dataset_filter:
+        if name in DATASET_REGISTRY:
+            continue
+        benchmark = _BENCHMARK_CATALOG.benchmarks.get(name)
+        if benchmark is None:
+            problems.append(f"'{name}': unknown dataset name. Discoverable datasets: {discoverable}.")
+        elif not benchmark.enabled:
+            problems.append(
+                f"'{name}' ({benchmark.display_name}): catalogued but disabled "
+                f"(review decision: {benchmark.review.decision}), so it cannot be discovered or prepared."
+            )
+        elif benchmark.source.kind != "huggingface":
+            problems.append(
+                f"'{name}' ({benchmark.display_name}): catalogued as an {benchmark.source.kind} source; "
+                "`discover` covers HuggingFace-hosted sources only. "
+                "Load it with the psdn_sonar.core library loaders instead."
+            )
+        else:
+            problems.append(
+                f"'{name}' ({benchmark.display_name}): catalogued but not wired into `discover`. "
+                f"Discoverable datasets: {discoverable}."
+            )
+    if problems:
+        raise ValueError("Invalid --datasets entries:\n  " + "\n  ".join(problems))
+
+
+def dataset_language_support(ds_name: str) -> str:
+    """Short human-readable hint of which languages a discoverable dataset serves."""
+    gate = _DATASET_LANG_GATES.get(ds_name)
+    if gate is not None:
+        return f"{ds_name} supports: {', '.join(sorted(gate))}"
+    spec = DATASET_REGISTRY.get(ds_name)
+    if spec is not None and "{fleurs}" in spec.config_template:
+        return f"{ds_name} supports: {', '.join(sorted(FLEURS_CONFIG))}"
+    return f"{ds_name} has no language gate"
 
 
 class DatasetDiscovery:
@@ -45,6 +94,9 @@ class DatasetDiscovery:
                 "Discovery will still attempt matching but results may be incomplete.",
                 language,
             )
+
+        if dataset_filter:
+            validate_dataset_filter(dataset_filter)
 
         results: list[AvailableDataset] = []
 
@@ -86,24 +138,47 @@ class DatasetDiscovery:
     def print_summary(datasets: list[AvailableDataset], language: str) -> None:
         """Print a human-readable table of discovered datasets."""
         lang_name = LANG_CODE_TO_NAME.get(language, language)
-        print(f"\nDatasets available for {lang_name} ({language}):\n")
+        print(f"\nDatasets available for {lang_name} ({language}) via `discover` (HuggingFace-hosted sources):\n")
 
         if not datasets:
             print("  (none found)\n")
-            return
+        else:
+            header = f"  {'Dataset':<30} {'HuggingFace ID':<45} {'Config':<20} {'Splits'}"
+            print(header)
+            print("  " + "-" * (len(header) - 2))
 
-        header = f"  {'Dataset':<30} {'HuggingFace ID':<45} {'Config':<20} {'Splits'}"
-        print(header)
-        print("  " + "-" * (len(header) - 2))
+            for ds in datasets:
+                splits_str = ", ".join(ds.splits)
+                sizes = ""
+                if ds.num_examples:
+                    sizes = " (" + ", ".join(f"{s}={n}" for s, n in ds.num_examples.items()) + ")"
+                print(f"  {ds.name:<30} {ds.hf_id:<45} {ds.config or '(none)':<20} {splits_str}{sizes}")
 
-        for ds in datasets:
-            splits_str = ", ".join(ds.splits)
-            sizes = ""
-            if ds.num_examples:
-                sizes = " (" + ", ".join(f"{s}={n}" for s, n in ds.num_examples.items()) + ")"
-            print(f"  {ds.name:<30} {ds.hf_id:<45} {ds.config or '(none)':<20} {splits_str}{sizes}")
+            print()
 
-        print()
+        _print_catalog_scope_note()
+
+
+def _print_catalog_scope_note() -> None:
+    """Name the catalogued benchmarks `discover` cannot reach.
+
+    Without this, ``discover --language bn`` listing only FLEURS reads as
+    "FLEURS is all there is for Bengali" while the catalog also holds the
+    three OpenSLR Bengali corpora used on the public leaderboard.
+    """
+    other = [(name, spec) for name, spec in _BENCHMARK_CATALOG.benchmarks.items() if name not in DATASET_REGISTRY]
+    if not other:
+        return
+    print("  The benchmark catalog also holds entries this command cannot discover or prepare:")
+    for name, spec in sorted(other, key=lambda item: item[0]):
+        if not spec.enabled:
+            reason = f"disabled in the catalog (review decision: {spec.review.decision})"
+        elif spec.source.kind != "huggingface":
+            reason = f"{spec.source.kind} source — use the psdn_sonar.core library loaders"
+        else:
+            reason = "not wired into `discover`"
+        print(f"    {name:<28} {spec.display_name:<38} ({reason})")
+    print()
 
 
 def _remote_config_exists(hf_id: str, config: str, revision: str) -> bool:
