@@ -82,6 +82,53 @@ class TestSingleSpeakerDispatch:
         assert kwargs["max_samples"] == 1
         assert kwargs["custom_hf_model"] is None
 
+    def test_audio_path_strictness_default_allows_absolute(self, tsv):
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        with patch(target) as mock_eval:
+            mock_eval.return_value = {"results": []}
+            run_cli("single", "--input", tsv, "--models", "wav2vec2_bengali", "--language", "bn")
+
+        assert mock_eval.call_args[1]["allow_absolute_audio_paths"] is True
+
+    def test_strict_audio_paths_flag_forwarded(self, tsv):
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        with patch(target) as mock_eval:
+            mock_eval.return_value = {"results": []}
+            run_cli(
+                "single",
+                "--input",
+                tsv,
+                "--models",
+                "wav2vec2_bengali",
+                "--language",
+                "bn",
+                "--strict-audio-paths",
+            )
+
+        assert mock_eval.call_args[1]["allow_absolute_audio_paths"] is False
+
+    def test_traversal_audio_path_exits_nonzero(self, tmp_path, caplog):
+        # Regression for issue #127: a TSV audio_path with ../ escaping the
+        # dataset directory used to be opened; now the run refuses it before
+        # any model loads (load_data raises, the CLI exits 1 cleanly).
+        path = tmp_path / "traversal.tsv"
+        path.write_text("audio_path\ttranscription\n../../../../etc/hosts\tignored\n")
+
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli(
+                    "single",
+                    "--input",
+                    str(path),
+                    "--models",
+                    "wav2vec2_bengali",
+                    "--language",
+                    "bn",
+                )
+
+        assert exc_info.value.code == 1
+        assert "escapes dataset root" in caplog.text
+
     def test_hf_model_sanitized_name(self, tsv):
         target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
         with patch(target) as mock_eval:
