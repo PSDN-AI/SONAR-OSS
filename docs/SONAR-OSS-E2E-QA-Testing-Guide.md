@@ -1344,13 +1344,25 @@ psdn-sonar discover --language en --datasets fleurs --output /proc/cannot-write-
 All 1 dataset(s) failed to prepare: fleurs
 ```
 
-Also:
+Also, `--datasets` entries are validated per name with distinct reasons and exit **1**:
 
 ```bash
-psdn-sonar discover --language en --datasets common_voice --dry-run
+psdn-sonar discover --language en --datasets common_voice --dry-run              # known but disabled
+psdn-sonar discover --language en --datasets definitely-not-a-dataset --dry-run  # unknown name
+psdn-sonar discover --language bn --datasets openslr37_bd --dry-run              # catalogued non-HF source
 ```
 
-**Expected:** `(none found)` and exit **0** (dry-run / empty list is not an error). This is how you prove Common Voice is not discoverable.
+**Expected:** each exits **1** before any download. The error names the entry and the reason: `catalogued but disabled (review decision: pending)` for `common_voice`; `unknown dataset name` plus the discoverable list (`fleurs, voxpopuli, zeroth`) for the typo; `catalogued as an openslr source; \`discover\` covers HuggingFace-hosted sources only` for `openslr37_bd`.
+
+A **valid** filter that matches nothing for the language also exits **1**, blaming the filter rather than the language:
+
+```bash
+psdn-sonar discover --language en --datasets zeroth --dry-run
+```
+
+**Expected:** exit **1** with `The --datasets filter, not the language, excluded everything (zeroth supports: ko)`.
+
+Every `discover` summary additionally prints a scope note naming the catalogued entries the command cannot reach (the three OpenSLR Bengali corpora, `multilingual_librispeech`, and disabled `common_voice`), so the table is no longer presented as the complete catalog.
 
 ### 10.14 NEG-MALFORMED-TSV
 
@@ -1528,7 +1540,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D3 | `docs/USAGE.md` | **Fixed (docs)** | USAGE now points at README for package install; `-e ".[ml]"` is labeled as a clone/contributor command. |
 | D4 | `docs/FAQ.md` Q1 | **Fixed (docs)** | FAQ discover examples use `fleurs` / `voxpopuli` / `zeroth`. Common Voice is documented as not discoverable. |
 | D5 | `discover --help` | **Fixed** | Example filter is `fleurs,voxpopuli`. |
-| D6 | Common Voice + OpenSLR | Open | Still not on the `discover` CLI. Hindi/Bengali have only FLEURS via discover. Product gap, not a doc typo. |
+| D6 | Common Voice + OpenSLR | **Mitigated** | Still not preparable via `discover`, but the CLI now prints a scope note naming them and `--datasets` errors explain why each is unreachable (see 10.13). Preparing them remains a product gap. |
 | D7 | FAQ + examples manifest | **Fixed** | Docs and `examples/test_manifest.jsonl` use `audio_filepaths` + JSON `transcript_filepath`. |
 | D8 | Sample audio | **Fixed** | `examples/sample_audio/TEST001/` ships with the repo (synthetic tones). |
 | D9 | `examples/test_data.tsv` | **Fixed** | Points at `sample_audio/single/sample.wav`. |
@@ -1550,6 +1562,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D25 | PyPI badge vs TestPyPI status | Open | Badge vs “not yet on PyPI” paragraph. |
 | D26 | `--language` accepted any string | **Fixed** | `single`/`multi` now exit 1 on unknown codes before scoring; recognized codes without a dedicated normalizer (e.g. `pt`) warn about generic fallback. See 10.7. |
 | D27 | Bengali paired with `openai/whisper-small` | **Fixed (docs)** | CLI epilogue, examples, and this guide now use `wav2vec2_bengali` for Bengali; the BYO whisper-small run is kept as a mechanics-only test (WER ≈ 1.0 expected). |
+| D28 | `--datasets` accepted any string, exit 0 | **Fixed** | Entries are validated per name (unknown / disabled / non-HF source / not wired), zero matches with a filter exit 1, and the error blames the filter rather than the language. Summary prints a catalog scope note. See 10.13. |
 
 ---
 
@@ -1625,6 +1638,8 @@ Copy this into the test report.
 - [ ] Invalid HF model → exit 1
 - [ ] Unknown language code (`xx`) → exit 1 before scoring, with or without `--models`
 - [ ] Recognized code without normalizer (`pt`) → runs with explicit fallback warning
+- [ ] Invalid `--datasets` entry (typo / disabled / non-HF source) → exit 1 with per-entry reason
+- [ ] Valid `--datasets` matching nothing for the language → exit 1 blaming the filter
 - [ ] `--models` + `--hf-model` → exit 2
 - [ ] Silent / corrupt / short audio did not crash
 

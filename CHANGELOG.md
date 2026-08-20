@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `psdn-sonar discover` no longer reports failure as success (#104):
+  `--datasets` entries are validated per name with distinct reasons — unknown
+  name (with the discoverable list), catalogued-but-disabled
+  (`common_voice`), catalogued non-HuggingFace source (the OpenSLR Bengali
+  corpora), or catalogued-but-not-wired (`multilingual_librispeech`) — and
+  exit 1 instead of warning and exiting 0. A valid filter that matches
+  nothing for the language also exits 1, and the error blames the filter
+  (naming each dataset's supported languages) rather than the language. The
+  summary now prints a catalog scope note so a one-row listing is no longer
+  presented as the complete catalog.
 - `psdn-sonar single`/`multi` now validate `--language` before scoring (#103):
   unrecognized codes (e.g. `xx`) exit 1 with an actionable error instead of
   silently scoring with the fallback normalizer, recognized ISO codes without

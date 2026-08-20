@@ -114,6 +114,47 @@ class TestDiscovery:
         DatasetDiscovery.print_summary([], "ko")
         assert "(none found)" in capsys.readouterr().out
 
+    def test_print_summary_names_non_discoverable_catalog_entries(self, capsys):
+        DatasetDiscovery.print_summary(DatasetDiscovery.discover("bn"), "bn")
+        out = capsys.readouterr().out
+        for name in ("openslr37_bd", "openslr37_in", "openslr53", "common_voice", "multilingual_librispeech"):
+            assert name in out
+        assert "library loaders" in out
+        assert "disabled in the catalog" in out
+
+
+class TestDatasetFilterValidation:
+    def test_unknown_name_raises_and_lists_discoverable(self):
+        with pytest.raises(ValueError, match="unknown dataset name") as exc_info:
+            DatasetDiscovery.discover("en", dataset_filter=["definitely-not-a-dataset"])
+        assert "fleurs" in str(exc_info.value)
+
+    def test_disabled_benchmark_named_as_disabled(self):
+        with pytest.raises(ValueError, match="catalogued but disabled"):
+            DatasetDiscovery.discover("en", dataset_filter=["common_voice"])
+
+    def test_non_hf_source_named_as_out_of_scope(self):
+        with pytest.raises(ValueError, match="openslr source"):
+            DatasetDiscovery.discover("bn", dataset_filter=["openslr37_bd"])
+
+    def test_unwired_hf_benchmark_distinguished(self):
+        with pytest.raises(ValueError, match="not wired into"):
+            DatasetDiscovery.discover("de", dataset_filter=["multilingual_librispeech"])
+
+    def test_mixed_valid_and_invalid_fails_fast(self):
+        with pytest.raises(ValueError, match="commonvoice"):
+            DatasetDiscovery.discover("en", dataset_filter=["fleurs", "commonvoice"])
+
+    def test_valid_filter_wrong_language_returns_empty_without_raising(self):
+        assert DatasetDiscovery.discover("en", dataset_filter=["zeroth"]) == []
+
+    def test_language_support_hints(self):
+        from psdn_sonar.data.discovery import dataset_language_support
+
+        assert dataset_language_support("zeroth") == "zeroth supports: ko"
+        assert "en" in dataset_language_support("fleurs")
+        assert "bn" in dataset_language_support("fleurs")
+
 
 class TestPrepareDataset:
     def test_unknown_dataset(self, tmp_path):
