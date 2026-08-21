@@ -3,7 +3,7 @@
 import logging
 import re
 import unicodedata
-from typing import List
+from typing import Dict, List
 
 from ..registry import register_language
 from .base import LanguageProcessor
@@ -29,11 +29,17 @@ class BengaliProcessor(LanguageProcessor):
     """
 
     def normalize(self, text: str) -> str:
-        """Normalize Bengali text: digits → words, Unicode form, cleaning,
-        punctuation strip, whitespace collapse (each step config-gated)."""
+        """Normalize Bengali text: symbols → words, digits → words, Unicode
+        form, cleaning, punctuation strip, whitespace collapse (config-gated)."""
         if not text or not text.strip():
             return ""
 
+        # Same gating and ordering contract as the base template: symbols
+        # verbalize before digits so the "50" in "50%" survives into number
+        # verbalization, and before the punctuation strip so the inserted
+        # words survive it (issue #136).
+        if self.config.language.normalization.remove_punctuation:
+            text = self._verbalize_symbols(text)
         if self.config.language.normalization.verbalize_numbers:
             text = self.verbalize_numbers(text)
 
@@ -45,6 +51,11 @@ class BengaliProcessor(LanguageProcessor):
             text = self._remove_punctuation(text)
 
         return re.sub(r"\s+", " ", text).strip()
+
+    def _symbol_map(self) -> Dict[str, str]:
+        from ..utils.symbols import BENGALI_SYMBOL_MAP
+
+        return BENGALI_SYMBOL_MAP
 
     @staticmethod
     def _clean_with_bnlp(text: str, norm_form: str) -> str:

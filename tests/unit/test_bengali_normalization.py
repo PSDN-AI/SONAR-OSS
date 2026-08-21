@@ -192,6 +192,37 @@ class TestBengaliForWerNormalization:
         assert "শতাংশ" in result
         assert "শোংশ" not in result
 
+    def test_percent_symbol_verbalized(self):
+        """৫০% → পঞ্চাশ শতাংশ (issue #136: % used to survive as a literal)."""
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        result = normalize_bengali_for_wer("৫০%")
+        assert result == "পঞ্চাশ শতাংশ"
+        assert "%" not in result
+
+    def test_percent_symbol_and_word_form_match(self):
+        """The two common written forms of the same quantity normalize identically."""
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        assert normalize_bengali_for_wer("৫০%") == normalize_bengali_for_wer("৫০ শতাংশ")
+        assert normalize_bengali_for_wer("১০০%") == normalize_bengali_for_wer("১০০ শতাংশ")
+
+    def test_no_symbol_survives_normalization(self):
+        """The issue-#136 follow-up corpus: nothing whose spacing could vary
+        by bnlp availability may survive normalization."""
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        for text in ("৫০%", "১০০% ভালো", "A+B", "test@mail.com"):
+            result = normalize_bengali_for_wer(text)
+            for symbol in "%+@":
+                assert symbol not in result, f"{symbol!r} survived in {result!r} (input {text!r})"
+
+    def test_plus_and_at_verbalized(self):
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        assert "যোগ" in normalize_bengali_for_wer("A+B")
+        assert "অ্যাট" in normalize_bengali_for_wer("test@mail.com")
+
     def test_phone_number_not_converted(self):
         """5+ digit sequences stay as digits."""
         from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
