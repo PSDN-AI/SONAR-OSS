@@ -9,6 +9,10 @@ path emitted words, which is a real reproducibility hole for an
 evaluation framework that computes WER/CER.
 
 Behavior contract (kept identical to the per-language processors):
+  - Thousands separators inside well-formed grouped numbers are
+    stripped before digit-run extraction (``"1,000"`` -> ``"1000"`` ->
+    ``"one thousand"``), matching what the canonical Bengali pipeline
+    has always done — see ``strip_group_separators`` (issue #135).
   - Only digit runs of length 1-4 are converted; longer runs
     (phone numbers, IDs) and leading-zero runs are preserved as-is.
   - Digit runs glued to a **Latin letter** on either side are NOT
@@ -70,6 +74,48 @@ def _warn_missing_once(library: str, language: str) -> None:
 # token glue" — digits adjacent to one of these are left alone.
 _LATIN_LETTER = r"[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF]"
 _DIGIT_RUN_RE = re.compile(rf"(?<!{_LATIN_LETTER})\d+(?!{_LATIN_LETTER})")
+
+# Thousands-separator handling (issue #135). A separator is presentation,
+# not content: "1,000" and "1000" denote the same number, but the digit-run
+# regex used to see two runs — "1" and "000" — and emit "one000" (the "000"
+# hits the leading-zero skip). Separators are stripped only inside
+# well-formed grouped numbers, so enumerations like "1,2,3" and genuinely
+# separate runs like "2020 100" are left alone:
+#   - Indian comma grouping (incl. the Western single-group case):
+#     1,000 / 1,00,000 / 12,34,567 — 2-digit groups, final group of 3
+#   - Western comma grouping: 123,456 / 1,234,567 — groups of 3
+#   - Space grouping: 1 000 / 10 000 (ASCII space, NBSP, thin space,
+#     narrow NBSP). An ASCII space between a 1-3 digit run and a 3-digit
+#     run is read as grouping; "5 100 dollar bills" is the known
+#     trade-off, accepted because grouped numerals are far more common
+#     in transcript text than that construction.
+# Numbers whose joined form exceeds 4 digits (1,000,000 -> 1000000) then
+# fall under the existing long-run skip and stay as digits — the same
+# behavior the canonical Bengali pipeline has always had for ২,০০,০০০.
+_GROUP_SEPARATOR_SPACES = " \u00a0\u2009\u202f"
+# Alternation order matters: the Western pattern must be tried before the
+# Indian one, and the trailing (?!,?\d) guard rejects a partial match that
+# stops before a ",digit" continuation — otherwise "1,000,000" would match
+# only its "1,000" prefix and leave ",000" behind (regex alternation is
+# first-match, not longest-match).
+_GROUPED_NUMBER_RE = re.compile(
+    rf"(?<!\d)"
+    rf"(?:\d{{1,3}}(?:,\d{{3}})+"
+    rf"|\d{{1,2}}(?:,\d{{2}})+,\d{{3}}"
+    rf"|\d{{1,3}}(?:[{_GROUP_SEPARATOR_SPACES}]\d{{3}})+)"
+    rf"(?!,?\d)"
+)
+_GROUP_SEPARATOR_RE = re.compile(rf"[,{_GROUP_SEPARATOR_SPACES}]")
+
+
+def strip_group_separators(text: str) -> str:
+    """Remove thousands separators inside well-formed grouped numbers.
+
+    ``1,000`` -> ``1000``; ``1 000`` -> ``1000``; ``12,34,567`` -> ``1234567``.
+    Text that isn't a grouped number (``1,2,3``, ``2020 100``) is unchanged.
+    """
+    return _GROUPED_NUMBER_RE.sub(lambda m: _GROUP_SEPARATOR_RE.sub("", m.group()), text)
+
 
 # Per-script digit translation tables. The processor / fallback paths apply
 # the matching one BEFORE digit-run extraction so that script-native digits
@@ -173,6 +219,7 @@ def verbalize_digits(text: str, language: str) -> str:
         return text
 
     text = to_ascii_digits(text, language)
+    text = strip_group_separators(text)
 
     def _replace(match: re.Match) -> str:
         token = match.group()

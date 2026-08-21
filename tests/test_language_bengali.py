@@ -57,6 +57,13 @@ class TestBengaliNormalize:
         proc = _make_processor()
         assert proc.normalize("এটি   একটি  পরীক্ষা") == "এটি একটি পরীক্ষা"
 
+    def test_thousands_separator_stripped(self):
+        # Issue #135 (same defect class on the processor's own num2words
+        # path): ১,০০০ used to verbalize as two runs, "এক" + words(000).
+        proc = _make_processor()
+        assert proc.normalize("১,০০০") == proc.normalize("১০০০")
+        assert "," not in proc.normalize("১,০০০")
+
     def test_percent_symbol_verbalized(self):
         # Issue #136: Bengali was the only language without a symbol map,
         # so "%" survived normalization while en/hi/ko all verbalize it.

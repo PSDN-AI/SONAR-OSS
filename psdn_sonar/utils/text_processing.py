@@ -330,7 +330,12 @@ def _tokenize_bengali(text: str) -> list[str]:
 # bn v2: added symbol verbalization (BENGALI_SYMBOL_MAP, issue #136) — "%"
 # and friends are now spoken words instead of surviving as literals, which
 # changes absolute Bengali WER relative to v1.
-WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 2, "en": 1, "hi": 1, "ko": 1}
+#
+# en/hi/ko v2: thousands separators inside grouped numbers are stripped
+# before digit verbalization (issue #135) — "1,000" now verbalizes as
+# "one thousand" instead of producing "one000", which changes absolute
+# WER on corpora with separated numerals relative to v1.
+WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 2, "en": 2, "hi": 2, "ko": 2}
 
 
 def wer_normalization_contract(language: str) -> str:

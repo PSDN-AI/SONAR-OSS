@@ -10,6 +10,12 @@ from .base import LanguageProcessor
 
 logger = logging.getLogger(__name__)
 
+# Same rule as normalize_bengali_for_wer's digit-comma stripping step
+# (২,০০০ → ২০০০): a comma between digits is a thousands separator, not
+# content. Applied after Bengali→ASCII digit mapping, so ASCII lookarounds
+# suffice. Without it "১,০০০" verbalized as two runs, "এক" + num2words(000).
+_RE_DIGIT_COMMA = re.compile(r"(?<=\d),(?=\d)")
+
 
 @register_language("bn")
 class BengaliProcessor(LanguageProcessor):
@@ -96,8 +102,10 @@ class BengaliProcessor(LanguageProcessor):
 
     def verbalize_numbers(self, text: str) -> str:
         """Convert digit runs to Bengali words (Bengali numerals first mapped
-        to ASCII via the configured ``numeral_map``)."""
+        to ASCII via the configured ``numeral_map``, thousands commas
+        stripped so ১,০০০ verbalizes like ১০০০)."""
         text = self._convert_bengali_digits(text)
+        text = _RE_DIGIT_COMMA.sub("", text)
 
         try:
             from num2words import num2words

@@ -245,6 +245,89 @@ class TestNumberVerbalization:
         assert "২০২৪" not in result
 
 
+class TestThousandsSeparatorHandling:
+    """Issue #135: a thousands separator used to split number verbalization,
+    so "1,000 dollars" became "one000 dollars" — the "1" verbalized, the
+    "000" hit the leading-zero skip, and the comma was stripped later,
+    gluing them. A separator is presentation, not content: the separated
+    and unseparated spellings of the same number must normalize identically.
+    """
+
+    def _assert_same_as_unseparated(self, lang: str, separated: str, unseparated: str):
+        from psdn_sonar.utils.text_processing import normalize_text_unified
+
+        sep = normalize_text_unified(separated, language=lang)
+        unsep = normalize_text_unified(unseparated, language=lang)
+        assert sep == unsep, f"{lang}: {separated!r} -> {sep!r} but {unseparated!r} -> {unsep!r}"
+        return sep
+
+    def test_english_comma_separator(self):
+        result = self._assert_same_as_unseparated("en", "1,000 dollars", "1000 dollars")
+        assert result == "one thousand dollars"
+
+    def test_english_space_separator(self):
+        self._assert_same_as_unseparated("en", "1 000 dollars", "1000 dollars")
+
+    def test_english_thin_space_separator(self):
+        self._assert_same_as_unseparated("en", "1\u202f000 dollars", "1000 dollars")
+
+    def test_hindi_comma_separator(self):
+        result = self._assert_same_as_unseparated("hi", "1,000 रुपये", "1000 रुपये")
+        assert "000" not in result
+
+    def test_hindi_devanagari_digits_with_comma(self):
+        self._assert_same_as_unseparated("hi", "१,००० रुपये", "१००० रुपये")
+
+    def test_korean_comma_separator(self):
+        result = self._assert_same_as_unseparated("ko", "1,000원", "1000원")
+        assert "000" not in result
+
+    def test_korean_multi_digit_groups(self):
+        self._assert_same_as_unseparated("ko", "5,500원", "5500원")
+
+    def test_million_stays_digits_like_unseparated(self):
+        # Joined form exceeds the 4-digit verbalization cap, so it stays as
+        # digits (phone/ID skip) — but crucially as ONE clean run, not
+        # "one000000".
+        from psdn_sonar.utils.text_processing import normalize_text_unified
+
+        result = normalize_text_unified("1,000,000 dollars", language="en")
+        assert "1000000" in result
+        assert "one000000" not in result
+
+    def test_indian_grouping_stays_digits(self):
+        from psdn_sonar.utils.text_processing import normalize_text_unified
+
+        result = normalize_text_unified("10,00,000 रुपये", language="hi")
+        assert "1000000" in result
+
+    def test_enumeration_not_merged(self):
+        # "1,2,3" is a list, not a grouped number — the digits must not be
+        # joined into one hundred twenty-three.
+        from psdn_sonar.utils.text_processing import normalize_text_unified
+
+        result = normalize_text_unified("options 1,2,3 available", language="en")
+        assert "hundred" not in result
+
+    def test_adjacent_independent_runs_not_merged(self):
+        # A 4-digit year followed by a 3-digit count is NOT space grouping
+        # (leading group would be 4 digits) and must verbalize separately.
+        from psdn_sonar.utils.text_processing import normalize_text_unified
+
+        result = normalize_text_unified("in 2020 100 people came", language="en")
+        assert "one hundred" in result
+        assert "2020100" not in result
+        assert "2020" not in result  # year itself still verbalizes
+
+    def test_fallback_parity_for_separators(self, monkeypatch):
+        from psdn_sonar.utils.text_processing import normalize_text_unified
+
+        happy = normalize_text_unified("1,000 dollars", language="en")
+        _force_processor_failure(monkeypatch, "en")
+        fallback = normalize_text_unified("1,000 dollars", language="en")
+        assert happy == fallback == "one thousand dollars"
+
+
 class TestPunctuationAndSymbolRemoval:
     """Punctuation and symbol removal across languages."""
 

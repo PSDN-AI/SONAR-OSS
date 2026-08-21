@@ -526,7 +526,7 @@ MOS columns (`dnsmos_*`, UTMOS, SQUIM) may be null if those optional scorers fai
   "lineage": {
     "hf_model_id": "openai/whisper-base",
     "hf_revision": "<40-char checkpoint sha>",
-    "normalization": "en:v1"
+    "normalization": "en:v2"
   },
   "aggregate": {
     "cer_mean": 0.0,
@@ -1115,12 +1115,14 @@ check("en 50%", en.normalize("50%"), "fifty percent")
 check("en 3.14", en.normalize("3.14"), "threefourteen")
 check("en v2 preserved", en.normalize("release v2"), "release v2")
 check("en 25 beds", en.normalize("The hospital has 25 beds."), "the hospital has twenty five beds")
+check("en 1,000", en.normalize("1,000 dollars"), "one thousand dollars")
 
 check("hi digits ५००", hi.normalize("५००"), "पाँच सौ")
 check("hi 50%", hi.normalize("50%"), "पचास प्रतिशत")
 check("hi punct", hi.normalize("नमस्ते, दुनिया!"), "नमस्ते दुनिया")
 check("hi loanword customer", hi.normalize("customer सेवा"), "कस्टमर सेवा")
 check("hi 10", hi.normalize("यह 10 रुपये है।"), "यह दस रुपये है")
+check("hi 1,000", hi.normalize("1,000 रुपये") == hi.normalize("1000 रुपये"), True)
 
 check("bn punct", bn.normalize("এটি, একটি! পরীক্ষা?"), "এটি একটি পরীক্ষা")
 check("bn digit ২", bn.normalize("২"), "দুই")
@@ -1132,6 +1134,7 @@ check("ko punct", ko.normalize("안녕하세요!"), "안녕하세요")
 check("ko 123", ko.normalize("123"), "백이십삼")
 check("ko 100원", ko.normalize("100원"), "백원")
 check("ko 50%", ko.normalize("50%"), "오십 퍼센트")
+check("ko 5,500원", ko.normalize("5,500원"), ko.normalize("5500원"))
 check("ko loanword phone", ko.normalize("phone 번호"), "폰 번호")
 
 # --- eval WER path (what single-speaker scoring uses) ---
@@ -1142,6 +1145,7 @@ for name, lang, ref, hyp, exp_wer in [
     ("en punct pair", "en", "hello, world!", "hello world", 0.0),
     ("en verbalize pair", "en", "The hospital has 25 beds.", "the hospital has twenty five beds", 0.0),
     ("en real error", "en", "hello world", "hello there", 0.5),
+    ("en 1,000 pair", "en", "1,000 dollars", "one thousand dollars", 0.0),
     ("hi punct pair", "hi", "नमस्ते, दुनिया!", "नमस्ते दुनिया", 0.0),
     ("hi 50% pair", "hi", "50%", "पचास प्रतिशत", 0.0),
     ("bn punct pair", "bn", "এটি, একটি! পরীক্ষা?", "এটি একটি পরীক্ষা", 0.0),
@@ -1536,7 +1540,7 @@ psdn-sonar single \
 | `submission.git_sha` | same if run from the same git checkout |
 | `lineage.hf_model_id` | `openai/whisper-base` (the repo id actually loaded) |
 | `lineage.hf_revision` | same 40-char checkpoint SHA across both runs |
-| `lineage.normalization` | `en:v1` (Bengali runs also carry `+bnlp`/`-bnlp`) |
+| `lineage.normalization` | `en:v2` (Bengali runs also carry `+bnlp`/`-bnlp`) |
 | `aggregate.total_samples` | `5` |
 
 `timestamp_utc` **must differ** (or may differ). `elapsed_time_s` will differ.
@@ -1592,6 +1596,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D31 | TSV `audio_path` with `../` escaped the dataset directory and was opened | **Fixed** | The boundary guard existed but defaulted off and the CLI could not enable it. Relative paths escaping the TSV directory are now always rejected; `--strict-audio-paths` additionally rejects absolute paths and requires existing regular files. See 10.27. |
 | D32 | No stated position on what scores measure (preprocessing confound, cross-dataset length gap, unmarked in-domain cells) | **Documented / data emitted** | `docs/SCORE_INTERPRETATION.md` states the position on all three. Multi-speaker runs log their pipeline scope; `precompute_benchmarks.py` emits `public_length_stats_<language>.json` and per-cell `domain_markers.json` (from `psdn_sonar.models.provenance`). Leaderboard rendering is owned by `PSDN-AI/psdn-portals`. |
 | D33 | Bengali had no symbol map — `৫০%` normalized to `50 %` while en/hi/ko verbalize `%` | **Fixed** | `BENGALI_SYMBOL_MAP` added and wired into both the canonical WER pipeline and `BengaliProcessor`; `৫০%` and `৫০ শতাংশ` now normalize identically, and no symbol survives whose spacing could differ by `bnlp` availability. Bengali normalization contract bumped to `bn:v2` — v1 and v2 Bengali scores are not like-for-like. |
+| D34 | Thousands separators split number verbalization — `1,000 dollars` normalized to `one000 dollars` (en/hi/ko), inflating WER on corpora with separated numerals | **Fixed** | `verbalize_digits` now strips separators inside well-formed grouped numbers (Western `1,234,567`, Indian `12,34,567`, space/thin-space grouping) before digit-run extraction, matching what the canonical Bengali pipeline always did; `BengaliProcessor`'s own digit path got the same comma strip. en/hi/ko normalization contracts bumped to `en:v2`/`hi:v2`/`ko:v2` — v1 and v2 scores are not like-for-like. |
 
 ---
 

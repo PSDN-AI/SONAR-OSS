@@ -58,12 +58,13 @@ class TestGetHfLineage:
 
 class TestWerNormalizationContract:
     def test_versioned_languages(self):
-        assert wer_normalization_contract("en") == "en:v1"
-        assert wer_normalization_contract("hi") == "hi:v1"
-        assert wer_normalization_contract("ko") == "ko:v1"
+        # en/hi/ko at v2 since thousands-separator stripping (issue #135).
+        assert wer_normalization_contract("en") == "en:v2"
+        assert wer_normalization_contract("hi") == "hi:v2"
+        assert wer_normalization_contract("ko") == "ko:v2"
 
     def test_case_insensitive(self):
-        assert wer_normalization_contract("EN") == "en:v1"
+        assert wer_normalization_contract("EN") == "en:v2"
 
     def test_unversioned_language(self):
         assert wer_normalization_contract("pt") == "pt:unversioned"
@@ -84,7 +85,7 @@ class TestRunLineageHelper:
         lineage = _run_lineage(model, "en")
         assert lineage.hf_model_id == "org/model"
         assert lineage.hf_revision == FAKE_SHA
-        assert lineage.normalization == "en:v1"
+        assert lineage.normalization == "en:v2"
 
     def test_never_raises_for_hostile_doubles(self):
         class Broken:
@@ -102,7 +103,7 @@ class TestRunLineageHelper:
             lineage = _run_lineage(double, "ko")
             assert lineage.hf_model_id is None
             assert lineage.hf_revision is None
-            assert lineage.normalization == "ko:v1"
+            assert lineage.normalization == "ko:v2"
 
 
 class TestScoresArtifactLineage:
