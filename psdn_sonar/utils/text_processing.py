@@ -73,13 +73,19 @@ def _verbalize_semantic_symbols(text: str, language: str) -> str:
     number.
     """
     from .symbols import (
+        BENGALI_SYMBOL_MAP,
         ENGLISH_SYMBOL_MAP,
         HINDI_SYMBOL_MAP,
         KOREAN_SYMBOL_MAP,
         verbalize_symbols,
     )
 
-    symbol_maps = {"en": ENGLISH_SYMBOL_MAP, "hi": HINDI_SYMBOL_MAP, "ko": KOREAN_SYMBOL_MAP}
+    symbol_maps = {
+        "en": ENGLISH_SYMBOL_MAP,
+        "hi": HINDI_SYMBOL_MAP,
+        "ko": KOREAN_SYMBOL_MAP,
+        "bn": BENGALI_SYMBOL_MAP,
+    }
     symbol_map = symbol_maps.get(language)
     if symbol_map:
         text = verbalize_symbols(text, symbol_map)
@@ -320,7 +326,11 @@ def _tokenize_bengali(text: str) -> list[str]:
 # Recorded per run in ``scores.json`` (see issue #120: published numbers could
 # not be compared against a reproduction because the rule set in force at
 # publish time was not recorded anywhere).
-WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 1, "en": 1, "hi": 1, "ko": 1}
+#
+# bn v2: added symbol verbalization (BENGALI_SYMBOL_MAP, issue #136) — "%"
+# and friends are now spoken words instead of surviving as literals, which
+# changes absolute Bengali WER relative to v1.
+WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 2, "en": 1, "hi": 1, "ko": 1}
 
 
 def wer_normalization_contract(language: str) -> str:
@@ -363,19 +373,27 @@ def normalize_bengali_for_wer(text: str) -> str:
     1. Loanword replacement (Latin-script → Bengali via cache)
     2. Unicode NFKC normalization
     3. ZWJ/ZWNJ removal
-    4. Digit comma stripping (২,০০০ → ২০০০)
-    5. Punctuation → space
-    6. Bengali numerals → Arabic digits
-    7. Digit tokens → Bengali words (1-4 digits; শত→শো)
-    8. Number word variant canonicalization
-    9. Nasal normalization (ঙ্→ং before consonant)
-    10. Whitespace collapse
-    11. Suffix splitting (skip loanword tokens)
-    12. Lowercase
-    13. Tokenize (bnlp BasicTokenizer) + rejoin
+    4. Symbol verbalization (% → শতাংশ, + → যোগ, … — issue #136)
+    5. Digit comma stripping (২,০০০ → ২০০০)
+    6. Punctuation → space
+    7. Bengali numerals → Arabic digits
+    8. Digit tokens → Bengali words (1-4 digits; শত→শো)
+    9. Number word variant canonicalization
+    10. Nasal normalization (ঙ্→ং before consonant)
+    11. Whitespace collapse
+    12. Suffix splitting (skip loanword tokens)
+    13. Lowercase
+    14. Tokenize (bnlp BasicTokenizer) + rejoin
+
+    Symbols verbalize before digits and before punctuation handling (same
+    ordering contract as the other three languages), so ``৫০%`` becomes
+    ``পঞ্চাশ শতাংশ`` and matches a hypothesis written ``৫০ শতাংশ``. Rule
+    set v2 (``WER_NORMALIZATION_CONTRACTS``).
     """
     if not text or not text.strip():
         return ""
+
+    from .symbols import BENGALI_SYMBOL_MAP, verbalize_symbols
 
     cache = _get_loanword_cache()
     protected = None
@@ -388,6 +406,7 @@ def normalize_bengali_for_wer(text: str) -> str:
 
     text = unicodedata.normalize("NFKC", text)
     text = _RE_ZWJ.sub("", text)
+    text = verbalize_symbols(text, BENGALI_SYMBOL_MAP)
     text = _RE_DIGIT_COMMA.sub("", text)
     text = _RE_PUNCTUATION_BN.sub(" ", text)
     text = text.translate(_BENGALI_TO_ARABIC)

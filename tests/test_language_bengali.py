@@ -57,6 +57,26 @@ class TestBengaliNormalize:
         proc = _make_processor()
         assert proc.normalize("এটি   একটি  পরীক্ষা") == "এটি একটি পরীক্ষা"
 
+    def test_percent_symbol_verbalized(self):
+        # Issue #136: Bengali was the only language without a symbol map,
+        # so "%" survived normalization while en/hi/ko all verbalize it.
+        proc = _make_processor()
+        normalized = proc.normalize("৫০%")
+        assert normalized == "পঞ্চাশ শতাংশ"
+        assert "%" not in normalized
+
+    def test_symbol_map_matches_other_languages_keys(self):
+        # The four maps must stay key-for-key parallel so no language
+        # silently loses coverage for a symbol the others verbalize.
+        from psdn_sonar.utils.symbols import (
+            BENGALI_SYMBOL_MAP,
+            ENGLISH_SYMBOL_MAP,
+            HINDI_SYMBOL_MAP,
+            KOREAN_SYMBOL_MAP,
+        )
+
+        assert set(BENGALI_SYMBOL_MAP) == set(ENGLISH_SYMBOL_MAP) == set(HINDI_SYMBOL_MAP) == set(KOREAN_SYMBOL_MAP)
+
 
 class TestBengaliTokenize:
     def test_tokenize_returns_words(self):

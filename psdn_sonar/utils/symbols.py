@@ -56,6 +56,23 @@ HINDI_SYMBOL_MAP: dict[str, str] = {
     "/": " स्लैश ",
 }
 
+BENGALI_SYMBOL_MAP: dict[str, str] = {
+    # Mirrors the other three maps key-for-key (issue #136: Bengali was the
+    # only supported language without a symbol map, so "%" survived
+    # normalization as a literal and ৫০% could never match ৫০ শতাংশ).
+    # Conservative, widely-used readings; loanword transliterations where
+    # that is what Bengali ASR ground truth tends to contain.
+    "%": " শতাংশ ",
+    "+": " যোগ ",
+    "=": " সমান ",
+    "&": " এবং ",
+    "@": " অ্যাট ",  # transliteration of "at"; standard for email-address readings
+    "#": " হ্যাশ ",
+    "<": " ছোট ",
+    ">": " বড় ",
+    "/": " স্ল্যাশ ",
+}
+
 KOREAN_SYMBOL_MAP: dict[str, str] = {
     # Conservative, widely-used readings only. Avoid colloquialisms
     # (e.g. "골뱅이" for @ is informal/dated; "는" for = is a topic

@@ -33,6 +33,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bengali now verbalizes semantic symbols like the other three languages
+  (#136): Bengali was the only supported language without a symbol map,
+  so `%` survived normalization as a literal — `৫০%` normalized to
+  `50 %` and could never match a hypothesis written `৫০ শতাংশ`, and the
+  leftover symbol's spacing depended on whether the `[bengali]` extra
+  (`bnlp`) was installed, making the same text score differently across
+  otherwise identical installs. `BENGALI_SYMBOL_MAP` (key-for-key
+  parallel with the English/Hindi/Korean maps) is applied in both the
+  canonical WER pipeline and `BengaliProcessor`, before digit
+  verbalization and punctuation handling. Because this changes absolute
+  Bengali WER, the Bengali normalization contract recorded in
+  `scores.json` is bumped to `bn:v2` — v1 and v2 numbers must not be
+  compared as like-for-like.
 - A TSV `audio_path` with `../` can no longer escape the dataset
   directory (#127): the boundary guard in the single-speaker evaluator
   existed but was gated behind a parameter that defaulted off and had no
