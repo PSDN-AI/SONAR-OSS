@@ -20,7 +20,15 @@ reporting, and benchmarks. Distributed as the `psdn-sonar` Python package.
 
 - Python 3.10–3.12
 - [`uv`](https://docs.astral.sh/uv/) (recommended) or `pip`
-- `ffmpeg` recommended for MP3 and some `pydub` paths; WAV evaluation works without it
+- `ffmpeg` **required** by the pipeline-based ASR adapters — including the
+  English defaults `whisper_base_en` / `whisper_small_en` and any `--hf-model`
+  that falls back to the generic pipeline — for **all** audio input, WAV
+  included (the `transformers` pipeline shells out to `ffmpeg` to decode file
+  paths). These adapters refuse to load without it and name the missing
+  binary. Adapters that decode audio themselves (the `wav2vec2_*` models and
+  the non-pipeline Whisper fine-tunes) evaluate WAV without `ffmpeg`; MP3 and
+  some `pydub` paths need it regardless. Install: `sudo apt-get install
+  ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS)
 
 **Supported environments.** CI validates Linux x86_64 with CPython 3.10, 3.11,
 and 3.12. macOS and Windows are expected to work for the core package but are

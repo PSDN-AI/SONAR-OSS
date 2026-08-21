@@ -150,7 +150,7 @@ Prove a new user can install SONAR in a clean environment and reach a working CL
 | ~10 GB free disk | torch + one small Whisper + FLEURS subset + sentence-transformers | `df -h .` |
 | 8 GB RAM (16 GB safer) | Whisper-small + MOS scorers | — |
 | Network | Hugging Face Hub for datasets and models | — |
-| `ffmpeg` (recommended) | `pydub` is a **core** dependency. WAV via `soundfile` works without ffmpeg; MP3 and some pydub paths need it. | `ffmpeg -version` |
+| `ffmpeg` (**required** for pipeline adapters) | The `transformers` ASR pipeline shells out to ffmpeg to decode file paths — **WAV included**. This covers `whisper_base_en`, `whisper_small_en`, `khushids_bengali`, and any `--hf-model` on the generic-pipeline path; those adapters refuse to load without it (see 10.28). Adapters that decode audio themselves (`wav2vec2_*`, non-pipeline Whisper fine-tunes) evaluate WAV without it. MP3 and some `pydub` paths need it regardless. | `ffmpeg -version` |
 | Java runtime (only if installing `[korean]`) | konlpy/MeCab. Core Korean number/loanword normalization works without it. | `java -version` |
 
 Install ffmpeg if missing (Linux):
@@ -1538,6 +1538,27 @@ echo "exit=$?"
 
 **Expected:** exit 1 with `ERROR ... audio_path must be relative inside bundle: /etc/hosts`.
 
+### 10.28 NEG-NO-FFMPEG (pipeline adapter without ffmpeg on PATH)
+
+**Purpose:** The pipeline-based adapters (`whisper_base_en`, `whisper_small_en`, `khushids_bengali`, generic-pipeline `--hf-model`) need the `ffmpeg` binary to decode **any** file path, WAV included. Without it the run must fail **once at model load** with an error naming the binary — not one `Transcription failed` per utterance followed by a normal-looking summary (issue #109).
+
+```bash
+# Run with ffmpeg hidden from PATH (venv bin + minimal system dirs only)
+VENVBIN=$(dirname "$(which python)")
+env PATH="$VENVBIN:/usr/bin:/bin" sh -c 'command -v ffmpeg' || echo "ffmpeg hidden OK"
+env PATH="$VENVBIN:/usr/bin:/bin" psdn-sonar single \
+  --input data/qa/en/fleurs/test.tsv \
+  --models whisper_base_en --language en --max-samples 2 \
+  --output results/neg-no-ffmpeg
+echo "exit=$?"
+```
+
+If `/usr/bin/ffmpeg` exists on your machine, use a directory set that excludes it (e.g. copy `python`/`psdn-sonar` symlink targets into a scratch bin) — the point is that `ffmpeg` must not be resolvable.
+
+**Expected:** exit 1. A single `ERROR ... Evaluation failed: StandardHuggingFaceASR (openai/whisper-base) hands audio file paths to the transformers ASR pipeline, which requires the ffmpeg binary to decode them — including WAV.` The message names install commands (`apt-get install ffmpeg` / `brew install ffmpeg`) and the ffmpeg-free adapter alternatives. No per-utterance `Transcription failed` lines, no checkpoint download, no `scores_*.json` claiming success, no traceback.
+
+**Control:** the same command with normal `PATH` (ffmpeg present) must complete as in section 3. `wav2vec2_bengali` and other self-decoding adapters must still evaluate WAV with ffmpeg hidden.
+
 ---
 
 ## 11. Reproducibility tests
@@ -1633,6 +1654,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D34 | Thousands separators split number verbalization — `1,000 dollars` normalized to `one000 dollars` (en/hi/ko), inflating WER on corpora with separated numerals | **Fixed** | `verbalize_digits` now strips separators inside well-formed grouped numbers (Western `1,234,567`, Indian `12,34,567`, space/thin-space grouping) before digit-run extraction, matching what the canonical Bengali pipeline always did; `BengaliProcessor`'s own digit path got the same comma strip. en/hi/ko normalization contracts bumped to `en:v2`/`hi:v2`/`ko:v2` — v1 and v2 scores are not like-for-like. |
 | D35 | Bengali suffix splitting had no stem check — whole words were cut in two (`মাটি` → `মা টি`, `ছেলে` → `ছেল এ`) and `ঘণ্টা` split inside a conjunct leaving a virama fragment, inflating the WER denominator | **Fixed** | `_split_suffixes` now requires a splittable stem (≥2 grapheme clusters, never virama-terminated) and consults a small protected whole-word lexicon for cases structure cannot decide (`ছেলে` vs `দেশে`). Real suffixes still split (`প্যাকেটটা` → `প্যাকেট টা`); `হাতে` now splits at the true morpheme boundary (`হাত এ`, matching the `দেশে` → `দেশ এ` precedent). Bengali contract bumped to `bn:v3`. |
 | D36 | A surplus TSV field (literal tab in the transcription) silently truncated the reference and scored it (exit 0); a UTF-8 BOM produced `TSV missing required columns: audio_path` for a column that is present | **Fixed** | `load_data` reads TSVs as `utf-8-sig` (BOM stripped, no-op otherwise) and marks surplus-field rows as failed with a warning naming the line and field counts, following the issue-#102 failed-not-dropped pattern. See 10.15b/10.15c. |
+| D37 | README claimed "WAV evaluation works without ffmpeg", but the pipeline adapters (both English defaults, `khushids_bengali`, generic-pipeline `--hf-model`) shell out to ffmpeg for **all** file-path input including WAV; without it every utterance failed individually and the run still printed its normal summary | **Fixed** | Those adapters now preflight for ffmpeg at model load (before the checkpoint download) and raise `MissingFfmpegError` naming the binary, install commands, and ffmpeg-free alternatives; the CLI exits 1 cleanly. README Requirements corrected. See 10.28. |
 
 ---
 
@@ -1646,7 +1668,7 @@ Copy this into the test report.
 - [ ] Documented TestPyPI path tried; result recorded (including if `0.1.0.dev2` is gone)
 - [ ] Source editable + `[ml]` works
 - [ ] `psdn-sonar --version` recorded
-- [ ] ffmpeg present or MP3 cases marked BLOCKED
+- [ ] ffmpeg present (required by the pipeline adapters even for WAV — see 10.28); without it MP3 cases marked BLOCKED
 - [ ] `HF_TOKEN` documented as optional except pyannote
 
 ### Data
@@ -1716,6 +1738,7 @@ Copy this into the test report.
 - [ ] Silent / corrupt / short audio did not crash
 - [ ] `audio_path` with `../` escaping the TSV directory → exit 1, file never opened
 - [ ] `--strict-audio-paths` rejects absolute `audio_path` values → exit 1
+- [ ] Pipeline adapter without ffmpeg on PATH → exit 1 at model load naming ffmpeg, no per-utterance errors
 
 ### Reproducibility
 

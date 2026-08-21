@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Missing `ffmpeg` now fails once at model load instead of once per
+  utterance (#109): the adapters that hand audio file paths to the
+  `transformers` ASR pipeline — `StandardHuggingFaceASR` (both English
+  default models), `KhushiDSBengaliModel`, and `CustomHuggingFaceModel`'s
+  generic-pipeline branch — need the `ffmpeg` binary to decode **any**
+  path they are given, WAV included. Without it a run used to emit one
+  identical `Transcription failed ... ffmpeg was not found` error per
+  utterance and still print its normal summary. These adapters now
+  preflight for `ffmpeg` before downloading the checkpoint and raise
+  `MissingFfmpegError` (new, in `psdn_sonar.models.base`) naming the
+  binary, install commands, and the adapters that decode audio
+  themselves; `psdn-sonar single` reports it as a clean error and exits
+  1. The README claim that "WAV evaluation works without ffmpeg" was
+  wrong for these adapters and has been corrected.
 - TSV parsing no longer truncates references or mis-reports a BOM
   (#141): a data row carrying more fields than the header (a literal
   tab inside the transcription) used to have everything after the tab

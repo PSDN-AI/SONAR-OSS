@@ -75,6 +75,90 @@ class TestTranscribeErrorHandling:
 
 
 @requires_ml
+class TestFfmpegPreflight:
+    """Issue #109: adapters that hand file paths to the transformers pipeline
+    require ffmpeg for ALL input (WAV included) and must fail once at model
+    load with an actionable message, not once per utterance at transcribe
+    time."""
+
+    def _hide_ffmpeg(self, monkeypatch):
+        import psdn_sonar.models.huggingface as hf
+
+        monkeypatch.setattr(hf.shutil, "which", lambda name: None)
+
+    def test_require_ffmpeg_raises_actionable_error(self, monkeypatch):
+        from psdn_sonar.models.base import MissingFfmpegError
+        from psdn_sonar.models.huggingface import _require_ffmpeg
+
+        self._hide_ffmpeg(monkeypatch)
+        with pytest.raises(MissingFfmpegError) as exc_info:
+            _require_ffmpeg("StandardHuggingFaceASR (openai/whisper-base)")
+        message = str(exc_info.value)
+        assert "ffmpeg" in message
+        assert "WAV" in message
+        assert "install ffmpeg" in message.lower()
+
+    def test_require_ffmpeg_noop_when_present(self, monkeypatch):
+        import psdn_sonar.models.huggingface as hf
+
+        monkeypatch.setattr(hf.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        hf._require_ffmpeg("whatever")  # must not raise
+
+    def test_standard_adapter_fails_before_any_download(self, monkeypatch):
+        from psdn_sonar.models.base import MissingFfmpegError
+        from psdn_sonar.models.huggingface import StandardHuggingFaceASR
+
+        self._hide_ffmpeg(monkeypatch)
+        # The preflight is the constructor's first statement, so nothing from
+        # transformers may be touched: poison from_pretrained to prove it.
+        with patch("transformers.AutoModelForSpeechSeq2Seq") as mock_model:
+            mock_model.from_pretrained.side_effect = AssertionError("checkpoint download attempted")
+            with pytest.raises(MissingFfmpegError):
+                StandardHuggingFaceASR("openai/whisper-base")
+            mock_model.from_pretrained.assert_not_called()
+
+    def test_khushids_adapter_fails_fast(self, monkeypatch):
+        from psdn_sonar.models.base import MissingFfmpegError
+        from psdn_sonar.models.huggingface import KhushiDSBengaliModel
+
+        self._hide_ffmpeg(monkeypatch)
+        with pytest.raises(MissingFfmpegError):
+            KhushiDSBengaliModel()
+
+    def test_custom_model_generic_pipeline_branch_not_wrapped(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from psdn_sonar.models.base import MissingFfmpegError
+        from psdn_sonar.models.huggingface import CustomHuggingFaceModel
+
+        self._hide_ffmpeg(monkeypatch)
+        with patch("transformers.AutoConfig") as mock_config:
+            mock_config.from_pretrained.return_value = SimpleNamespace(model_type="hubert")
+            # Must surface as MissingFfmpegError, not be swallowed into the
+            # generic "Failed to load custom HuggingFace model" RuntimeError.
+            with pytest.raises(MissingFfmpegError):
+                CustomHuggingFaceModel("org/some-hubert-model")
+
+    def test_custom_model_librosa_branches_skip_preflight(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from psdn_sonar.models.huggingface import CustomHuggingFaceModel
+
+        self._hide_ffmpeg(monkeypatch)
+        # whisper branch decodes via librosa itself — must NOT demand ffmpeg.
+        with (
+            patch("transformers.AutoConfig") as mock_config,
+            patch("transformers.WhisperProcessor") as mock_proc,
+            patch("transformers.WhisperForConditionalGeneration") as mock_model,
+        ):
+            mock_config.from_pretrained.return_value = SimpleNamespace(model_type="whisper")
+            mock_proc.from_pretrained.return_value = MagicMock()
+            mock_model.from_pretrained.return_value = MagicMock()
+            model = CustomHuggingFaceModel("org/whisper-fine-tune")
+            assert model.model_type == "whisper"
+
+
+@requires_ml
 class TestCustomHuggingFaceModelDispatch:
     """``CustomHuggingFaceModel`` routes transcription by detected model type."""
 
