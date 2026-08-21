@@ -33,6 +33,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Thousands separators no longer split number verbalization (#135):
+  `1,000 dollars` used to normalize to `one000 dollars` for English,
+  Hindi and Korean — the digit-run regex saw `1` and `000` as separate
+  runs, the second hit the leading-zero skip, and the later punctuation
+  strip glued them into a token that can never match, silently inflating
+  WER on corpora with separated numerals. The shared `verbalize_digits`
+  now strips separators inside well-formed grouped numbers (Western
+  `1,234,567`, Indian `12,34,567`, and space/thin-space grouping) before
+  digit-run extraction — the handling the canonical Bengali pipeline
+  already had. Enumerations (`1,2,3`) and adjacent independent runs
+  (`2020 100`) are not merged; joined numbers longer than 4 digits stay
+  as digits under the existing phone/ID skip. `BengaliProcessor`'s own
+  digit path received the same comma strip (`১,০০০` now verbalizes like
+  `১০০০`). Because absolute WER changes, the English, Hindi and Korean
+  normalization contracts recorded in `scores.json` are bumped to
+  `en:v2`/`hi:v2`/`ko:v2` — v1 and v2 numbers must not be compared as
+  like-for-like.
 - Bengali now verbalizes semantic symbols like the other three languages
   (#136): Bengali was the only supported language without a symbol map,
   so `%` survived normalization as a literal — `৫০%` normalized to
