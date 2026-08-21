@@ -22,6 +22,7 @@ from psdn_sonar.quality_models import _EMPTY_MOS
 from psdn_sonar.utils.metrics import (
     DEFAULT_SIGNIFICANT_WER_THRESHOLD,
     calculate_poseidon_score,
+    clamp_similarity,
     compute_latency_summary,
     compute_protocol_latency_summary,
     is_significant_wer,
@@ -328,7 +329,9 @@ class SingleSpeakerEvaluator:
             embeds = sem_model.encode(all_texts, convert_to_tensor=False, show_progress_bar=False)
             for i, (result_idx, _, _) in enumerate(sem_pairs):
                 e1, e2 = embeds[2 * i], embeds[2 * i + 1]
-                sim = float(util.cos_sim(e1[None], e2[None])[0][0])
+                # Clamped to [0, 1] at the source so the stored value, its
+                # mean, and the POSEIDON input share one range (issue #107).
+                sim = clamp_similarity(float(util.cos_sim(e1[None], e2[None])[0][0]))
                 r = results[result_idx]
                 results[result_idx]["semantic_similarity"] = sim
                 if r["cer"] is not None and r["wer"] is not None:
@@ -438,9 +441,33 @@ class SingleSpeakerEvaluator:
                     prediction,
                     language=language,
                 )
-                # Legacy single-speaker CSV rollups treat uncomputable metrics as 0.0.
                 if cer is None or wer is None:
-                    cer, wer = 0.0, 0.0
+                    # One project-wide convention for missing metrics (issue
+                    # #107): an uncomputable CER/WER is excluded from every
+                    # aggregate and the row is surfaced as failed — never
+                    # scored as best case (this used to substitute 0.0,
+                    # deflating the run averages). Transcription itself
+                    # succeeded, so the prediction is preserved on the row.
+                    failed += 1
+                    scoring_error = (
+                        "CER/WER uncomputable (reference normalized to empty, or jiwer "
+                        "unavailable) — row excluded from aggregates; transcription "
+                        "succeeded, see the prediction column"
+                    )
+                    logger.warning(f"[{idx}/{len(data)}] {scoring_error}")
+                    results.append(
+                        SingleSpeakerEvaluator._result_row(
+                            audio_path,
+                            ground_truth,
+                            aq,
+                            prediction=prediction,
+                            inference_latency_s=inference_latency_s,
+                            ttft_s=ttft_s,
+                            complete_s=complete_s,
+                            error=scoring_error,
+                        )
+                    )
+                    continue
 
                 total_wer += wer
                 total_cer += cer

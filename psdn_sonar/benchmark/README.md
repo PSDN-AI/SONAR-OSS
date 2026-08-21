@@ -23,6 +23,41 @@ Multi-model runs use one `scores_<model>.json` per model to avoid clobbering.
 | `lineage` | `RunLineage` — resolved HF checkpoint (`hf_model_id`, `hf_revision`) and the WER normalization contract in force (`normalization`, e.g. `"bn:v3+bnlp"`). Best-effort; fields are `null` for hosted API models. Recorded because the registry pins no model revisions, so without it the exact weights and rule set behind a number are unrecoverable. |
 | `utterances` | Slim per-row metrics (paths, WER/CER, sem, POSEIDON, latency, errors) |
 
+### Missing values and metric ranges
+
+One convention applies to every scoring path in the package (issue #107):
+
+- **A metric that cannot be computed is `null` — never substituted with a
+  best- or worst-case value.** CER/WER are `null` when the normalized
+  reference is empty or jiwer is unavailable; semantic similarity is `null`
+  when the reference is empty or sentence-transformers (`[ml]` extra) is
+  unavailable; `poseidon_score` is `null` whenever any of its three
+  components is. A row whose metrics could not be computed is counted in
+  `failed` (with the reason in its `error` field), even when transcription
+  itself succeeded — the prediction is preserved on the row.
+- **Aggregates are computed only over present values.** `cer_mean` /
+  `wer_mean` average the successfully scored rows; `semantic_similarity_mean`
+  / `poseidon_score_mean` average the rows where that metric exists;
+  `significant_wer_rate` excludes missing WERs from both numerator and
+  denominator. When no row has a value, the aggregate is `null` (not `0.0`).
+  Use `total_samples` / `successful` / `failed` to see how many rows
+  contributed.
+- **An empty hypothesis against a non-empty reference is measurable, not
+  missing**: WER/CER are genuinely 1.0 (every word wrong).
+- **`semantic_similarity` is cosine similarity clamped to `[0, 1]`** at the
+  point of computation. Raw cosine ranges `[-1, 1]`, but every artifact —
+  the per-utterance CSV, `semantic_similarity_mean`, the POSEIDON input, and
+  the public leaderboard — reports the clamped value, so
+  `semantic_similarity_mean` and `poseidon_score_mean` are computed over the
+  same range and neither can go negative. A negative raw cosine (unrelated
+  texts) reads as `0.0`.
+
+The same convention governs derived artifacts: `ensure_poseidon_score`
+(used by the reporting plots to backfill POSEIDON on legacy CSVs) leaves
+`NaN` for rows with any missing metric instead of fabricating a score, and
+the public `PoseidonScorer` API returns `None` metrics for unmeasurable
+pairs.
+
 ### Example
 
 ```json

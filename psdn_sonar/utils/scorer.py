@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -5,19 +6,45 @@ import numpy as np
 
 from ..config import config
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ScoreResult:
-    """Result container for POSEIDON scoring of a single (reference, hypothesis) pair."""
+    """Result container for POSEIDON scoring of a single (reference, hypothesis) pair.
 
-    wer: float
-    cer: float
-    similarity: float
-    poseidon_score: float
+    Metrics are ``None`` when unmeasurable — empty reference, or the metric
+    backend (jiwer / sentence-transformers) unavailable or failing. This is
+    the project-wide missing-value convention (issue #107): a metric that
+    cannot be computed is reported as missing, never substituted with a
+    best- or worst-case value. ``poseidon_score`` is ``None`` whenever any
+    component is ``None``.
+    """
+
+    wer: Optional[float]
+    cer: Optional[float]
+    similarity: Optional[float]
+    poseidon_score: Optional[float]
 
 
 class PoseidonScorer:
-    """Configurable scorer that computes WER, CER, semantic similarity, and the composite POSEIDON score."""
+    """Configurable scorer that computes WER, CER, semantic similarity, and the composite POSEIDON score.
+
+    Delegates CER/WER to :func:`psdn_sonar.utils.metrics.calculate_cer_wer`
+    and the composite to
+    :func:`psdn_sonar.utils.metrics.calculate_poseidon_score`, so a
+    (reference, hypothesis) pair scores identically here and in the
+    evaluation pipelines. Unmeasurable metrics are ``None`` (never
+    worst-case substitutes — issue #107; this class used to silently report
+    WER/CER 1.0 and similarity 0.0 for pairs it could not score, inflating
+    batch averages relative to the pipelines, which exclude missing
+    values). Similarity is cosine clamped to ``[0, 1]``, the range every
+    artifact reports.
+
+    Note: an empty *hypothesis* against a non-empty reference IS measurable
+    (WER/CER are genuinely 1.0 — every word wrong); only an empty
+    *reference* or a backend failure makes a metric missing.
+    """
 
     def __init__(
         self,
@@ -49,62 +76,75 @@ class PoseidonScorer:
                 self._model = SentenceTransformer(self.model_name)
         return self._model
 
-    def calculate_wer(self, reference: str, hypothesis: str) -> float:
-        if not reference or not hypothesis:
-            return 1.0
+    def calculate_wer(self, reference: str, hypothesis: str) -> Optional[float]:
+        """WER via the canonical helper; ``None`` when unmeasurable."""
+        from ..utils.metrics import calculate_cer_wer
 
-        try:
-            from jiwer import wer
+        return calculate_cer_wer(reference, hypothesis)[1]
 
-            return min(wer(reference, hypothesis), 1.0)
-        except Exception:
-            return 1.0
+    def calculate_cer(self, reference: str, hypothesis: str) -> Optional[float]:
+        """CER via the canonical helper; ``None`` when unmeasurable."""
+        from ..utils.metrics import calculate_cer_wer
 
-    def calculate_cer(self, reference: str, hypothesis: str) -> float:
-        if not reference or not hypothesis:
-            return 1.0
+        return calculate_cer_wer(reference, hypothesis)[0]
 
-        try:
-            from jiwer import cer
+    def calculate_similarity(self, text1: str, text2: str) -> Optional[float]:
+        """Cosine similarity clamped to ``[0, 1]``; ``None`` when unmeasurable.
 
-            return min(cer(reference, hypothesis), 1.0)
-        except Exception:
-            return 1.0
+        Kept local (rather than delegating to
+        :func:`~psdn_sonar.utils.metrics.compute_semantic_similarity`) so a
+        custom ``model_name`` is honored; the missing-value and clamping
+        conventions are identical.
+        """
+        from ..utils.metrics import clamp_similarity
 
-    def calculate_similarity(self, text1: str, text2: str) -> float:
-        if not text1 or not text2:
-            return 0.0
-
+        if not text1 or not text1.strip():
+            return None
         try:
             from sentence_transformers import util
 
-            e1, e2 = self.model.encode([text1, text2], convert_to_tensor=False, show_progress_bar=False)
-            return float(util.cos_sim(e1[None], e2[None])[0][0])
+            e1, e2 = self.model.encode([text1, text2 or ""], convert_to_tensor=False, show_progress_bar=False)
+            return clamp_similarity(float(util.cos_sim(e1[None], e2[None])[0][0]))
         except Exception:
-            return 0.0
+            logger.warning("Semantic similarity calculation failed", exc_info=True)
+            return None
 
     def calculate_poseidon_score(self, wer: float, cer: float, similarity: float) -> float:
-        wer_capped = min(max(wer, 0.0), 1.0)
-        cer_capped = min(max(cer, 0.0), 1.0)
-        similarity_capped = min(max(similarity, 0.0), 1.0)
+        """Composite score via the canonical helper, using this scorer's weights.
 
-        score = (
-            self.wer_weight * (1 - wer_capped)
-            + self.cer_weight * (1 - cer_capped)
-            + self.semantic_weight * similarity_capped
+        Raises ``TypeError`` on ``None`` inputs (see
+        :func:`psdn_sonar.utils.metrics.calculate_poseidon_score`); use
+        :meth:`score`, which returns ``poseidon_score=None`` when any
+        component is missing.
+        """
+        from ..utils.metrics import calculate_poseidon_score
+
+        return calculate_poseidon_score(
+            cer,
+            wer,
+            similarity,
+            wer_weight=self.wer_weight,
+            cer_weight=self.cer_weight,
+            semantic_weight=self.semantic_weight,
         )
 
-        return min(max(score, 0.0), 1.0)
-
     def score(self, reference: str, hypothesis: str) -> ScoreResult:
-        wer = self.calculate_wer(reference, hypothesis)
-        cer = self.calculate_cer(reference, hypothesis)
+        from ..utils.metrics import calculate_cer_wer
+
+        cer, wer = calculate_cer_wer(reference, hypothesis)
         similarity = self.calculate_similarity(reference, hypothesis)
-        poseidon_score = self.calculate_poseidon_score(wer, cer, similarity)
+        poseidon_score = (
+            self.calculate_poseidon_score(wer, cer, similarity)
+            if (wer is not None and cer is not None and similarity is not None)
+            else None
+        )
+
+        def _round(value: Optional[float]) -> Optional[float]:
+            return round(value, 4) if value is not None else None
 
         return ScoreResult(
-            wer=round(wer, 4),
-            cer=round(cer, 4),
-            similarity=round(similarity, 4),
-            poseidon_score=round(poseidon_score, 4),
+            wer=_round(wer),
+            cer=_round(cer),
+            similarity=_round(similarity),
+            poseidon_score=_round(poseidon_score),
         )

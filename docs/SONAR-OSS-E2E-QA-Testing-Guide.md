@@ -1257,6 +1257,16 @@ psdn-sonar single --input data/qa/neg/empty-ref.tsv --models whisper_base_en --l
 
 **Pass:** exit 1 with the per-row error recorded and null means. **Fail:** exit 0, or the row silently dropped with no error recorded.
 
+Also test a reference that is non-empty but **normalizes to empty** (punctuation-only). It passes the load check but cannot be scored; per D39 the row must be counted as failed and excluded from aggregates — it used to be scored as a perfect WER/CER of 0.0:
+
+```bash
+printf 'audio_path\ttranscription\nclip.wav\t...!?\n' > data/qa/neg/punct-ref.tsv
+psdn-sonar single --input data/qa/neg/punct-ref.tsv --models whisper_base_en --language en --output results/neg-punct-ref
+echo "exit=$?"
+```
+
+**Expected:** exit 1 (zero successful samples). The row is failed with `error` starting `CER/WER uncomputable`, its `wer`/`cer` cells empty, and the model's transcription preserved in the `prediction` column. **Fail:** the row counted successful with WER/CER `0.0`.
+
 ### 10.6 NEG-WRONG-LANGUAGE-CODE
 
 ```bash
@@ -1656,6 +1666,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D36 | A surplus TSV field (literal tab in the transcription) silently truncated the reference and scored it (exit 0); a UTF-8 BOM produced `TSV missing required columns: audio_path` for a column that is present | **Fixed** | `load_data` reads TSVs as `utf-8-sig` (BOM stripped, no-op otherwise) and marks surplus-field rows as failed with a warning naming the line and field counts, following the issue-#102 failed-not-dropped pattern. See 10.15b/10.15c. |
 | D37 | README claimed "WAV evaluation works without ffmpeg", but the pipeline adapters (both English defaults, `khushids_bengali`, generic-pipeline `--hf-model`) shell out to ffmpeg for **all** file-path input including WAV; without it every utterance failed individually and the run still printed its normal summary | **Fixed** | Those adapters now preflight for ffmpeg at model load (before the checkpoint download) and raise `MissingFfmpegError` naming the binary, install commands, and ffmpeg-free alternatives; the CLI exits 1 cleanly. README Requirements corrected. See 10.28. |
 | D38 | A run with zero successful samples intermittently exited 134 (SIGABRT: a native extension aborting in interpreter teardown with `recursive_mutex lock failed`) instead of the reported exit 1, so automation could not tell a failed evaluation from a crashed process | **Fixed** | The `psdn-sonar` console script now runs through `entrypoint()`, which flushes logging and the std streams and leaves via `os._exit` with the code the run decided on, skipping interpreter teardown entirely. All artifacts are written and closed before that point. Exit codes are now stable across repeat runs: 0 success, 1 evaluation/data failure, 2 argparse usage error, 130 Ctrl-C. |
+| D39 | Three scoring paths handled a missing metric three contradictory ways (single-speaker rollups: best case 0.0; `PoseidonScorer`: worst case 1.0/0.0; `significant_wer_rate`: excluded), and `semantic_similarity` was clamped to `[0,1]` inside POSEIDON but stored/averaged raw, so `semantic_similarity_mean` could go negative while `poseidon_score_mean` could not | **Fixed** | One convention everywhere: an uncomputable metric is `null`, the row is failed with the reason in `error` (prediction preserved), and aggregates cover only present values; `ensure_poseidon_score` leaves `NaN` instead of fabricating scores. Similarity is cosine clamped to `[0,1]` at the point of computation, so every artifact reports the same range. Documented in `psdn_sonar/benchmark/README.md` ("Missing values and metric ranges"). |
 
 ---
 
@@ -1741,6 +1752,7 @@ Copy this into the test report.
 - [ ] `--strict-audio-paths` rejects absolute `audio_path` values → exit 1
 - [ ] Pipeline adapter without ffmpeg on PATH → exit 1 at model load naming ffmpeg, no per-utterance errors
 - [ ] Any failing case re-run several times returns the same exit code every time (never 134/SIGABRT)
+- [ ] Punctuation-only reference → row failed as `CER/WER uncomputable`, never scored as WER 0.0
 
 ### Reproducibility
 

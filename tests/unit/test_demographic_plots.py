@@ -45,10 +45,28 @@ class TestEnsurePoseidonScore:
         out = ensure_poseidon_score(df)
         assert 0.0 <= out["poseidon_score"].iloc[0] <= 1.0
 
-    def test_nan_treated_as_worst_case(self):
+    def test_nan_metrics_excluded_not_substituted(self):
+        # Issue #107: an uncomputable metric is excluded (NaN poseidon that
+        # aggregations skip), never scored as the worst case.
         df = pd.DataFrame({"wer_conv": [np.nan], "cer_conv": [np.nan], "semantic_similarity_conv": [np.nan]})
         out = ensure_poseidon_score(df)
-        assert out["poseidon_score"].iloc[0] == 0.0
+        assert np.isnan(out["poseidon_score"].iloc[0])
+
+    def test_single_missing_metric_excludes_row(self):
+        df = pd.DataFrame({"wer_conv": [0.2], "cer_conv": [0.1], "semantic_similarity_conv": [np.nan]})
+        assert np.isnan(ensure_poseidon_score(df)["poseidon_score"].iloc[0])
+
+    def test_mixed_rows_scored_independently(self):
+        df = pd.DataFrame(
+            {
+                "wer_conv": [0.2, np.nan],
+                "cer_conv": [0.1, 0.1],
+                "semantic_similarity_conv": [0.9, 0.9],
+            }
+        )
+        out = ensure_poseidon_score(df)
+        assert 0.0 <= out["poseidon_score"].iloc[0] <= 1.0
+        assert np.isnan(out["poseidon_score"].iloc[1])
 
     def test_existing_column_untouched(self):
         df = pd.DataFrame({"poseidon_score": [0.42]})
