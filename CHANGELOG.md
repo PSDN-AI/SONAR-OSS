@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- TSV parsing no longer truncates references or mis-reports a BOM
+  (#141): a data row carrying more fields than the header (a literal
+  tab inside the transcription) used to have everything after the tab
+  silently discarded and the truncated reference scored (exit 0, no
+  warning); such rows are now counted as failed with a warning naming
+  the line and field counts, per the issue-#102 failed-not-dropped
+  pattern. Evaluation TSVs are also read as ``utf-8-sig``, so the UTF-8
+  BOM Excel prepends to exports is stripped instead of corrupting the
+  first column name and raising ``TSV missing required columns:
+  audio_path`` for a column that is present.
 - Bengali suffix splitting no longer cuts whole words in two (#142):
   `_split_suffixes` matched on trailing characters alone, so ordinary
   words ending in a suffix-lookalike were split (`মাটি` → `মা টি`,

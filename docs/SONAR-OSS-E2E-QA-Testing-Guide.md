@@ -1402,6 +1402,32 @@ Evaluation failed: TSV missing required columns: audio_path, transcription
 
 Exit 1. (Exact missing-column list depends on which names are absent.)
 
+### 10.15b NEG-SURPLUS-FIELD
+
+A literal tab inside the transcription makes a row carry more fields than the header. The surplus used to be discarded silently, scoring against a truncated reference (exit 0).
+
+```bash
+W=data/qa/en/fleurs/audio/test_000000.wav
+printf 'audio_path\ttranscription\n' > data/qa/neg/extra-tab.tsv
+printf '%s\thello\tworld extra\n' "$W" >> data/qa/neg/extra-tab.tsv
+psdn-sonar single --input data/qa/neg/extra-tab.tsv --models whisper_base_en --language en --output results/neg-extra-tab
+```
+
+**Expected:** a warning naming the line — `TSV line 2: 3 fields for 2 header columns (a literal tab inside a field?) — refusing to truncate the transcription ... row will be counted as failed, not dropped`. The row appears in results with an `error`; as the only sample, the run exits 1 under the zero-successful-samples rule. Never exit 0 with a silently truncated reference.
+
+### 10.15c NEG-BOM-TSV
+
+Excel prepends a UTF-8 BOM to exported TSVs. It used to corrupt the first column name and produce `TSV missing required columns: audio_path` for a present column.
+
+```bash
+W=data/qa/en/fleurs/audio/test_000000.wav
+printf '\xEF\xBB\xBFaudio_path\ttranscription\n' > data/qa/neg/bom.tsv
+printf '%s\thello world\n' "$W" >> data/qa/neg/bom.tsv
+psdn-sonar single --input data/qa/neg/bom.tsv --models whisper_base_en --language en --output results/neg-bom
+```
+
+**Expected:** the BOM is stripped and the run behaves exactly like the same file without a BOM (normal evaluation, exit 0). No missing-column error.
+
 ### 10.16 NEG-VERY-SHORT-AUDIO
 
 Use `ffmpeg` or Python to write a 50 ms wav and a one-word transcript. Evaluation must complete. WER may be 1.0. `conf/config.yaml` validation `min_duration_seconds: 0.5` is **not** enforced by `psdn-sonar single` (that config tree is for the recipe/validation layer). Record if a warning appears.
@@ -1606,6 +1632,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D33 | Bengali had no symbol map — `৫০%` normalized to `50 %` while en/hi/ko verbalize `%` | **Fixed** | `BENGALI_SYMBOL_MAP` added and wired into both the canonical WER pipeline and `BengaliProcessor`; `৫০%` and `৫০ শতাংশ` now normalize identically, and no symbol survives whose spacing could differ by `bnlp` availability. Bengali normalization contract bumped to `bn:v2` — v1 and v2 Bengali scores are not like-for-like. |
 | D34 | Thousands separators split number verbalization — `1,000 dollars` normalized to `one000 dollars` (en/hi/ko), inflating WER on corpora with separated numerals | **Fixed** | `verbalize_digits` now strips separators inside well-formed grouped numbers (Western `1,234,567`, Indian `12,34,567`, space/thin-space grouping) before digit-run extraction, matching what the canonical Bengali pipeline always did; `BengaliProcessor`'s own digit path got the same comma strip. en/hi/ko normalization contracts bumped to `en:v2`/`hi:v2`/`ko:v2` — v1 and v2 scores are not like-for-like. |
 | D35 | Bengali suffix splitting had no stem check — whole words were cut in two (`মাটি` → `মা টি`, `ছেলে` → `ছেল এ`) and `ঘণ্টা` split inside a conjunct leaving a virama fragment, inflating the WER denominator | **Fixed** | `_split_suffixes` now requires a splittable stem (≥2 grapheme clusters, never virama-terminated) and consults a small protected whole-word lexicon for cases structure cannot decide (`ছেলে` vs `দেশে`). Real suffixes still split (`প্যাকেটটা` → `প্যাকেট টা`); `হাতে` now splits at the true morpheme boundary (`হাত এ`, matching the `দেশে` → `দেশ এ` precedent). Bengali contract bumped to `bn:v3`. |
+| D36 | A surplus TSV field (literal tab in the transcription) silently truncated the reference and scored it (exit 0); a UTF-8 BOM produced `TSV missing required columns: audio_path` for a column that is present | **Fixed** | `load_data` reads TSVs as `utf-8-sig` (BOM stripped, no-op otherwise) and marks surplus-field rows as failed with a warning naming the line and field counts, following the issue-#102 failed-not-dropped pattern. See 10.15b/10.15c. |
 
 ---
 
@@ -1678,6 +1705,8 @@ Copy this into the test report.
 
 - [ ] Missing input file → exit 2, exact argparse text
 - [ ] Missing TSV columns → `TSV missing required columns`
+- [ ] Surplus TSV field (tab inside transcription) → row failed with line number, never a silently truncated reference
+- [ ] TSV with UTF-8 BOM → accepted like the BOM-free file, no missing-column error
 - [ ] Invalid HF model → exit 1
 - [ ] Unknown language code (`xx`) → exit 1 before scoring, with or without `--models`
 - [ ] Recognized code without normalizer (`pt`) → runs with explicit fallback warning

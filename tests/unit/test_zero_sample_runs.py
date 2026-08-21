@@ -83,6 +83,60 @@ class TestLoadDataKeepsBadRows:
         assert len(data) == 1
         assert "load_error" not in data[0]
 
+    def test_surplus_field_row_is_marked_not_truncated(self, tmp_path):
+        # Issue #141: a literal tab inside the transcription used to silently
+        # truncate the reference to the field before the tab (exit 0, bad
+        # score). The row must be marked malformed instead.
+        tsv = tmp_path / "eval.tsv"
+        tsv.write_text("audio_path\ttranscription\nclip.wav\thello\tworld extra\n", encoding="utf-8")
+
+        data = SingleSpeakerEvaluator.load_data(str(tsv))
+
+        assert len(data) == 1
+        assert "line 2" in data[0]["load_error"]
+        assert "3 fields" in data[0]["load_error"]
+        assert "truncate" in data[0]["load_error"]
+
+    def test_utf8_bom_is_stripped(self, tmp_path):
+        # Issue #141: Excel prepends a BOM to exported TSVs; it used to
+        # corrupt the first column name into \ufeffaudio_path and raise
+        # "TSV missing required columns: audio_path" for a present column.
+        wav = tmp_path / "clip.wav"
+        wav.write_bytes(b"")
+        tsv = tmp_path / "eval.tsv"
+        tsv.write_bytes(b"\xef\xbb\xbf" + f"audio_path\ttranscription\n{wav}\thello world\n".encode())
+
+        data = SingleSpeakerEvaluator.load_data(str(tsv))
+
+        assert len(data) == 1
+        assert "load_error" not in data[0]
+        assert data[0]["ground_truth"] == "hello world"
+
+    def test_bom_free_file_unaffected_by_sig_decoding(self, tmp_path):
+        # utf-8-sig must be a no-op for ordinary files.
+        wav = tmp_path / "clip.wav"
+        wav.write_bytes(b"")
+        tsv = tmp_path / "eval.tsv"
+        tsv.write_text(f"audio_path\ttranscription\n{wav}\tплитка বাংলা 테스트\n", encoding="utf-8")
+
+        data = SingleSpeakerEvaluator.load_data(str(tsv))
+
+        assert data[0]["ground_truth"] == "плитка বাংলা 테스트"
+
+    def test_extra_header_column_still_tolerated(self, tmp_path):
+        # A header with surplus columns over fully-aligned rows is not a
+        # surplus-field row; documented leniency stays.
+        wav = tmp_path / "clip.wav"
+        wav.write_bytes(b"")
+        tsv = tmp_path / "eval.tsv"
+        tsv.write_text(f"audio_path\ttranscription\textra_col\n{wav}\thello\tignored\n", encoding="utf-8")
+
+        data = SingleSpeakerEvaluator.load_data(str(tsv))
+
+        assert len(data) == 1
+        assert "load_error" not in data[0]
+        assert data[0]["ground_truth"] == "hello"
+
 
 class TestEvaluateOneHonestAggregates:
     def test_load_error_rows_counted_failed_and_avgs_null(self):

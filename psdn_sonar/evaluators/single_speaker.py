@@ -195,10 +195,19 @@ class SingleSpeakerEvaluator:
     def load_data(tsv_path: str, allow_absolute_audio_paths: bool = True) -> List[Dict]:
         """Load TSV with audio_path and transcription columns.
 
-        Rows with a missing/blank ``audio_path`` or ``transcription`` are not
-        silently dropped: they are returned with a ``load_error`` key so the
-        evaluator can count them as failed and emit an error row, keeping the
-        artifacts honest about how much of the input was actually evaluated.
+        Rows with a missing/blank ``audio_path`` or ``transcription``, or with
+        MORE fields than the header (a literal tab inside a field — the
+        surplus used to be discarded silently, truncating the reference,
+        issue #141), are not silently dropped: they are returned with a
+        ``load_error`` key so the evaluator can count them as failed and emit
+        an error row, keeping the artifacts honest about how much of the
+        input was actually evaluated.
+
+        The file is read as ``utf-8-sig``, so the UTF-8 BOM that Excel
+        prepends to exported TSVs is stripped instead of corrupting the first
+        column name into an invisible ``\\ufeffaudio_path`` and producing a
+        "missing required columns" error for a column that is present
+        (issue #141).
 
         Relative ``audio_path`` values that resolve outside the TSV's
         directory always raise ``ValueError`` (issue #127). With
@@ -209,7 +218,7 @@ class SingleSpeakerEvaluator:
         path = Path(tsv_path)
         dataset_root = path.parent.resolve()
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f, delimiter="\t")
             fieldnames = reader.fieldnames or []
             missing_columns = [column for column in ("audio_path", "transcription") if column not in fieldnames]
@@ -220,6 +229,19 @@ class SingleSpeakerEvaluator:
             for line_num, row in enumerate(reader, start=2):
                 ap = (row.get("audio_path") or "").strip()
                 gt = (row.get("transcription") or "").strip()
+                # DictReader parks fields beyond the header under the None
+                # restkey. Keeping only the aligned columns would silently
+                # truncate the reference, so the row is malformed input.
+                surplus = row.get(None)
+                if surplus:
+                    load_error = (
+                        f"TSV line {line_num}: {len(fieldnames) + len(surplus)} fields for "
+                        f"{len(fieldnames)} header columns (a literal tab inside a field?) — "
+                        f"refusing to truncate the transcription to {gt!r}"
+                    )
+                    logger.warning("%s — row will be counted as failed, not dropped", load_error)
+                    data.append({"audio_path": ap, "ground_truth": gt, "load_error": load_error})
+                    continue
                 if not ap or not gt:
                     blank = "audio_path" if not ap else "transcription"
                     load_error = f"TSV line {line_num}: missing or empty {blank}"
