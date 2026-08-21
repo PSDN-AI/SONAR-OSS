@@ -62,7 +62,7 @@ Repository = "https://github.com/PSDN-AI/SONAR-OSS"
 "Bug Tracker" = "https://github.com/PSDN-AI/SONAR-OSS/issues"
 
 [project.scripts]
-psdn-sonar = "psdn_sonar.cli:main"
+psdn-sonar = "psdn_sonar.cli:entrypoint"
 
 [project.optional-dependencies]
 ml-common = [

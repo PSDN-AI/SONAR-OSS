@@ -858,5 +858,50 @@ Examples:
     args.func(args)
 
 
+def entrypoint():
+    """Console-script entry: run :func:`main`, then leave via ``os._exit``.
+
+    A torch-family native extension intermittently aborts during interpreter
+    teardown (SIGABRT from an uncaught C++ ``std::system_error``,
+    ``recursive_mutex lock failed``) after the exit code has already been
+    decided, so the same failing command returned exit 1 on some runs and
+    134 on others (issue #139). All run artifacts are written and closed
+    before the run functions return, so nothing is lost by skipping
+    finalization: flush logging and the std streams, then ``os._exit`` with
+    the code Python had already chosen.
+
+    Kept separate from :func:`main` so in-process callers (tests) still get
+    normal ``SystemExit`` propagation.
+    """
+    try:
+        main()
+        code = 0
+    except SystemExit as exc:
+        if exc.code is None:
+            code = 0
+        elif isinstance(exc.code, int):
+            code = exc.code
+        else:
+            # sys.exit("message") semantics: message to stderr, exit 1.
+            print(exc.code, file=sys.stderr)
+            code = 1
+    except KeyboardInterrupt:
+        code = 130
+    except Exception:
+        # Genuine bugs must stay loud: same traceback the interpreter would
+        # have printed, same exit code — just without the fragile teardown.
+        import traceback
+
+        traceback.print_exc()
+        code = 1
+    logging.shutdown()
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except (OSError, ValueError):
+        pass  # closed/broken streams must not turn the exit into a crash
+    os._exit(code)
+
+
 if __name__ == "__main__":
-    main()
+    entrypoint()

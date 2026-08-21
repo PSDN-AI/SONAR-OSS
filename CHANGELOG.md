@@ -33,6 +33,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `psdn-sonar` exit code is now stable across repeat runs (#139): a
+  run with zero successful samples intermittently died with SIGABRT
+  (exit 134) instead of the exit 1 it had already reported, because a
+  torch-family native extension aborted in C++ static destructors during
+  interpreter teardown (`recursive_mutex lock failed`) — after all
+  results, scores, and the error message were written. The console
+  script now enters through `psdn_sonar.cli:entrypoint`, which resolves
+  the exit code, flushes logging and the std streams, and leaves via
+  `os._exit`, skipping interpreter finalization entirely. Codes are now
+  deterministic: 0 success, 1 evaluation/data failure (also unexpected
+  exceptions, which still print their traceback), 2 argparse usage
+  error, 130 Ctrl-C. In-process callers of `cli.main()` keep normal
+  `SystemExit` behavior.
 - Missing `ffmpeg` now fails once at model load instead of once per
   utterance (#109): the adapters that hand audio file paths to the
   `transformers` ASR pipeline — `StandardHuggingFaceASR` (both English

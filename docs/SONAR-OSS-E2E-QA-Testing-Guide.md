@@ -1655,6 +1655,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D35 | Bengali suffix splitting had no stem check — whole words were cut in two (`মাটি` → `মা টি`, `ছেলে` → `ছেল এ`) and `ঘণ্টা` split inside a conjunct leaving a virama fragment, inflating the WER denominator | **Fixed** | `_split_suffixes` now requires a splittable stem (≥2 grapheme clusters, never virama-terminated) and consults a small protected whole-word lexicon for cases structure cannot decide (`ছেলে` vs `দেশে`). Real suffixes still split (`প্যাকেটটা` → `প্যাকেট টা`); `হাতে` now splits at the true morpheme boundary (`হাত এ`, matching the `দেশে` → `দেশ এ` precedent). Bengali contract bumped to `bn:v3`. |
 | D36 | A surplus TSV field (literal tab in the transcription) silently truncated the reference and scored it (exit 0); a UTF-8 BOM produced `TSV missing required columns: audio_path` for a column that is present | **Fixed** | `load_data` reads TSVs as `utf-8-sig` (BOM stripped, no-op otherwise) and marks surplus-field rows as failed with a warning naming the line and field counts, following the issue-#102 failed-not-dropped pattern. See 10.15b/10.15c. |
 | D37 | README claimed "WAV evaluation works without ffmpeg", but the pipeline adapters (both English defaults, `khushids_bengali`, generic-pipeline `--hf-model`) shell out to ffmpeg for **all** file-path input including WAV; without it every utterance failed individually and the run still printed its normal summary | **Fixed** | Those adapters now preflight for ffmpeg at model load (before the checkpoint download) and raise `MissingFfmpegError` naming the binary, install commands, and ffmpeg-free alternatives; the CLI exits 1 cleanly. README Requirements corrected. See 10.28. |
+| D38 | A run with zero successful samples intermittently exited 134 (SIGABRT: a native extension aborting in interpreter teardown with `recursive_mutex lock failed`) instead of the reported exit 1, so automation could not tell a failed evaluation from a crashed process | **Fixed** | The `psdn-sonar` console script now runs through `entrypoint()`, which flushes logging and the std streams and leaves via `os._exit` with the code the run decided on, skipping interpreter teardown entirely. All artifacts are written and closed before that point. Exit codes are now stable across repeat runs: 0 success, 1 evaluation/data failure, 2 argparse usage error, 130 Ctrl-C. |
 
 ---
 
@@ -1739,6 +1740,7 @@ Copy this into the test report.
 - [ ] `audio_path` with `../` escaping the TSV directory → exit 1, file never opened
 - [ ] `--strict-audio-paths` rejects absolute `audio_path` values → exit 1
 - [ ] Pipeline adapter without ffmpeg on PATH → exit 1 at model load naming ffmpeg, no per-utterance errors
+- [ ] Any failing case re-run several times returns the same exit code every time (never 134/SIGABRT)
 
 ### Reproducibility
 
