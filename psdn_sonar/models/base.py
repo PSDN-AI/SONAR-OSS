@@ -14,6 +14,16 @@ class MissingFfmpegError(RuntimeError):
     """
 
 
+class MissingDependencyError(RuntimeError):
+    """A Python package required by the selected adapter is not installed.
+
+    Raised at model-load time with a message naming the missing package and
+    the install extra that provides it (issue #108: ``khushids_bengali``
+    failed with a bare ``ModuleNotFoundError: No module named 'peft'`` and
+    took the whole multi-model run down with it).
+    """
+
+
 @dataclass(frozen=True)
 class LatencyMetrics:
     """Protocol-aware latency for a single transcription.

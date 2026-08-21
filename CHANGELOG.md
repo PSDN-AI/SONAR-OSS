@@ -33,6 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- One unconstructible model no longer aborts a multi-model run, and the
+  missing `[bengali]` extra is named instead of a bare traceback (#108):
+  the documented `--language bn` default run downloaded ~3 GB for its
+  first model, then died at `khushids_bengali` with
+  `ModuleNotFoundError: No module named 'peft'` — and because the model
+  constructor ran outside any try/except, the whole 9-model loop ended
+  and models already evaluated in the run lost their output.
+  `khushids_bengali` now raises `MissingDependencyError` (new, in
+  `psdn_sonar.models.base`) naming `peft` and
+  `pip install "psdn-sonar[bengali]"` before any download, and
+  `run_evaluation` isolates constructor failures per model: the failing
+  model is skipped with its reason logged and the remaining models still
+  evaluate (results are written per model, so completed work survives).
+  A run where every model fails to construct still errors loudly with
+  exit 1. README and `docs/USAGE.md` now document that the Bengali
+  defaults include one model requiring the `[bengali]` extra.
 - All scoring paths now share one missing-value convention, and semantic
   similarity is reported on one range everywhere (#107). Previously three
   paths handled an uncomputable metric three contradictory ways: the

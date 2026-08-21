@@ -635,7 +635,19 @@ class SingleSpeakerEvaluator:
             logger.info(f"Evaluating model: {model_name}")
             logger.info(f"{'=' * 60}")
 
-            model = _model_factory(model_name, custom_hf_model=_custom_hf_model, language=language)
+            try:
+                model = _model_factory(model_name, custom_hf_model=_custom_hf_model, language=language)
+            except Exception as e:
+                # One unconstructible model must not end the multi-model run
+                # (issue #108: the bn defaults died at khushids_bengali's
+                # missing peft after ~3 GB of downloads, and models already
+                # evaluated in the run lost their output). Log the actionable
+                # reason (adapters name their missing dependency/extra) and
+                # continue; if every model skips, the guard below still fails
+                # the run loudly.
+                logger.error("Skipping model %s — could not be constructed: %s", model_name, e)
+                skipped_models.append(model_name)
+                continue
             if model is None:
                 logger.error(
                     "Model %s not found in the registry; skipping. Registered ids: %s",
@@ -699,6 +711,7 @@ class SingleSpeakerEvaluator:
         if not all_results:
             raise ValueError(
                 f"None of the requested models could be constructed: {', '.join(skipped_models)}. "
+                "Per-model reasons are in the log lines above. "
                 f"Registered model ids: {', '.join(cls.AVAILABLE_MODELS)}. "
                 "Pass a registered id via --models or a HuggingFace repo id via --hf-model."
             )

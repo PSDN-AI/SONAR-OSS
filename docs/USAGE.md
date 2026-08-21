@@ -101,6 +101,13 @@ print(list_models())                 # every registered model id
 print(get_language_defaults("bn"))   # default models for a language: bn/hi/ko/en
 ```
 
+Most local models need only the `[ml]` extra, but `khushids_bengali` (in the
+Bengali defaults) is a PEFT/LoRA adapter that additionally requires the
+`[bengali]` extra: `pip install "psdn-sonar[bengali]"`. Without it the model
+is skipped with a message naming the extra, and the rest of a multi-model
+run continues. Hosted API models (`*_api`) need their respective API keys
+and are skipped from language defaults when the keys are unset.
+
 ---
 
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) to contribute, and the module
