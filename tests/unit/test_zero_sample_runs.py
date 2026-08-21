@@ -164,6 +164,55 @@ class TestEvaluateOneHonestAggregates:
         assert summary["avg_cer"] is None
 
 
+class TestUncomputableMetricsExcluded:
+    """Issue #107: a transcribed row whose CER/WER cannot be computed used to
+    be scored as best case (0.0) and counted successful — deflating the run
+    averages — while other paths excluded or worst-cased the same condition.
+    Such rows are now failed and excluded from every aggregate, with the
+    transcription preserved on the row."""
+
+    @staticmethod
+    def _tiny_wav(tmp_path) -> str:
+        import struct
+        import wave
+
+        path = tmp_path / "clip.wav"
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(16000)
+            handle.writeframes(struct.pack("<" + "h" * 1600, *([1000] * 1600)))
+        return str(path)
+
+    def test_reference_normalizing_to_empty_fails_row(self, tmp_path):
+        model = SimpleNamespace(transcribe=lambda path: "hello world")
+        # Punctuation-only reference normalizes to "" -> CER/WER uncomputable.
+        data = [{"audio_path": self._tiny_wav(tmp_path), "ground_truth": "...!?"}]
+
+        result = SingleSpeakerEvaluator.evaluate_one(model, data, "stub-model", language="en")
+
+        summary = result["summary"]
+        assert summary["successful"] == 0
+        assert summary["failed"] == 1
+        assert summary["avg_wer"] is None
+        assert summary["avg_cer"] is None
+        row = result["results"][0]
+        assert row["wer"] is None
+        assert row["cer"] is None
+        assert "CER/WER uncomputable" in row["error"]
+        assert row["prediction"] == "hello world"
+
+    def test_scorable_row_unaffected(self, tmp_path):
+        model = SimpleNamespace(transcribe=lambda path: "hello world")
+        data = [{"audio_path": self._tiny_wav(tmp_path), "ground_truth": "hello world"}]
+
+        result = SingleSpeakerEvaluator.evaluate_one(model, data, "stub-model", language="en")
+
+        assert result["summary"]["successful"] == 1
+        assert result["summary"]["failed"] == 0
+        assert result["summary"]["avg_wer"] == 0.0
+
+
 class TestRunEvaluationFailsLoudly:
     def test_unknown_model_raises(self, tmp_path, patched_run_evaluation_env, monkeypatch):
         monkeypatch.setattr(

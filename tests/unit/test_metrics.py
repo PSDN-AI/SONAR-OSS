@@ -1,8 +1,10 @@
+import numpy as np
 import pytest
 
 from psdn_sonar.utils.metrics import (
     calculate_cer_wer,
     calculate_poseidon_score,
+    clamp_similarity,
     compute_semantic_similarity,
 )
 from psdn_sonar.utils.text_processing import normalize_text_unified
@@ -67,6 +69,25 @@ class TestMetrics:
             calculate_poseidon_score(None, 0.2, 0.9)
         with pytest.raises(TypeError, match="calculate_cer_wer"):
             calculate_poseidon_score(0.1, None, 0.9)
+
+    def test_clamp_similarity_bounds(self):
+        assert clamp_similarity(-0.5) == 0.0
+        assert clamp_similarity(1.5) == 1.0
+        assert clamp_similarity(0.37) == 0.37
+
+    def test_semantic_similarity_clamped_at_source(self, monkeypatch):
+        """Issue #107: similarity used to be clamped inside POSEIDON but
+        stored and averaged raw, so semantic_similarity_mean could go
+        negative while poseidon_score_mean could not. It is now clamped to
+        [0, 1] once, where it is computed."""
+        pytest.importorskip("sentence_transformers")
+
+        class _OpposedEmbeddings:
+            def encode(self, texts, **kwargs):
+                return np.array([[1.0, 0.0], [-1.0, 0.0]])  # raw cosine = -1.0
+
+        monkeypatch.setattr("psdn_sonar.utils.metrics._get_semantic_model", lambda: _OpposedEmbeddings())
+        assert compute_semantic_similarity("some reference", "unrelated text") == 0.0
 
     def test_normalize_text_unified(self):
         text = "  এটি   একটি  পরীক্ষা  "

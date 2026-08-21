@@ -52,8 +52,24 @@ def calculate_cer_wer(reference: str, hypothesis: str) -> Tuple[Optional[float],
         return None, None
 
 
+def clamp_similarity(similarity: float) -> float:
+    """Clamp a cosine similarity to ``[0, 1]`` — the published metric range.
+
+    Raw cosine similarity legitimately ranges ``[-1, 1]``, but every artifact
+    (per-utterance CSV, ``scores.json`` means, POSEIDON, the public
+    leaderboard) reports "semantic similarity — higher is better" on
+    ``[0, 1]``. Clamping once at the source keeps
+    ``semantic_similarity_mean`` and ``poseidon_score_mean`` computed over
+    the same value range (issue #107: similarity used to be clamped inside
+    the POSEIDON formula but stored and averaged raw, so the mean could go
+    negative while POSEIDON could not). A negative cosine — reference and
+    hypothesis semantically unrelated — reads as 0.0: no semantic overlap.
+    """
+    return min(max(similarity, 0.0), 1.0)
+
+
 def compute_semantic_similarity(reference: str, hypothesis: str) -> Optional[float]:
-    """Compute cosine similarity."""
+    """Compute cosine similarity, clamped to ``[0, 1]`` (see :func:`clamp_similarity`)."""
     if not reference or not reference.strip():
         return None
     if not hypothesis:
@@ -64,7 +80,7 @@ def compute_semantic_similarity(reference: str, hypothesis: str) -> Optional[flo
 
         e1, e2 = model.encode([reference, hypothesis], convert_to_tensor=False, show_progress_bar=False)
         sim = float(util.cos_sim(e1[None], e2[None])[0][0])
-        return sim
+        return clamp_similarity(sim)
     except ImportError:
         logger.warning(
             "sentence-transformers is not installed — semantic similarity unavailable. "
@@ -148,9 +164,14 @@ def ensure_poseidon_score(df: pd.DataFrame) -> pd.DataFrame:
     """Return *df* with a ``poseidon_score`` column, deriving it if missing.
 
     The score is computed per row from the first CER/WER/similarity column
-    layout present. Missing error rates count as worst case (1.0), and a
-    missing similarity column or value as 0.0. Returned unchanged when the
-    column already exists or no known layout is present.
+    layout present, and only for rows where all three metrics are present —
+    the project-wide missing-value convention (issue #107): an uncomputable
+    metric is excluded from aggregates, never substituted with a best- or
+    worst-case value. Rows with any missing metric get ``NaN`` (which pandas
+    aggregations skip); when the similarity column is absent entirely, the
+    whole derived column is ``NaN``, matching the canonical pipeline where
+    POSEIDON is undefined unless semantic similarity was computed. Returned
+    unchanged when the column already exists or no known layout is present.
     """
     if "poseidon_score" in df.columns:
         return df
@@ -160,15 +181,17 @@ def ensure_poseidon_score(df: pd.DataFrame) -> pd.DataFrame:
             break
     else:
         return df
-    sem_present = sem_col in df.columns
-
-    def _row_score(row: pd.Series) -> float:
-        wer = float(row[wer_col]) if pd.notna(row[wer_col]) else 1.0
-        cer = float(row[cer_col]) if pd.notna(row[cer_col]) else 1.0
-        sim = float(row[sem_col]) if sem_present and pd.notna(row[sem_col]) else 0.0
-        return calculate_poseidon_score(cer, wer, sim)
 
     df = df.copy()
+    if sem_col not in df.columns:
+        df["poseidon_score"] = float("nan")
+        return df
+
+    def _row_score(row: pd.Series) -> float:
+        if pd.isna(row[wer_col]) or pd.isna(row[cer_col]) or pd.isna(row[sem_col]):
+            return float("nan")
+        return calculate_poseidon_score(float(row[cer_col]), float(row[wer_col]), float(row[sem_col]))
+
     df["poseidon_score"] = df.apply(_row_score, axis=1)
     return df
 

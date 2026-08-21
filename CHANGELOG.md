@@ -33,6 +33,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- All scoring paths now share one missing-value convention, and semantic
+  similarity is reported on one range everywhere (#107). Previously three
+  paths handled an uncomputable metric three contradictory ways: the
+  single-speaker evaluator scored it as best case (CER/WER 0.0, deflating
+  run averages), `PoseidonScorer` substituted worst case (WER/CER 1.0,
+  similarity 0.0, inflating them), and `significant_wer_rate` excluded it —
+  so the same batch yielded systematically shifted aggregates depending on
+  the entry point. The convention is now: a metric that cannot be computed
+  is `null`/`None`/`NaN`, the row is counted as failed with the reason in
+  its `error` field (the transcription is preserved), and aggregates are
+  computed only over present values. `ensure_poseidon_score` (reporting
+  backfill) likewise leaves `NaN` instead of fabricating worst-case scores,
+  and no longer invents a POSEIDON score for runs that never computed
+  semantic similarity. Separately, semantic similarity was clamped to
+  `[0, 1]` inside the POSEIDON formula but stored and averaged raw, so
+  `semantic_similarity_mean` could go negative while `poseidon_score_mean`
+  could not; cosine similarity is now clamped to `[0, 1]` once at the point
+  of computation, so the CSV, the means, POSEIDON, and the leaderboard all
+  report the same value. Both conventions are documented in
+  `psdn_sonar/benchmark/README.md` ("Missing values and metric ranges").
 - The `psdn-sonar` exit code is now stable across repeat runs (#139): a
   run with zero successful samples intermittently died with SIGABRT
   (exit 134) instead of the exit 1 it had already reported, because a

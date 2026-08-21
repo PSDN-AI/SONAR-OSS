@@ -30,22 +30,43 @@ def _write_results_csv(path, n=15, prefix="conv"):
 class TestEnsurePoseidonScoreLayouts:
     def test_plain_columns(self):
         df = pd.DataFrame({"cer": [0.1], "wer": [0.2], "semantic_similarity": [0.9]})
-        assert "poseidon_score" in ensure_poseidon_score(df).columns
+        out = ensure_poseidon_score(df)
+        assert 0.0 <= out["poseidon_score"].iloc[0] <= 1.0
 
-    def test_non_conv_columns(self):
+    def test_non_conv_columns_without_sem_undefined(self):
+        # Issue #107: POSEIDON requires similarity; with no similarity column
+        # the derived score is NaN, matching the canonical pipeline (which
+        # writes poseidon_score null when semantics were not computed) —
+        # never a fabricated similarity=0.0 score.
         df = pd.DataFrame({"cer_non": [0.1], "wer_non": [0.2]})
+        out = ensure_poseidon_score(df)
+        assert "poseidon_score" in out.columns
+        assert np.isnan(out["poseidon_score"].iloc[0])
+
+    def test_non_conv_columns_with_sem(self):
+        df = pd.DataFrame({"cer_non": [0.1], "wer_non": [0.2], "semantic_similarity_non": [0.8]})
         out = ensure_poseidon_score(df)
         assert 0.0 <= out["poseidon_score"].iloc[0] <= 1.0
 
     def test_uppercase_columns(self):
-        df = pd.DataFrame({"CER": [0.1], "WER": [0.2]})
-        assert "poseidon_score" in ensure_poseidon_score(df).columns
+        df = pd.DataFrame({"CER": [0.1], "WER": [0.2], "semantic_similarity": [0.8]})
+        out = ensure_poseidon_score(df)
+        assert 0.0 <= out["poseidon_score"].iloc[0] <= 1.0
 
     def test_conv_layout_preferred(self):
-        df = pd.DataFrame({"cer_conv": [0.0], "wer_conv": [0.0], "cer": [1.0], "wer": [1.0]})
+        df = pd.DataFrame(
+            {
+                "cer_conv": [0.0],
+                "wer_conv": [0.0],
+                "semantic_similarity_conv": [1.0],
+                "cer": [1.0],
+                "wer": [1.0],
+                "semantic_similarity": [0.0],
+            }
+        )
         out = ensure_poseidon_score(df)
-        # Perfect conv metrics (with sim missing -> 0.0) score higher than the worst-case plain ones would.
-        assert out["poseidon_score"].iloc[0] > 0.5
+        # Perfect conv metrics score 1.0; the worst-case plain layout would score 0.0.
+        assert out["poseidon_score"].iloc[0] == 1.0
 
 
 class TestLoadUserDatasetResults:
