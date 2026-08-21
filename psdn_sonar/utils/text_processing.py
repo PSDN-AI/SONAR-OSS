@@ -179,6 +179,43 @@ _BENGALI_SUFFIXES = [
 ]
 
 _EKAR = "\u09c7"
+_VIRAMA = "\u09cd"
+
+# Bengali independent vowels, consonants, and the post-reform letters
+# (ড় ঢ় য় খণ্ড-ত). Vowel signs, virama, candrabindu etc. are combining
+# marks that attach to these, so counting letters minus viramas (each
+# virama fuses two consonants into one conjunct) approximates the
+# grapheme-cluster count without an ICU dependency.
+_RE_BENGALI_LETTER = re.compile(r"[\u0985-\u09b9\u09ce\u09dc\u09dd\u09df]")
+
+# Whole words ending in a suffix-lookalike that must never be split
+# (issue #142). The structural guards in _splittable_stem catch most
+# false splits (single-cluster stems, virama-terminated stems), but for
+# these tokens a structurally valid — and lexically wrong — stem still
+# exists: ছেলে/মেয়ে are whole nouns whose trailing ekar is part of the
+# word (the ekar rule would produce ছেল/মেয়); the pronoun objectives
+# would fall through the কে-suffix guard into the ekar rule and
+# manufacture stems কাক/তাক/যাক/ওক/এক; কমিটি is a loanword whose কমি
+# "stem" is not a word. Structure alone cannot distinguish these from
+# genuine inflections (ছেলে and দেশ+এ have identical shapes), hence a
+# small curated lexicon. Keep it high-confidence: every entry must be a
+# common word whose unsplit reading is overwhelmingly the intended one.
+# NFKC-normalized at definition: _split_suffixes sees post-NFKC tokens,
+# and NFKC decomposes য়/ড়/ঢ় (composition exclusions), so entries must be
+# in the same form regardless of how this source file encodes them.
+_PROTECTED_WHOLE_WORDS = frozenset(
+    unicodedata.normalize("NFKC", word)
+    for word in (
+        "ছেলে",
+        "মেয়ে",
+        "কাকে",
+        "তাকে",
+        "যাকে",
+        "ওকে",
+        "একে",
+        "কমিটি",
+    )
+)
 
 _NUMBER_VARIANTS: dict[str, str] = {
     "পনের": "পনেরো",
@@ -196,17 +233,47 @@ def _has_bengali(s: str) -> bool:
     return any("\u0980" <= ch <= "\u09ff" for ch in s)
 
 
+def _cluster_weight(s: str) -> int:
+    """Approximate Bengali grapheme-cluster count of ``s``.
+
+    Letters minus viramas: each virama fuses its neighbours into one
+    conjunct cluster, and vowel signs / candrabindu are combining marks
+    that never start a cluster.
+    """
+    return len(_RE_BENGALI_LETTER.findall(s)) - s.count(_VIRAMA)
+
+
+def _splittable_stem(stem: str) -> bool:
+    """Whether a candidate stem may stand alone after suffix splitting.
+
+    Guards added for issue #142 — a bare ``endswith`` match used to cut
+    ordinary whole words in two:
+
+    - a stem ending in a virama would be a fragment cut inside a conjunct
+      (ঘণ্টা is ঘ ণ ্ ট া; matching the টা suffix would leave ঘণ্), never
+      a well-formed word;
+    - a single-cluster stem is overwhelmingly the first syllable of a
+      whole word, not a word itself (মাটি → মা, হাতে → হা, কাকে → কা).
+    """
+    return _has_bengali(stem) and not stem.endswith(_VIRAMA) and _cluster_weight(stem) >= 2
+
+
 def _split_suffixes(text: str, protected_tokens: set[str] | None = None) -> str:
     """Split common Bengali suffixes for consistent tokenization.
 
     Both ASR and reference text may attach/detach suffixes differently
     (e.g. 'প্যাকেটটা' vs 'প্যাকেট টা'). Splitting them in both ensures
     these orthographic differences don't count as WER errors.
+
+    A match is only taken when the remaining stem could stand alone
+    (see :func:`_splittable_stem`) and the token is not a known whole
+    word (``_PROTECTED_WHOLE_WORDS``) — a bare ``endswith`` match used
+    to split ছেলে, মাটি, ঘণ্টা and friends in two (issue #142).
     """
     tokens = text.split()
     result = []
     for token in tokens:
-        if protected_tokens and token in protected_tokens:
+        if token in _PROTECTED_WHOLE_WORDS or (protected_tokens and token in protected_tokens):
             result.append(token)
             continue
 
@@ -215,18 +282,18 @@ def _split_suffixes(text: str, protected_tokens: set[str] | None = None) -> str:
         for suffix in _BENGALI_SUFFIXES:
             if token.endswith(suffix) and len(token) > len(suffix):
                 stem = token[: -len(suffix)]
-                if _has_bengali(stem):
+                if _splittable_stem(stem):
                     result.append(stem)
                     result.append(suffix)
                     split = True
                     break
 
         if not split:
-            if len(token) >= 3 and token[-1] == "র" and token[-2] == _EKAR and _has_bengali(token[:-2]):
+            if len(token) >= 3 and token[-1] == "র" and token[-2] == _EKAR and _splittable_stem(token[:-2]):
                 result.append(token[:-2])
                 result.append("এর")
                 split = True
-            elif len(token) >= 3 and token[-1] == _EKAR and _has_bengali(token[:-1]):
+            elif len(token) >= 3 and token[-1] == _EKAR and _splittable_stem(token[:-1]):
                 result.append(token[:-1])
                 result.append("এ")
                 split = True
@@ -331,11 +398,16 @@ def _tokenize_bengali(text: str) -> list[str]:
 # and friends are now spoken words instead of surviving as literals, which
 # changes absolute Bengali WER relative to v1.
 #
+# bn v3: suffix splitting gained stem guards and a protected-word lexicon
+# (issue #142) — whole words like ছেলে/মাটি/ঘণ্টা are no longer cut in
+# two, which changes the Bengali token count (the WER denominator)
+# relative to v2.
+#
 # en/hi/ko v2: thousands separators inside grouped numbers are stripped
 # before digit verbalization (issue #135) — "1,000" now verbalizes as
 # "one thousand" instead of producing "one000", which changes absolute
 # WER on corpora with separated numerals relative to v1.
-WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 2, "en": 2, "hi": 2, "ko": 2}
+WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 3, "en": 2, "hi": 2, "ko": 2}
 
 
 def wer_normalization_contract(language: str) -> str:

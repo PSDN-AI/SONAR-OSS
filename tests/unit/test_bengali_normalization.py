@@ -260,6 +260,54 @@ class TestBengaliForWerNormalization:
         assert "অর্ডার" in result
         assert "এ" in result
 
+    def test_whole_words_not_split(self):
+        """Issue #142: a bare endswith match used to cut whole words in two
+        (মাটি → মা টি, ছেলে → ছেল এ). Structural stem guards and the
+        protected-word lexicon must keep them intact."""
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        for word in ["মাটি", "বাটি", "রুটি", "ছুটি", "কাকে", "তাকে", "ছেলে", "মেয়ে", "কমিটি", "এটি"]:
+            assert normalize_bengali_for_wer(word) == word, f"{word} must not be split"
+
+    def test_no_virama_terminated_fragment(self):
+        """Issue #142: ঘণ্টা is ঘ ণ ্ ট া — matching the টা suffix used to
+        cut inside the conjunct and leave the fragment ঘণ্. A split must
+        never land after a virama."""
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        result = normalize_bengali_for_wer("ঘণ্টা বাজে")
+        assert "ঘণ্টা" in result
+        assert not any(tok.endswith("\u09cd") for tok in result.split())
+
+    def test_untouched_words_stay_untouched(self):
+        """The issue's control set — no suffix-lookalike ending, must pass
+        through whole."""
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        for word in ["ঘটনা", "কণ্টক", "ঠাণ্ডা", "চিন্তা", "গল্প", "পাখি", "মাথা"]:
+            assert normalize_bengali_for_wer(word) == word
+
+    def test_real_suffixes_still_split(self):
+        """The intended splits from the issue's 'correctly split' rows must
+        keep working with the new guards in place."""
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        assert normalize_bengali_for_wer("প্যাকেটটা") == "প্যাকেট টা"
+        assert normalize_bengali_for_wer("বইগুলো") == "বই গুলো"
+        assert normalize_bengali_for_wer("ছেলেটি") == "ছেলে টি"
+        assert normalize_bengali_for_wer("দেশে") == "দেশ এ"
+        assert normalize_bengali_for_wer("একটি") == "এক টি"
+
+    def test_locative_ekar_splits_at_correct_point(self):
+        """হাতে used to hit the তে suffix first and split as হা তে (a
+        nonsense stem). With the single-cluster guard it now falls through
+        to the ekar rule and splits at the morpheme boundary, consistent
+        with the দেশে → দেশ এ precedent."""
+        from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
+
+        assert normalize_bengali_for_wer("হাতে") == "হাত এ"
+        assert normalize_bengali_for_wer("রাতে") == "রাত এ"
+
     def test_nasal_normalization(self):
         from psdn_sonar.utils.text_processing import normalize_bengali_for_wer
 

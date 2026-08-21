@@ -33,6 +33,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bengali suffix splitting no longer cuts whole words in two (#142):
+  `_split_suffixes` matched on trailing characters alone, so ordinary
+  words ending in a suffix-lookalike were split (`মাটি` → `মা টি`,
+  `ছেলে` → `ছেল এ`) and `ঘণ্টা` was cut inside its conjunct, leaving a
+  virama-terminated fragment that is not a well-formed Bengali word.
+  Applied to reference and hypothesis alike this did not create word
+  errors by itself, but it systematically inflated the Bengali token
+  count — the WER denominator. A split is now taken only when the stem
+  could stand alone (at least two grapheme clusters, never ending in a
+  virama) and the token is not in a small protected whole-word lexicon
+  covering cases structure cannot decide (`ছেলে` and `দেশ`+`এ` have
+  identical shapes). Genuine suffixes still split (`প্যাকেটটা` →
+  `প্যাকেট টা`, `বইগুলো` → `বই গুলো`), and locatives like `হাতে` now
+  split at the true morpheme boundary (`হাত এ`) instead of the nonsense
+  `হা তে`. The Bengali normalization contract recorded in `scores.json`
+  is bumped to `bn:v3` — v2 and v3 numbers must not be compared as
+  like-for-like.
 - Thousands separators no longer split number verbalization (#135):
   `1,000 dollars` used to normalize to `one000 dollars` for English,
   Hindi and Korean — the digit-run regex saw `1` and `000` as separate

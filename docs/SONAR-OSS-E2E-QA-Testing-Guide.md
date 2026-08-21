@@ -1156,10 +1156,18 @@ for name, lang, ref, hyp, exp_wer in [
     cer, wer, rn, hn = score(lang, ref, hyp)
     check(name + f" WER={wer}", wer, exp_wer)
 
-# Bengali eval path splits suffixes — processor.normalize does not
+# Bengali eval path splits suffixes — processor.normalize does not.
+# এটি stays whole (single-cluster stem guard); একটি splits (এক is a word).
 cer, wer, rn, hn = score("bn", "এটি একটি পরীক্ষা", "এটি একটি পরীক্ষা")
-check("bn wer-path suffix split", rn, "এ টি এক টি পরীক্ষা")
+check("bn wer-path suffix split", rn, "এটি এক টি পরীক্ষা")
 check("bn wer-path WER0", wer, 0.0)
+
+# Whole words must not be cut by suffix-lookalike endings (issue #142)
+from psdn_sonar.utils.text_processing import normalize_bengali_for_wer as bn_wer
+check("bn whole word মাটি", bn_wer("মাটি"), "মাটি")
+check("bn whole word ছেলে", bn_wer("ছেলে"), "ছেলে")
+check("bn conjunct ঘণ্টা", bn_wer("ঘণ্টা"), "ঘণ্টা")
+check("bn real suffix প্যাকেটটা", bn_wer("প্যাকেটটা"), "প্যাকেট টা")
 
 raise SystemExit(failed)
 PY
@@ -1597,6 +1605,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D32 | No stated position on what scores measure (preprocessing confound, cross-dataset length gap, unmarked in-domain cells) | **Documented / data emitted** | `docs/SCORE_INTERPRETATION.md` states the position on all three. Multi-speaker runs log their pipeline scope; `precompute_benchmarks.py` emits `public_length_stats_<language>.json` and per-cell `domain_markers.json` (from `psdn_sonar.models.provenance`). Leaderboard rendering is owned by `PSDN-AI/psdn-portals`. |
 | D33 | Bengali had no symbol map — `৫০%` normalized to `50 %` while en/hi/ko verbalize `%` | **Fixed** | `BENGALI_SYMBOL_MAP` added and wired into both the canonical WER pipeline and `BengaliProcessor`; `৫০%` and `৫০ শতাংশ` now normalize identically, and no symbol survives whose spacing could differ by `bnlp` availability. Bengali normalization contract bumped to `bn:v2` — v1 and v2 Bengali scores are not like-for-like. |
 | D34 | Thousands separators split number verbalization — `1,000 dollars` normalized to `one000 dollars` (en/hi/ko), inflating WER on corpora with separated numerals | **Fixed** | `verbalize_digits` now strips separators inside well-formed grouped numbers (Western `1,234,567`, Indian `12,34,567`, space/thin-space grouping) before digit-run extraction, matching what the canonical Bengali pipeline always did; `BengaliProcessor`'s own digit path got the same comma strip. en/hi/ko normalization contracts bumped to `en:v2`/`hi:v2`/`ko:v2` — v1 and v2 scores are not like-for-like. |
+| D35 | Bengali suffix splitting had no stem check — whole words were cut in two (`মাটি` → `মা টি`, `ছেলে` → `ছেল এ`) and `ঘণ্টা` split inside a conjunct leaving a virama fragment, inflating the WER denominator | **Fixed** | `_split_suffixes` now requires a splittable stem (≥2 grapheme clusters, never virama-terminated) and consults a small protected whole-word lexicon for cases structure cannot decide (`ছেলে` vs `দেশে`). Real suffixes still split (`প্যাকেটটা` → `প্যাকেট টা`); `হাতে` now splits at the true morpheme boundary (`হাত এ`, matching the `দেশে` → `দেশ এ` precedent). Bengali contract bumped to `bn:v3`. |
 
 ---
 
