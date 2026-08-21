@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `discover` no longer prints a traceback for an unwritable output
+  directory (#149): the run already failed correctly (exit 1, no download,
+  two actionable ERROR lines), but a full traceback appeared between them
+  whose exception chain named a `FileNotFoundError` before the real
+  `PermissionError` — an artifact of `pathlib.mkdir(parents=True)`
+  internals that led the reader to the wrong diagnosis. Dataset-preparation
+  `OSError`s (unwritable `--output`, disk full, network) are now reported
+  as the single clean ERROR line the other user-error paths emit; the
+  message carries the exception that actually propagated, i.e. the real
+  cause. Unexpected non-OS errors keep their traceback.
 - One unconstructible model no longer aborts a multi-model run, and the
   missing `[bengali]` extra is named instead of a bare traceback (#108):
   the documented `--language bn` default run downloaded ~3 GB for its

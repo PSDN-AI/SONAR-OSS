@@ -1569,6 +1569,26 @@ If `/usr/bin/ffmpeg` exists on your machine, use a directory set that excludes i
 
 **Control:** the same command with normal `PATH` (ffmpeg present) must complete as in section 3. `wav2vec2_bengali` and other self-decoding adapters must still evaluate WAV with ffmpeg hidden.
 
+### 10.29 NEG-READONLY-OUTPUT (discover into an unwritable output directory)
+
+**Purpose:** An unwritable `--output` is an environment problem, so `discover` must fail fast with the actionable one-line convention — no traceback. The chained `mkdir(parents=True)` traceback used to name a `FileNotFoundError` before the real `PermissionError`, leading the reader to the wrong diagnosis (issue #149).
+
+```bash
+mkdir -p /tmp/readonly-out && chmod 555 /tmp/readonly-out
+psdn-sonar discover --language en --datasets fleurs --max-samples 1 --output /tmp/readonly-out/x
+echo "exit=$?"
+chmod 755 /tmp/readonly-out && rm -rf /tmp/readonly-out   # cleanup
+```
+
+**Expected:** exit 1, no download attempted (failure follows immediately after `Preparing: fleurs`), and exactly two ERROR lines with no traceback between them:
+
+```
+ERROR:psdn_sonar.cli:Failed to prepare fleurs: [Errno 13] Permission denied: '/tmp/readonly-out/x'
+ERROR:psdn_sonar.cli:All 1 dataset(s) failed to prepare: fleurs
+```
+
+**Pass/fail:** PASS if exit 1, the message names `Permission denied`, and the word `Traceback` does not appear. FAIL if a traceback is printed or the error names `FileNotFoundError`/a missing file instead of permissions. (Unexpected non-OS errors inside dataset preparation still print their traceback — that path is intentionally loud.)
+
 ---
 
 ## 11. Reproducibility tests
@@ -1668,6 +1688,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D38 | A run with zero successful samples intermittently exited 134 (SIGABRT: a native extension aborting in interpreter teardown with `recursive_mutex lock failed`) instead of the reported exit 1, so automation could not tell a failed evaluation from a crashed process | **Fixed** | The `psdn-sonar` console script now runs through `entrypoint()`, which flushes logging and the std streams and leaves via `os._exit` with the code the run decided on, skipping interpreter teardown entirely. All artifacts are written and closed before that point. Exit codes are now stable across repeat runs: 0 success, 1 evaluation/data failure, 2 argparse usage error, 130 Ctrl-C. |
 | D39 | Three scoring paths handled a missing metric three contradictory ways (single-speaker rollups: best case 0.0; `PoseidonScorer`: worst case 1.0/0.0; `significant_wer_rate`: excluded), and `semantic_similarity` was clamped to `[0,1]` inside POSEIDON but stored/averaged raw, so `semantic_similarity_mean` could go negative while `poseidon_score_mean` could not | **Fixed** | One convention everywhere: an uncomputable metric is `null`, the row is failed with the reason in `error` (prediction preserved), and aggregates cover only present values; `ensure_poseidon_score` leaves `NaN` instead of fabricating scores. Similarity is cosine clamped to `[0,1]` at the point of computation, so every artifact reports the same range. Documented in `psdn_sonar/benchmark/README.md` ("Missing values and metric ranges"). |
 | D40 | The documented `--language bn` default run aborted at `khushids_bengali` with a bare `ModuleNotFoundError: No module named 'peft'` (the `[bengali]` extra is not part of the README `[ml]` environment and was documented nowhere), and because the model constructor ran outside any try/except, the whole 9-model loop died and already-evaluated models lost their output | **Fixed** | `khushids_bengali` now raises `MissingDependencyError` naming `peft` and `pip install "psdn-sonar[bengali]"` before any download; `run_evaluation` isolates constructor failures per model — the failing model is skipped with the reason logged and the rest of the run continues (results are written per model, so nothing is lost). If every model skips, the run still fails loudly with exit 1. README and `docs/USAGE.md` now name the `[bengali]` extra. |
+| D41 | `discover` into an unwritable `--output` failed correctly (exit 1, no download, actionable ERROR lines) but printed a full traceback between them whose exception chain named `FileNotFoundError` before the real `PermissionError` — leading with the wrong diagnosis and breaking the one-clean-line convention every other checked error path follows | **Fixed** | Dataset-preparation `OSError`s (unwritable output, disk full, network) are now logged as the single actionable ERROR line only — `str(e)` is the exception that actually propagated, i.e. the real cause. Unexpected non-OS errors keep their traceback. See 10.29. |
 
 ---
 
@@ -1755,6 +1776,7 @@ Copy this into the test report.
 - [ ] Any failing case re-run several times returns the same exit code every time (never 134/SIGABRT)
 - [ ] Punctuation-only reference → row failed as `CER/WER uncomputable`, never scored as WER 0.0
 - [ ] `--language bn` defaults without `[bengali]` → `khushids_bengali` skipped naming the extra, other models still evaluated
+- [ ] `discover` into unwritable `--output` → exit 1, one clean `Permission denied` ERROR line, no traceback
 
 ### Reproducibility
 

@@ -261,6 +261,40 @@ class TestDiscoverDispatch:
             run_cli("discover", "--language", "en", "--datasets", "fleurs", "--dry-run")
         assert exc_info.value.code == 0
 
+    def test_unwritable_output_logs_clean_error_without_traceback(self, caplog):
+        """Issue #149: an unwritable --output must produce the actionable
+        one-line ERROR only — no traceback whose exception chain names a
+        FileNotFoundError before the real PermissionError."""
+        with (
+            patch("psdn_sonar.data.discovery.DatasetDiscovery.discover", return_value=[self._fake_dataset()]),
+            patch(
+                "psdn_sonar.data.preparer.DatasetPreparer.prepare",
+                side_effect=PermissionError(13, "Permission denied", "/tmp/readonly-out/x"),
+            ),
+        ):
+            with caplog.at_level("ERROR"):
+                with pytest.raises(SystemExit) as exc_info:
+                    run_cli("discover", "--language", "en", "--output", "/tmp/readonly-out/x")
+        assert exc_info.value.code == 1
+        prepare_records = [r for r in caplog.records if "Failed to prepare fleurs" in r.getMessage()]
+        assert len(prepare_records) == 1
+        assert "Permission denied" in prepare_records[0].getMessage()
+        assert prepare_records[0].exc_info is None
+        assert "All 1 dataset(s) failed to prepare: fleurs" in caplog.text
+
+    def test_unexpected_preparer_error_keeps_traceback(self, caplog):
+        """Genuine bugs (non-OSError) must stay loud with their traceback."""
+        with (
+            patch("psdn_sonar.data.discovery.DatasetDiscovery.discover", return_value=[self._fake_dataset()]),
+            patch("psdn_sonar.data.preparer.DatasetPreparer.prepare", side_effect=RuntimeError("decode failed")),
+        ):
+            with caplog.at_level("ERROR"):
+                with pytest.raises(SystemExit):
+                    run_cli("discover", "--language", "en")
+        prepare_records = [r for r in caplog.records if "Failed to prepare fleurs" in r.getMessage()]
+        assert len(prepare_records) == 1
+        assert prepare_records[0].exc_info is not None
+
     def test_partial_failure_still_succeeds(self, tmp_path):
         ok, bad = self._fake_dataset(), self._fake_dataset()
         bad.name = "voxpopuli"
