@@ -71,11 +71,11 @@ class TestWerNormalizationContract:
         assert wer_normalization_contract("") == ":unversioned"
 
     def test_bengali_marks_bnlp_availability(self, monkeypatch):
-        # bn is at v2 since symbol verbalization was added (issue #136).
+        # bn is at v3: symbol verbalization (#136), then suffix-split guards (#142).
         monkeypatch.setattr(text_processing, "_BNLP_TOKENIZER_AVAILABLE", True)
-        assert wer_normalization_contract("bn") == "bn:v2+bnlp"
+        assert wer_normalization_contract("bn") == "bn:v3+bnlp"
         monkeypatch.setattr(text_processing, "_BNLP_TOKENIZER_AVAILABLE", False)
-        assert wer_normalization_contract("bn") == "bn:v2-bnlp"
+        assert wer_normalization_contract("bn") == "bn:v3-bnlp"
 
 
 class TestRunLineageHelper:
@@ -108,7 +108,7 @@ class TestRunLineageHelper:
 
 class TestScoresArtifactLineage:
     def test_lineage_serialized_into_scores_json(self, tmp_path):
-        lineage = RunLineage(hf_model_id="org/model", hf_revision=FAKE_SHA, normalization="bn:v2+bnlp")
+        lineage = RunLineage(hf_model_id="org/model", hf_revision=FAKE_SHA, normalization="bn:v3+bnlp")
         artifact = build_run_scores(
             _submission(),
             {"summary": {"successful": 1, "total_samples": 1, "failed": 0, "elapsed_time": 1.0}, "results": []},
@@ -119,7 +119,7 @@ class TestScoresArtifactLineage:
         assert payload["lineage"] == {
             "hf_model_id": "org/model",
             "hf_revision": FAKE_SHA,
-            "normalization": "bn:v2+bnlp",
+            "normalization": "bn:v3+bnlp",
         }
 
     def test_lineage_defaults_to_null(self, tmp_path):
