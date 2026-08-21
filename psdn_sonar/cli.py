@@ -596,7 +596,17 @@ def run_discover(args):
             )
             preparer.prepare()
             prepared.append(ds.name)
+        except OSError as e:
+            # Environment problem (unwritable --output, disk full, network) —
+            # actionable as a single clean ERROR line, like the other user-error
+            # paths. No traceback: the chained mkdir(parents=True) traceback
+            # names a FileNotFoundError before the real PermissionError, leading
+            # the reader to the wrong diagnosis (issue #149). str(e) is the
+            # exception that actually propagated, i.e. the real cause.
+            logger.error(f"Failed to prepare {ds.name}: {e}")
+            failed.append(ds.name)
         except Exception as e:
+            # Unexpected bugs stay loud with their traceback.
             logger.error(f"Failed to prepare {ds.name}: {e}", exc_info=True)
             failed.append(ds.name)
 
