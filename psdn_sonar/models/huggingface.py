@@ -15,13 +15,36 @@ raising, so a single corrupt clip does not abort a long evaluation run.
 """
 
 import logging
+import shutil
 from typing import Optional
 
 import torch
 
-from .base import ASRModel
+from .base import ASRModel, MissingFfmpegError
 
 logger = logging.getLogger(__name__)
+
+
+def _require_ffmpeg(adapter_name: str) -> None:
+    """Fail fast at model-load time when ffmpeg is not on PATH (issue #109).
+
+    The ``transformers`` ASR pipeline shells out to ffmpeg to decode ANY
+    audio file path it is given — WAV included, even though WAV is
+    decodable by ``soundfile``. Without this preflight, a run does not
+    fail until transcription, once per utterance: N identical
+    "ffmpeg was not found" errors and an all-failed result set. Checked
+    before the checkpoint download so the failure costs milliseconds,
+    not gigabytes.
+    """
+    if shutil.which("ffmpeg") is None:
+        raise MissingFfmpegError(
+            f"{adapter_name} hands audio file paths to the transformers ASR "
+            "pipeline, which requires the ffmpeg binary to decode them — "
+            "including WAV. Install ffmpeg (Debian/Ubuntu: sudo apt-get "
+            "install ffmpeg; macOS: brew install ffmpeg) or pick an adapter "
+            "that decodes audio itself (the wav2vec2_* models and the "
+            "non-pipeline Whisper fine-tunes)."
+        )
 
 
 def _pipeline_text(result) -> str:
@@ -45,6 +68,8 @@ class StandardHuggingFaceASR(ASRModel):
     """
 
     def __init__(self, model_id, device=None, chunk_length_s=30, language=None):
+        _require_ffmpeg(f"{type(self).__name__} ({model_id})")
+
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
         device = 0 if device is None and torch.cuda.is_available() else (-1 if device is None else device)
@@ -144,6 +169,8 @@ class KhushiDSBengaliModel(ASRModel):
     """
 
     def __init__(self, model_id="KhushiDS/whisper-large-v3-Bengali", device=None, chunk_length_s=30):
+        _require_ffmpeg(f"{type(self).__name__} ({model_id})")
+
         from peft import PeftModel
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
@@ -357,6 +384,9 @@ class CustomHuggingFaceModel(ASRModel):
 
             else:
                 logger.info("Using generic ASR pipeline for model type: %s", model_type)
+                # Only this branch hands file paths to the pipeline; the
+                # whisper/wav2vec2 branches decode via librosa themselves.
+                _require_ffmpeg(f"{type(self).__name__} ({model_id}, generic pipeline)")
                 device_id = 0 if self.device.type == "cuda" else -1
                 self.pipe = hf_pipeline(
                     "automatic-speech-recognition", model=model_id, device=device_id, chunk_length_s=chunk_length_s
@@ -365,6 +395,10 @@ class CustomHuggingFaceModel(ASRModel):
 
             logger.info("Model loaded successfully (%s)", self.model_type)
 
+        except MissingFfmpegError:
+            # Environment problem with its own actionable message — do not
+            # wrap it into the generic "Failed to load" RuntimeError below.
+            raise
         except Exception as e:
             logger.error("Error loading model: %s", e)
             raise RuntimeError(f"Failed to load custom HuggingFace model '{model_id}': {e}")

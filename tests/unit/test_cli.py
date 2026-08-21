@@ -129,6 +129,23 @@ class TestSingleSpeakerDispatch:
         assert exc_info.value.code == 1
         assert "escapes dataset root" in caplog.text
 
+    def test_missing_ffmpeg_exits_cleanly(self, tsv, caplog):
+        # Issue #109: pipeline adapters preflight for ffmpeg at load time;
+        # the CLI must surface that as a clean actionable error and exit 1,
+        # not one "Transcription failed" per utterance or a raw traceback.
+        from psdn_sonar.models.base import MissingFfmpegError
+
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        error = MissingFfmpegError("StandardHuggingFaceASR requires the ffmpeg binary — including WAV")
+        with caplog.at_level("ERROR"):
+            with patch(target, side_effect=error):
+                with pytest.raises(SystemExit) as exc_info:
+                    run_cli("single", "--input", tsv, "--models", "whisper_base_en", "--language", "en")
+
+        assert exc_info.value.code == 1
+        assert "ffmpeg" in caplog.text
+        assert "Traceback" not in caplog.text
+
     def test_hf_model_sanitized_name(self, tsv):
         target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
         with patch(target) as mock_eval:

@@ -4,6 +4,16 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, Union
 
 
+class MissingFfmpegError(RuntimeError):
+    """The ffmpeg binary is required by the selected adapter but not on PATH.
+
+    Raised at model-load time by adapters that hand audio *file paths* to the
+    ``transformers`` ASR pipeline, which shells out to ffmpeg to decode them —
+    WAV included (issue #109). Defined here (ML-free module) so the CLI can
+    catch it without importing the torch-heavy adapter module.
+    """
+
+
 @dataclass(frozen=True)
 class LatencyMetrics:
     """Protocol-aware latency for a single transcription.

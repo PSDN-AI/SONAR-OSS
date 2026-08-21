@@ -142,6 +142,7 @@ def _filter_unavailable_api_defaults(models: list) -> list:
 def run_single_speaker(args):
     """Run single-speaker evaluation."""
     from psdn_sonar.evaluators.single_speaker import NoSamplesEvaluatedError, SingleSpeakerEvaluator
+    from psdn_sonar.models.base import MissingFfmpegError
 
     args.language = _resolve_language(args)
 
@@ -229,9 +230,9 @@ def run_single_speaker(args):
                 else:
                     logger.warning(f"No results CSV found for {model}, skipping report")
 
-    except (ValueError, FileNotFoundError, NoSamplesEvaluatedError) as e:
-        # Expected input/configuration failures: clean actionable message,
-        # non-zero exit, no traceback noise.
+    except (ValueError, FileNotFoundError, NoSamplesEvaluatedError, MissingFfmpegError) as e:
+        # Expected input/configuration/environment failures: clean actionable
+        # message, non-zero exit, no traceback noise.
         logger.error(f"Evaluation failed: {e}")
         sys.exit(1)
     except Exception as e:
