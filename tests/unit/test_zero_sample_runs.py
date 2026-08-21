@@ -283,6 +283,82 @@ class TestRunEvaluationFailsLoudly:
         assert "whisper_base_en" in results
 
 
+class TestConstructorFailureIsolated:
+    """Issue #108: a raising model constructor used to kill the entire
+    multi-model loop, losing the output of models already evaluated in the
+    run. It is now skipped with the reason logged; only a run where every
+    model fails to construct errors out."""
+
+    def test_one_failing_constructor_skips_and_run_continues(
+        self, tmp_path, patched_run_evaluation_env, monkeypatch, caplog
+    ):
+        def factory(name, **kwargs):
+            if name == "khushids_bengali":
+                raise ModuleNotFoundError("No module named 'peft'")
+            return object()
+
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker._model_factory", factory)
+        monkeypatch.setattr(
+            SingleSpeakerEvaluator,
+            "evaluate_one",
+            lambda *args, **kwargs: _fake_result(successful=1, failed=0),
+        )
+
+        with caplog.at_level("ERROR"):
+            results = SingleSpeakerEvaluator.run_evaluation(
+                tsv_path="eval.tsv",
+                output_dir=str(tmp_path),
+                models=["khushids_bengali", "wav2vec2_bengali"],
+                language="bn",
+                write_scores=False,
+            )
+
+        assert list(results) == ["wav2vec2_bengali"]
+        assert "Skipping model khushids_bengali" in caplog.text
+        assert "peft" in caplog.text
+        # The surviving model's artifact was written.
+        assert (tmp_path / "asr_detailed_wav2vec2_bengali.csv").exists()
+
+    def test_earlier_results_survive_a_later_failure(self, tmp_path, patched_run_evaluation_env, monkeypatch):
+        def factory(name, **kwargs):
+            if name == "second_model":
+                raise RuntimeError("constructor exploded")
+            return object()
+
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker._model_factory", factory)
+        monkeypatch.setattr(
+            SingleSpeakerEvaluator,
+            "evaluate_one",
+            lambda *args, **kwargs: _fake_result(successful=1, failed=0),
+        )
+
+        results = SingleSpeakerEvaluator.run_evaluation(
+            tsv_path="eval.tsv",
+            output_dir=str(tmp_path),
+            models=["first_model", "second_model"],
+            language="bn",
+            write_scores=False,
+        )
+
+        assert list(results) == ["first_model"]
+        assert (tmp_path / "asr_detailed_first_model.csv").exists()
+
+    def test_all_constructors_failing_raises(self, tmp_path, patched_run_evaluation_env, monkeypatch):
+        monkeypatch.setattr(
+            "psdn_sonar.evaluators.single_speaker._model_factory",
+            lambda *args, **kwargs: (_ for _ in ()).throw(ModuleNotFoundError("No module named 'peft'")),
+        )
+
+        with pytest.raises(ValueError, match="could be constructed"):
+            SingleSpeakerEvaluator.run_evaluation(
+                tsv_path="eval.tsv",
+                output_dir=str(tmp_path),
+                models=["khushids_bengali"],
+                language="bn",
+                write_scores=False,
+            )
+
+
 class TestScoresArtifactNullMeans:
     def test_null_avgs_stay_null_in_scores_json(self):
         from psdn_sonar.benchmark.scores import build_run_scores

@@ -20,7 +20,7 @@ from typing import Optional
 
 import torch
 
-from .base import ASRModel, MissingFfmpegError
+from .base import ASRModel, MissingDependencyError, MissingFfmpegError
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,16 @@ class KhushiDSBengaliModel(ASRModel):
     def __init__(self, model_id="KhushiDS/whisper-large-v3-Bengali", device=None, chunk_length_s=30):
         _require_ffmpeg(f"{type(self).__name__} ({model_id})")
 
-        from peft import PeftModel
+        # Checked before any download: peft ships with the [bengali] extra,
+        # not [ml], so the documented README environment lacks it (issue #108).
+        try:
+            from peft import PeftModel
+        except ImportError as exc:
+            raise MissingDependencyError(
+                f"{type(self).__name__} ({model_id}) is a PEFT/LoRA adapter and needs "
+                "the peft package, which ships with the [bengali] extra: pip install "
+                '"psdn-sonar[bengali]". The other Bengali default models run without it.'
+            ) from exc
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
         device = 0 if device is None and torch.cuda.is_available() else (-1 if device is None else device)

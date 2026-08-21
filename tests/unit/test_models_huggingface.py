@@ -159,6 +159,26 @@ class TestFfmpegPreflight:
 
 
 @requires_ml
+class TestMissingPeftIsActionable:
+    """Issue #108: khushids_bengali needs peft ([bengali] extra), which the
+    documented [ml] environment lacks. The bare ModuleNotFoundError must
+    become an error naming the extra, raised before any download."""
+
+    def test_missing_peft_names_bengali_extra(self, monkeypatch):
+        import psdn_sonar.models.huggingface as hf
+        from psdn_sonar.models.base import MissingDependencyError
+
+        monkeypatch.setattr(hf.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        monkeypatch.setitem(sys.modules, "peft", None)  # forces ImportError on 'from peft import ...'
+        with patch("transformers.AutoModelForSpeechSeq2Seq") as mock_model:
+            mock_model.from_pretrained.side_effect = AssertionError("checkpoint download attempted")
+            with pytest.raises(MissingDependencyError, match=r"psdn-sonar\[bengali\]") as exc_info:
+                hf.KhushiDSBengaliModel()
+            mock_model.from_pretrained.assert_not_called()
+        assert "peft" in str(exc_info.value)
+
+
+@requires_ml
 class TestCustomHuggingFaceModelDispatch:
     """``CustomHuggingFaceModel`` routes transcription by detected model type."""
 

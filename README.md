@@ -112,6 +112,12 @@ Neither path installs the `[ml]` extra. To run local HuggingFace models or
 POSEIDON's semantic similarity from a source checkout, add it:
 `uv pip install -e ".[ml]"` (after `make setup`) or `pip install -e ".[dev,ml]"`.
 
+One model in the Bengali defaults needs more than `[ml]`: `khushids_bengali`
+is a PEFT/LoRA adapter and requires `peft` from the `[bengali]` extra
+(`pip install "psdn-sonar[bengali]"`). Without it, a `--language bn` run
+skips that model with a message naming the extra and evaluates the rest of
+the defaults; one unavailable model never aborts a multi-model run.
+
 Note that `pip` does not read `uv.lock`: pip installs resolve dependency
 versions fresh from PyPI within the ranges in `pyproject.toml`, so they are
 not byte-for-byte reproducible the way `uv sync --frozen` is. This is the
