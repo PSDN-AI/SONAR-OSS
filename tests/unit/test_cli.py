@@ -1,5 +1,7 @@
 """Tests for the psdn-sonar command-line interface."""
 
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -355,6 +357,75 @@ class TestCustomDispatch:
 
         mock_config.assert_called_once_with(str(config_file))
         assert mock_run.call_args[1]["generate_report"] is True
+
+
+class TestEntrypointExitStability:
+    """Issue #139: the console script must always deliver the exit code the
+    run decided on. A torch-family native extension intermittently SIGABRTs
+    (exit 134) in interpreter teardown after a data-reason failure had
+    already been reported as exit 1, so ``entrypoint`` leaves via
+    ``os._exit`` once logging and the std streams are flushed."""
+
+    def _exit_code(self, main_behavior):
+        from psdn_sonar import cli
+
+        recorded = {}
+        with (
+            patch.object(cli, "main", side_effect=main_behavior),
+            patch.object(cli.os, "_exit", side_effect=lambda code: recorded.setdefault("code", code)),
+        ):
+            cli.entrypoint()
+        return recorded["code"]
+
+    def test_clean_return_exits_zero(self):
+        assert self._exit_code(lambda: None) == 0
+
+    def test_systemexit_code_is_preserved(self):
+        assert self._exit_code(lambda: sys.exit(1)) == 1
+        assert self._exit_code(lambda: sys.exit(2)) == 2
+
+    def test_systemexit_none_means_zero(self):
+        assert self._exit_code(lambda: sys.exit(None)) == 0
+
+    def test_systemexit_message_prints_and_exits_one(self, capsys):
+        assert self._exit_code(lambda: sys.exit("boom message")) == 1
+        assert "boom message" in capsys.readouterr().err
+
+    def test_keyboard_interrupt_exits_130(self):
+        assert self._exit_code(KeyboardInterrupt()) == 130
+
+    def test_unexpected_exception_stays_loud(self, capsys):
+        assert self._exit_code(RuntimeError("genuine bug")) == 1
+        err = capsys.readouterr().err
+        assert "Traceback" in err
+        assert "genuine bug" in err
+
+    def test_console_script_targets_entrypoint(self):
+        # The stable-exit guarantee only holds if the installed script goes
+        # through entrypoint(), not main() directly.
+        from importlib.metadata import entry_points
+
+        (script,) = entry_points(group="console_scripts", name="psdn-sonar")
+        assert script.value == "psdn_sonar.cli:entrypoint"
+
+    def test_subprocess_exit_codes_are_stable(self, tmp_path):
+        # Real-process check of the wiring: a success and a data-reason
+        # failure must come back as exactly 0 and 1, never a signal code.
+        snippet = (
+            "import sys; sys.argv = ['psdn-sonar'] + sys.argv[1:]; from psdn_sonar.cli import entrypoint; entrypoint()"
+        )
+
+        ok = subprocess.run([sys.executable, "-c", snippet, "--version"], capture_output=True, text=True)
+        assert ok.returncode == 0
+
+        data = tmp_path / "data.tsv"
+        data.write_text("audio_path\ttranscription\ntest.wav\ttest text\n")
+        bad_language = subprocess.run(
+            [sys.executable, "-c", snippet, "single", "--input", str(data), "--models", "m", "--language", "xx"],
+            capture_output=True,
+            text=True,
+        )
+        assert bad_language.returncode == 1
 
 
 PRIVATE_CONTROL_PLANE_MODULE = ".".join(["psdn_sonar", "service"])
