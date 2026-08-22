@@ -78,6 +78,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CI now exercises what the README advertises (#114). A green run
+  previously validated Linux only, and no job installed the `[ml]` extra,
+  so the 8 HuggingFace adapter tests skipped on every PR — no ASR model
+  adapter was exercised anywhere in the pipeline. One new job closes both
+  gaps: macOS arm64 (Python 3.12) runs the full suite with `[ml]`
+  installed, with a preflight import check so the suite can never go
+  green with the adapter tests silently skipped. The `[ml]` install lives
+  on macOS deliberately — its torch wheels are small CPU-only builds,
+  while the lockfile resolves Linux torch to the CUDA-bundled stack
+  (several GB), too heavy for PR CI when the adapter tests are fully
+  mocked. The README's supported-environments note now matches: macOS is
+  CI-validated, Windows remains expected-to-work but unvalidated.
 - Swept the six places where docstrings, config, and packaging did not
   match the code (#115). The shipped loanword caches are now actually
   CI-validated: `tests/test_loanword_cache_integrity.py` — the file the
