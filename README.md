@@ -31,8 +31,10 @@ reporting, and benchmarks. Distributed as the `psdn-sonar` Python package.
   ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS)
 
 **Supported environments.** CI validates Linux x86_64 with CPython 3.10, 3.11,
-and 3.12. macOS and Windows are expected to work for the core package but are
-not CI-validated; some optional extras have platform-sensitive dependencies
+and 3.12, plus macOS arm64 with CPython 3.12 and the `[ml]` extra installed
+(so the HuggingFace model adapters are exercised on every PR, not just
+importable). Windows is expected to work for the core package but is not
+CI-validated; some optional extras have platform-sensitive dependencies
 (`[korean]` needs a Java runtime at runtime, `[ml]`/`[pyannote]` pull large
 PyTorch trees). Open an issue if an install fails on a supported Python.
 The checked-in `.python-version` pins `uv` to CPython 3.12, so `make setup`
