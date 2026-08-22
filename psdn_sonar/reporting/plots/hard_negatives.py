@@ -1,4 +1,4 @@
-"""Hard-negatives comparison plots: user dataset vs. public benchmarks."""
+"""Hard-negatives plots: overall vs. hard-negative error rates in a results CSV."""
 
 import logging
 from pathlib import Path
@@ -11,72 +11,19 @@ from psdn_sonar.utils.plot_theme import save_plot, theme_swarm_lab
 
 logger = logging.getLogger(__name__)
 
-BENGALI_BENCHMARK_STATS = {
-    "wer": {
-        "Common Voice": {"overall": 0.35, "hard": 1.05},
-        "FLEURS": {"overall": 0.42, "hard": 1.20},
-        "OpenSLR37 BD": {"overall": 0.38, "hard": 1.10},
-        "OpenSLR37 IN": {"overall": 0.36, "hard": 1.08},
-        "OpenSLR53": {"overall": 0.45, "hard": 1.30},
-    },
-    "cer": {
-        "Common Voice": {"overall": 0.15, "hard": 0.45},
-        "FLEURS": {"overall": 0.18, "hard": 0.52},
-        "OpenSLR37 BD": {"overall": 0.16, "hard": 0.48},
-        "OpenSLR37 IN": {"overall": 0.15, "hard": 0.46},
-        "OpenSLR53": {"overall": 0.20, "hard": 0.58},
-    },
-}
-
-ENGLISH_BENCHMARK_STATS = {
-    "wer": {
-        "Common Voice": {"overall": 0.357, "hard": 1.2142},
-        "FLEURS": {"overall": 0.2271, "hard": 0.8034},
-    },
-    "cer": {
-        "Common Voice": {"overall": 0.3133, "hard": 1.1256},
-        "FLEURS": {"overall": 0.1929, "hard": 0.7113},
-    },
-}
-
-# Placeholder Zeroth values; run precompute or single-speaker on Zeroth TSV to get real numbers.
-KOREAN_BENCHMARK_STATS = {
-    "wer": {
-        "Common Voice": {"overall": 0.40, "hard": 1.15},
-        "FLEURS": {"overall": 0.45, "hard": 1.25},
-        "Zeroth": {"overall": 0.38, "hard": 1.10},
-    },
-    "cer": {
-        "Common Voice": {"overall": 0.18, "hard": 0.50},
-        "FLEURS": {"overall": 0.20, "hard": 0.55},
-        "Zeroth": {"overall": 0.17, "hard": 0.48},
-    },
-}
-
-HINDI_BENCHMARK_STATS = {
-    "wer": {
-        "Common Voice": {"overall": 0.38, "hard": 1.10},
-        "FLEURS": {"overall": 0.35, "hard": 1.05},
-    },
-    "cer": {
-        "Common Voice": {"overall": 0.16, "hard": 0.48},
-        "FLEURS": {"overall": 0.14, "hard": 0.42},
-    },
-}
-
-_BENCHMARK_STATS = {
-    "english": ENGLISH_BENCHMARK_STATS,
-    "en": ENGLISH_BENCHMARK_STATS,
-    "korean": KOREAN_BENCHMARK_STATS,
-    "ko": KOREAN_BENCHMARK_STATS,
-    "hindi": HINDI_BENCHMARK_STATS,
-    "hi": HINDI_BENCHMARK_STATS,
-}
-
 
 def get_benchmark_stats(language: str = "bengali") -> dict:
-    """Get language-specific public benchmark stats."""
-    return _BENCHMARK_STATS.get(language.lower(), BENGALI_BENCHMARK_STATS)
+    """Measured public-benchmark hard-negative statistics for *language*.
+
+    Always ``{}`` today. This function used to return hardcoded per-language
+    tables (one of them commented "placeholder values") with invented error
+    bars, rendered in the plots as if they were measured benchmark results —
+    and any unknown language silently received the Bengali table. Removed for
+    issue #113: no unmeasured number may be plotted as data. When precomputed
+    benchmark hard-negative statistics actually ship, load them here.
+    """
+    del language
+    return {}
 
 
 def _calculate_user_stats(results_csv: str, percentile_threshold: float = 0.75) -> dict:
@@ -177,10 +124,20 @@ def prepare_comparison_data(user_stats: dict, metric: str, language: str = "beng
 
 
 def create_comparison_plot(df: pd.DataFrame, metric_name: str, output_path: str) -> None:
-    """Dodged bar plot of overall vs. hard-negative means, user dataset first."""
+    """Dodged bar plot of overall vs. hard-negative means, user dataset first.
+
+    The title claims a benchmark comparison only when benchmark bars are
+    actually in the data (issue #113).
+    """
     present = df["dataset"].unique().tolist()
     dataset_order = ["Your dataset"] + [d for d in present if d != "Your dataset"]
     df["dataset"] = pd.Categorical(df["dataset"], categories=dataset_order, ordered=True)
+    has_benchmarks = any(d != "Your dataset" for d in present)
+    title = (
+        f"{metric_name}: Your dataset vs Public Benchmarks"
+        if has_benchmarks
+        else f"{metric_name}: Overall vs Hard Negatives (your dataset)"
+    )
 
     df["ymin"] = (df["mean"] - df["std"]).clip(lower=0)
     df["ymax"] = df["mean"] + df["std"]
@@ -195,7 +152,7 @@ def create_comparison_plot(df: pd.DataFrame, metric_name: str, output_path: str)
         )
         + scale_fill_manual(values=condition_colors, name="Condition")
         + labs(
-            title=f"{metric_name}: Your dataset vs Public Benchmarks",
+            title=title,
             x="Dataset",
             y=metric_name,
         )
@@ -222,7 +179,7 @@ def generate_hard_negatives_comparison(results_csv: str, output_dir: str, langua
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Hard Negatives Analysis: Your dataset vs Public Benchmarks (%s)", language.title())
+    logger.info("Hard Negatives Analysis (%s)", language.title())
     logger.info("Analyzing user dataset: %s", results_csv)
     user_stats = _calculate_user_stats(results_csv)
 

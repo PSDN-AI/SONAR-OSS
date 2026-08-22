@@ -479,7 +479,10 @@ def normalize_bengali_for_wer(text: str) -> str:
 
     This is the single canonical normalization applied to BOTH the reference
     and the hypothesis before scoring, so WER numbers are directly comparable
-    across runs and against published results. The normalized strings are
+    across runs that record the same normalization contract version in their
+    ``scores.json`` lineage. (They are NOT automatically comparable against
+    externally published results — issue #113: published numbers rarely state
+    their normalization, split, or model revision.) The normalized strings are
     written to the run artifacts (issue #143): the single-speaker / custom
     ``asr_detailed_<model>.csv`` carries them as ``normalized_reference`` /
     ``normalized_hypothesis``, and the multi-speaker CSV as

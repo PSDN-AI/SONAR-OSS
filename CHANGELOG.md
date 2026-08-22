@@ -78,6 +78,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `EVAL_REPORT.md` no longer claims a public-benchmark comparison the repo
+  cannot make (#113). Every benchmark claim in the report is now gated on
+  benchmark data actually being present, probed through the same loaders
+  the plots read — so the wording and the pictures cannot disagree. In a
+  stock install (no benchmark data ships, by deliberate import-gate policy)
+  the setup table now says "None included … every number and plot in this
+  report describes your dataset only", the performance section is titled
+  "Performance Distributions" instead of "Cross-Dataset Comparison", and
+  the hardcoded per-language coverage constant is gone — when benchmark
+  CSVs are present, the coverage row names exactly the datasets found on
+  disk. The hard-negatives plots no longer render fabricated data: the
+  hardcoded per-language "benchmark" tables (one commented as placeholder
+  values, with invented error bars, and a silent Bengali fallback for
+  unknown languages) are deleted, so those plots show only the measured
+  user data and title themselves accordingly. Canned "Key Insights"
+  verdicts ("your dataset shows strong diversity metrics compared to
+  public benchmarks") are replaced with pointers that assert nothing the
+  report does not compute. The `normalize_bengali_for_wer` docstring no
+  longer promises comparability "against published results", and the FAQ
+  no longer directs users to baselines in `psdn_sonar/benchmarks/`, which
+  does not ship.
 - CI now exercises what the README advertises (#114). A green run
   previously validated Linux only, and no job installed the `[ml]` extra,
   so the 8 HuggingFace adapter tests skipped on every PR — no ASR model

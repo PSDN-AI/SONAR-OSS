@@ -90,14 +90,19 @@ class TestHardNegativesStats:
         stats = _calculate_user_stats(csv)
         assert "wer" in stats and "cer" not in stats
 
-    def test_benchmark_stats_by_language(self):
-        assert "Zeroth" in get_benchmark_stats("ko")["wer"]
-        assert "OpenSLR53" in get_benchmark_stats("bn-unknown")["wer"]
+    def test_no_hardcoded_benchmark_stats(self):
+        """Issue #113: the per-language tables were unmeasured constants (one
+        commented 'placeholder values') plotted as if they were real benchmark
+        results, and unknown languages silently received the Bengali table.
+        No language may yield fabricated benchmark bars."""
+        for language in ("bn", "bengali", "en", "ko", "hi", "bn-unknown", "swahili"):
+            assert get_benchmark_stats(language) == {}
 
-    def test_prepare_comparison_puts_user_first(self):
+    def test_prepare_comparison_contains_only_measured_user_data(self):
         stats = {"wer": {"overall": 0.3, "overall_std": 0.1, "hard": 0.8, "hard_std": 0.2}}
         df = prepare_comparison_data(stats, "wer", language="en")
         assert df.iloc[0]["dataset"] == "Your dataset"
+        assert set(df["dataset"]) == {"Your dataset"}
         assert set(df["condition"]) == {"Overall", "Hard Negatives"}
 
 

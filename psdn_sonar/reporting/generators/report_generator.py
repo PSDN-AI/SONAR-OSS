@@ -5,6 +5,14 @@ directories exist next to the output path (``cross-dataset-analysis/``,
 ``model-comparison/``, ``hard-negatives-analysis/``, ``audio-quality-analysis/``,
 ``latency-analysis/``, ``demographic-analysis/``, ``diversity-analysis/``).
 Sections whose plots are absent are skipped.
+
+Every claim of a public-benchmark comparison is gated on benchmark data
+actually being present (issue #113). No benchmark data ships in the
+repository — it is generated locally by the precompute scripts — so a stock
+install must produce a report that says the plots show the user's dataset
+only, never that it was "compared against public benchmarks". The
+availability probes are the same loaders the plots read from, so the wording
+and the pictures cannot disagree.
 """
 
 import json
@@ -14,20 +22,15 @@ from pathlib import Path
 
 import pandas as pd
 
+from ..loaders.benchmark_loader import (
+    available_benchmark_datasets,
+    load_public_benchmark_diversity,
+    load_public_lexical_data,
+)
+
 logger = logging.getLogger(__name__)
 
 _TRANSCRIPT_COLUMNS = ["transcription", "transcript", "transcription_norm"]
-
-_BENCHMARK_COVERAGE = {
-    "bengali": "5 public Bengali benchmarks (Common Voice, FLEURS, OpenSLR37 BD/IN, OpenSLR53)",
-    "bn": "5 public Bengali benchmarks (Common Voice, FLEURS, OpenSLR37 BD/IN, OpenSLR53)",
-    "korean": "3 public Korean benchmarks (Common Voice, FLEURS, Zeroth)",
-    "ko": "3 public Korean benchmarks (Common Voice, FLEURS, Zeroth)",
-    "hindi": "2 public Hindi benchmarks (Common Voice, FLEURS)",
-    "hi": "2 public Hindi benchmarks (Common Voice, FLEURS)",
-    "english": "2 public English benchmarks (LibriSpeech, Common Voice)",
-    "en": "2 public English benchmarks (LibriSpeech, Common Voice)",
-}
 
 
 def _token_stats(transcripts: list, n_rows: int) -> dict:
@@ -125,19 +128,23 @@ def _header_section(dataset_name: str, stats: dict) -> list:
     ]
 
 
-def _setup_section(stats: dict, language: str) -> list:
-    benchmarks = _BENCHMARK_COVERAGE.get(language.lower())
-    if benchmarks:
+def _setup_section(stats: dict, language: str, benchmark_datasets: list) -> list:
+    """Evaluation-setup table. The coverage rows are derived from the
+    benchmark data actually present, never from a hardcoded per-language
+    claim (issue #113)."""
+    if benchmark_datasets:
         coverage_rows = [
-            f"| **Dataset Coverage** | Your dataset + {benchmarks} |",
+            f"| **Dataset Coverage** | Your dataset + public {language.title()} "
+            f"benchmark evaluations ({', '.join(benchmark_datasets)}) |",
             f"| **Sample Size** | Your dataset: {stats['total_transcripts']:,} samples evaluated"
-            "<br>Public benchmarks: reference numbers shown for comparison |",
+            "<br>Public benchmarks: precomputed reference evaluations shown for comparison |",
         ]
     else:
         coverage_rows = [
-            f"| **Language** | {language.title()} (custom evaluation) |",
+            f"| **Language** | {language.title()} |",
             f"| **Dataset Coverage** | Your dataset ({stats['total_transcripts']:,} samples) |",
-            "| **Public Benchmarks** | Not available for this language |",
+            "| **Public Benchmarks** | None included — this installation ships no public-benchmark "
+            "evaluations, so every number and plot in this report describes your dataset only |",
         ]
 
     return [
@@ -154,8 +161,14 @@ def _setup_section(stats: dict, language: str) -> list:
     ]
 
 
-def _performance_section(report_dir: Path) -> list:
-    """Model-comparison gallery when present, otherwise the cross-dataset gallery."""
+def _performance_section(report_dir: Path, benchmarks_available: bool) -> list:
+    """Model-comparison gallery when present, otherwise the cross-dataset gallery.
+
+    The cross-dataset wording depends on ``benchmarks_available``: the plots
+    only contain public-benchmark boxplots when benchmark evaluations were
+    present on disk, so the prose must not claim a comparison the plot does
+    not make (issue #113).
+    """
     lines = ["## ASR Performance Analysis", ""]
 
     model_comparison_dir = report_dir / "model-comparison"
@@ -194,31 +207,38 @@ def _performance_section(report_dir: Path) -> list:
         ]:
             lines.extend(_plot_entry(report_dir, model_comparison_dir / filename, title, caption, level="####"))
     elif cross_dataset_dir.exists():
-        lines.extend(
-            [
-                "### Cross-Dataset Comparison",
-                "",
-                "The following plots compare your dataset's ASR performance against public benchmarks.",
-                "",
-            ]
-        )
+        if benchmarks_available:
+            heading = "### Cross-Dataset Comparison"
+            intro = "The following plots compare your dataset's ASR performance against public benchmarks."
+            cer_extra = " Compare your dataset against public benchmarks."
+            wer_extra = " See how your dataset performs relative to the public benchmarks shown."
+            sem_scope = " across all datasets"
+        else:
+            heading = "### Performance Distributions"
+            intro = (
+                "The following plots show the distribution of your dataset's ASR performance. "
+                "No public-benchmark evaluations are present in this installation, so the plots "
+                "contain your dataset only."
+            )
+            cer_extra = ""
+            wer_extra = ""
+            sem_scope = ""
+        lines.extend([heading, "", intro, ""])
         for filename, title, caption in [
             (
                 "cer_by_dataset_model.png",
                 "Character Error Rate (CER) by Dataset and Model",
-                "Lower CER indicates better character-level transcription accuracy. "
-                "Compare your dataset against public benchmarks.",
+                f"Lower CER indicates better character-level transcription accuracy.{cer_extra}",
             ),
             (
                 "wer_by_dataset_model.png",
                 "Word Error Rate (WER) by Dataset and Model",
-                "Lower WER indicates better word-level transcription accuracy. "
-                "See how your dataset performs relative to established benchmarks.",
+                f"Lower WER indicates better word-level transcription accuracy.{wer_extra}",
             ),
             (
                 "sem_by_dataset_model.png",
                 "Semantic Similarity by Dataset and Model",
-                "Higher semantic similarity indicates better preservation of meaning across all datasets.",
+                f"Higher semantic similarity indicates better preservation of meaning{sem_scope}.",
             ),
             ("poseidon_by_dataset_model.png", "POSEIDON Score by Dataset and Model", poseidon_caption),
         ]:
@@ -235,8 +255,9 @@ def _hard_negatives_section(report_dir: Path) -> list:
     lines = [
         "### Hard Negatives Analysis",
         "",
-        "Hard negatives are samples with high error rates (top 25% WER/CER). Comparing user dataset "
-        "against public benchmarks helps identify problematic transcripts.",
+        "Hard negatives are samples with high error rates (top 25% WER/CER) within your dataset. "
+        "Comparing them against the overall distribution helps identify problematic audio and "
+        "transcripts.",
         "",
     ]
     for filename, title in [
@@ -371,53 +392,86 @@ def _demographic_section(report_dir: Path) -> list:
     return lines
 
 
-def _diversity_section(report_dir: Path, language: str) -> list:
+def _diversity_section(report_dir: Path, language: str, diversity_benchmarks_available: bool) -> list:
+    """Lexical diversity gallery. The captions mention public benchmarks only
+    when the diversity plots actually overlaid benchmark data — the plots and
+    this text read the same loaders (issue #113)."""
     diversity_dir = report_dir / "diversity-analysis"
     lines = ["## Lexical Diversity Analysis", ""]
-    for filename, title, caption in [
-        (
-            "diversity_gt_comparative_diversity.png",
-            "N-gram Diversity",
+
+    if diversity_benchmarks_available:
+        ngram_caption = (
             "Inference: Compare your dataset's n-gram diversity against public benchmarks. "
-            "Higher diversity indicates richer linguistic variety.",
-        ),
-        (
-            "diversity_gt_vocabulary_growth_curve.png",
-            "Vocabulary Growth Curve",
+            "Higher diversity indicates richer linguistic variety."
+        )
+        growth_caption = (
             "Inference: Shows how vocabulary size increases with token count for your dataset. "
             "A healthy curve indicates consistent introduction of new vocabulary. "
-            "Public benchmarks show similar logarithmic growth patterns.",
-        ),
-        (
-            "diversity_gt_zipf_law.png",
-            "Zipf's Law Curve",
-            "Inference: Word frequency distribution follows Zipf's law (log-log linear relationship), "
-            "confirming natural language patterns. Your dataset shows appropriate balance between "
-            f"common and rare words, consistent with public {language.title()} benchmarks.",
-        ),
+            "The overlaid public-benchmark curves give a reference for the growth shape."
+        )
+        zipf_caption = (
+            "Inference: Word frequency distribution on log-log axes. A near-linear relationship "
+            "(Zipf's law) indicates natural language patterns; compare the balance between common "
+            f"and rare words against the public {language.title()} benchmark curves."
+        )
+    else:
+        ngram_caption = (
+            "Inference: Your dataset's n-gram diversity by n-gram size. "
+            "Higher diversity indicates richer linguistic variety."
+        )
+        growth_caption = (
+            "Inference: Shows how vocabulary size increases with token count for your dataset. "
+            "A healthy curve indicates consistent introduction of new vocabulary."
+        )
+        zipf_caption = (
+            "Inference: Word frequency distribution on log-log axes. A near-linear relationship "
+            "(Zipf's law) indicates natural language patterns and a balance between common and "
+            "rare words."
+        )
+
+    for filename, title, caption in [
+        ("diversity_gt_comparative_diversity.png", "N-gram Diversity", ngram_caption),
+        ("diversity_gt_vocabulary_growth_curve.png", "Vocabulary Growth Curve", growth_caption),
+        ("diversity_gt_zipf_law.png", "Zipf's Law Curve", zipf_caption),
     ]:
         lines.extend(_plot_entry(report_dir, diversity_dir / filename, title, caption))
     return lines
 
 
-def _insights_section(language: str) -> list:
+def _insights_section(language: str, diversity_benchmarks_available: bool) -> list:
+    """Closing pointers for reading the report.
+
+    These used to be canned verdicts — "your dataset shows strong diversity
+    metrics compared to public benchmarks", "the dataset follows Zipf's law" —
+    emitted for every run regardless of what was measured or whether any
+    benchmark data existed (issue #113). No conclusion is asserted here that
+    the report does not compute.
+    """
+    if diversity_benchmarks_available:
+        diversity_insight = (
+            f"   Use the diversity plots above to compare repetitive patterns and vocabulary "
+            f"variety in your dataset against the public {language.title()} benchmark curves."
+        )
+    else:
+        diversity_insight = (
+            "   The diversity plots above characterize repetitive patterns and vocabulary variety in your dataset."
+        )
     return [
         "## Key Insights",
         "",
-        f"1. **Your dataset shows strong diversity metrics compared to public {language.title()} benchmarks:**",
+        "1. **Lexical diversity:**",
         "",
-        "   The dataset demonstrates minimal repetitive patterns and highly varied sentence structures, "
-        "indicating rich linguistic diversity.",
+        diversity_insight,
         "",
         "2. **Natural language distribution:**",
         "",
-        "   The dataset follows Zipf's law, showing balanced topic coverage with natural language "
-        "distribution patterns.",
+        "   Check the Zipf's Law curve: a near-linear log-log fit indicates natural language "
+        "distribution patterns and balanced topic coverage.",
         "",
-        "3. **ASR Model Performance:**",
+        "3. **ASR model performance:**",
         "",
-        "   Performance varies significantly across models, with some models showing consistently "
-        "better results across all datasets.",
+        "   Performance can vary significantly across models; use the performance plots above "
+        "to compare the models evaluated on your data.",
         "",
         "---",
         "",
@@ -435,23 +489,32 @@ def generate_report(dataset_name: str, dataset_path, output_path, language: str 
     dataset_path : dataset TSV/CSV/JSONL used for the statistics section
     output_path  : where to write the report; plot sections are discovered in
                    the analysis subdirectories next to this file
-    language     : language label (selects benchmark wording in the setup table)
+    language     : language label; all benchmark wording is gated on the
+                   benchmark data actually present for this language
+                   (issue #113 — no benchmark data ships by default)
     """
     stats = load_dataset_stats(Path(dataset_path).resolve())
 
     output_file = Path(output_path).resolve()
     report_dir = output_file.parent
 
+    # Same sources the plots read from: cross-dataset boxplots use the
+    # raw-evaluations CSVs, the diversity plots use the precomputed JSONs.
+    benchmark_datasets = available_benchmark_datasets(language)
+    diversity_benchmarks_available = bool(load_public_benchmark_diversity(language)) or bool(
+        load_public_lexical_data(language)
+    )
+
     report = [
         *_header_section(dataset_name, stats),
-        *_setup_section(stats, language),
-        *_performance_section(report_dir),
+        *_setup_section(stats, language, benchmark_datasets),
+        *_performance_section(report_dir, benchmarks_available=bool(benchmark_datasets)),
         *_hard_negatives_section(report_dir),
         *_audio_quality_section(report_dir),
         *_latency_section(report_dir),
         *_demographic_section(report_dir),
-        *_diversity_section(report_dir, language),
-        *_insights_section(language),
+        *_diversity_section(report_dir, language, diversity_benchmarks_available),
+        *_insights_section(language, diversity_benchmarks_available),
     ]
 
     output_file.parent.mkdir(parents=True, exist_ok=True)

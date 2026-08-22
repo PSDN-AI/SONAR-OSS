@@ -17,20 +17,10 @@ from plotnine import aes, geom_boxplot, ggplot, labs, position_dodge, scale_y_co
 from psdn_sonar.utils.metrics import _POSEIDON_COLUMN_LAYOUTS, ensure_poseidon_score
 from psdn_sonar.utils.plot_theme import get_swarm_colors, save_plot, theme_swarm_lab
 
+from ..loaders.benchmark_loader import DATASET_DISPLAY, raw_evaluations_dir
 from ._common import prettify_model_name
 
 logger = logging.getLogger(__name__)
-
-DATASET_DISPLAY = {
-    "user_dataset": "Your dataset",
-    "commonvoice": "Common Voice",
-    "fleurs": "FLEURS",
-    "zeroth": "Zeroth",
-    "librispeech": "LibriSpeech",
-    "openslr37_bd": "OpenSLR37 BD",
-    "openslr37_in": "OpenSLR37 IN",
-    "openslr53": "OpenSLR53",
-}
 
 # User dataset first, then public benchmarks.
 _DATASET_ORDER = [
@@ -43,13 +33,6 @@ _DATASET_ORDER = [
     "openslr37_in",
     "openslr53",
 ]
-
-_LANGUAGE_ALIASES = {
-    "bn": "bengali",
-    "ko": "korean",
-    "hi": "hindi",
-    "en": "english",
-}
 
 _METRIC_CONFIG = [
     ("cer", "Character Error Rate (CER)", True),
@@ -99,8 +82,7 @@ def load_public_benchmark_data(language: str = "bengali") -> list:
     every subdirectory is treated as a model and the dataset is parsed from
     the CSV filename. Returns [] when no benchmark data is shipped.
     """
-    lang = _LANGUAGE_ALIASES.get(language.lower(), language.lower())
-    benchmark_dir = Path(__file__).parent.parent.parent / "benchmarks" / lang / "raw-evaluations"
+    benchmark_dir = raw_evaluations_dir(language)
     if not benchmark_dir.is_dir():
         logger.info("No public benchmark evaluations for '%s' — showing user data only", language)
         return []
@@ -165,8 +147,14 @@ def _apply_metric_y_scale(plot, values: pd.Series, lower_better: bool):
 
 
 def create_cross_dataset_boxplots(df: pd.DataFrame, output_dir: str, language: str = "bengali") -> None:
-    """One boxplot per metric: X=dataset, Y=value, fill=model (dodged)."""
+    """One boxplot per metric: X=dataset, Y=value, fill=model (dodged).
+
+    The title only speaks of multiple datasets when benchmark data is in the
+    plot; with the user's dataset alone the old plural title ("Across
+    Datasets") misdescribed a single-group chart (issue #113).
+    """
     datasets_present = [d for d in _DATASET_ORDER if d in df["dataset"].unique()]
+    user_data_only = datasets_present == ["user_dataset"]
     model_labels, model_colors = _model_labels(df)
     fig_width = max(20, len(datasets_present) * 3)
 
@@ -193,8 +181,12 @@ def create_cross_dataset_boxplots(df: pd.DataFrame, output_dir: str, language: s
             + geom_boxplot(position=position_dodge(width=0.85), width=0.7, alpha=0.85, outlier_alpha=0.3)
             + p9.scale_fill_manual(values=model_colors, name="Model")
             + labs(
-                title=f"{ylabel} Distribution Across Datasets and Models",
-                x="Datasets",
+                title=(
+                    f"{ylabel} Distribution by Model (your dataset)"
+                    if user_data_only
+                    else f"{ylabel} Distribution Across Datasets and Models"
+                ),
+                x="Dataset" if user_data_only else "Datasets",
                 y=ylabel,
                 fill="Model",
             )

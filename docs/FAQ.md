@@ -208,7 +208,7 @@ synced locally with `scripts/download_data.py --config your_sync.yaml` — see
 
 - [ ] Open previous `asr_detailed_*.csv` — scan for rows with very high CER/WER (> 0.9), which often indicate bad audio, missing files, or API errors
 - [ ] Check for empty `hypothesis` fields — means transcription failed entirely
-- [ ] Look at `EVAL_REPORT.md` summary — are mean CER/WER in expected ranges? Compare against the baselines in `psdn_sonar/benchmarks/`
+- [ ] Look at `EVAL_REPORT.md` summary — are mean CER/WER in expected ranges? Compare against your own previous runs: `scores_<model>.json` records the lineage (model revision, normalization contract version) that tells you whether two runs are comparable. (`psdn_sonar/benchmarks/` does not ship with the package — the scripts that would populate it require credentials — so there are no bundled baselines to compare against.)
 
 ---
 
