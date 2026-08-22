@@ -189,6 +189,8 @@ synced locally with `scripts/download_data.py --config your_sync.yaml` — see
 
 - [ ] `.env` file exists with valid, non-expired API keys (especially if using `whisper_api`, `assemblyai_api`, or `elevenlabs_api`)
 - [ ] `HF_TOKEN` is set if using pyannote VAD/diarization
+- [ ] Disk, bandwidth, and time are budgeted for a **first** run: datasets and model checkpoints download in full (several GB — see "What a first run costs" in the README), and `--max-samples` bounds processing, not the download
+- [ ] You know which device the run will use: local models pick CUDA, then MPS, then CPU (recorded in `scores_<model>.json` under `config.device`); on CPU, Whisper-class models run at roughly 20 s/sample vs ~1 s/sample for CTC models
 
 **Input data:**
 

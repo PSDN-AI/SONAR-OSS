@@ -36,6 +36,31 @@ not CI-validated; some optional extras have platform-sensitive dependencies
 (`[korean]` needs a Java runtime at runtime, `[ml]`/`[pyannote]` pull large
 PyTorch trees). Open an issue if an install fails on a supported Python.
 
+**What a first run costs.** On a fresh machine, budget several gigabytes of
+downloads and tens of minutes before the first number appears; everything is
+cached, so later runs against the same data and models start in seconds.
+Measured example (Bengali FLEURS + one CTC model): ~3.4 GB / ~27 min for the
+dataset, 1.26 GB for the model checkpoint, and ~1.5 GB on disk for the `[ml]`
+extra (torch alone ~0.5 GB). `psdn-sonar discover --max-samples` bounds how
+many samples are *prepared*, not the download — each requested split is
+fetched into the HuggingFace cache in full on first run. Two more downloads
+happen lazily: the first POSEIDON / semantic-similarity call fetches the
+~64 MB sentence-transformers scorer, and audio-quality analysis fetches a
+~390 MB UTMOS checkpoint via `torch.hub`. Checkpoint size can also hide
+behind an adapter: `khushids_bengali` is a 62 MB PEFT adapter whose
+`openai/whisper-large-v3` base adds ~2.9 GB.
+
+**Compute device and runtime.** Local HuggingFace adapters auto-select the
+best available device — CUDA, then MPS (Apple Silicon), then CPU — and the
+device used is recorded in each run's `scores_<model>.json` (`config.device`),
+since a GPU run and a CPU run can produce different transcripts for the same
+audio. On CPU, architecture dominates runtime: measured on the same
+200-utterance FLEURS Bengali set, a Wav2Vec2 CTC model ran at ~1.2 s/sample
+while a Whisper-medium fine-tune ran at ~19 s/sample. A full multi-model
+language default (Bengali has 9 models, mostly Whisper-class) is a
+multi-hour job without a GPU — trim `--models` and `--max-samples` to size
+your run first.
+
 ## Installation
 
 ### Install the pre-release from TestPyPI (for testing)

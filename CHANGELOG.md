@@ -42,6 +42,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whitespace-split fallback changes tokenization — and therefore absolute
   WER/POSEIDON — between otherwise identical environments.
 
+### Changed
+
+- Documented what a first run actually costs and which device it runs on
+  (#111). The README now states the order of magnitude up front — several GB
+  of downloads and tens of minutes before the first number (measured: FLEURS
+  Bengali ~3.4 GB, `[ml]` extra ~1.5 GB on disk, the ~64 MB semantic scorer
+  and ~390 MB UTMOS checkpoint fetched lazily on first use) — with matching
+  notes in `docs/USAGE.md` and the FAQ pre-run checklist, including measured
+  CPU throughput (~1 s/sample CTC vs ~20 s/sample Whisper-class). The
+  `--max-samples` help for `discover` and `custom` now says it bounds
+  processing only: each requested split is still downloaded to the
+  HuggingFace cache in full on first run.
+
 ### Removed
 
 - The end-to-end QA testing guide (`docs/SONAR-OSS-E2E-QA-Testing-Guide.md`).
@@ -53,6 +66,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- ASR adapters now use MPS on Apple Silicon (#111). Every HuggingFace adapter
+  selected its device with `torch.cuda.is_available()` only, so on Apple
+  Silicon diarization ran on the GPU while ASR inference silently fell back
+  to CPU — measured ~16x slower for Whisper-class models — and the `device`
+  field in `scores.json`, which does report `mps`, misstated where inference
+  actually ran. All adapters now share one resolver (CUDA, then MPS, then
+  CPU, matching the diarization pipeline); explicit `device=` arguments in
+  any accepted form (int, string, `torch.device`) pass through unchanged,
+  and fp16 remains CUDA-only.
 - The catalog's acquisition-vs-redistribution posture is now documented and
   surfaced at the point of download (#116). All eight benchmark catalog
   entries carry `review.decision: pending`, seven of them enabled and

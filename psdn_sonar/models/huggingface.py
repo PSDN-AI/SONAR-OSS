@@ -59,6 +59,40 @@ def _pipeline_text(result) -> str:
     return ""
 
 
+def resolve_device(device=None):
+    """Return ``device`` unchanged when given, else the best available one.
+
+    Auto-detect order is CUDA, then MPS (Apple Silicon), then CPU — the same
+    order the pyannote diarization pipeline uses. Before issue #111 these
+    adapters checked ``torch.cuda.is_available()`` only, so on Apple Silicon
+    diarization ran on the GPU while ASR inference silently fell back to CPU
+    (measured ~16x slower for Whisper-class models), and the ``device`` field
+    recorded in ``scores.json`` (which does report mps) misstated where
+    inference actually ran.
+
+    Explicit values are passed through untouched, so pipeline-style ints
+    (``0`` = cuda:0, ``-1`` = CPU), strings, and ``torch.device`` all remain
+    valid ways to pin a device.
+    """
+    if device is not None:
+        return device
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    mps = getattr(torch.backends, "mps", None)
+    if mps is not None and mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def _is_cuda_device(device) -> bool:
+    """True when ``device`` designates CUDA, in any of its accepted forms."""
+    if isinstance(device, torch.device):
+        return device.type == "cuda"
+    if isinstance(device, int):
+        return device >= 0
+    return isinstance(device, str) and device.startswith("cuda")
+
+
 class StandardHuggingFaceASR(ASRModel):
     """Generic seq2seq ASR adapter built on the ``transformers`` pipeline.
 
@@ -72,11 +106,12 @@ class StandardHuggingFaceASR(ASRModel):
 
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
-        device = 0 if device is None and torch.cuda.is_available() else (-1 if device is None else device)
-        dtype = torch.float16 if device >= 0 and torch.cuda.is_available() else torch.float32
+        # fp16 only on CUDA; MPS and CPU stay fp32 (fp16 Whisper generation
+        # on MPS is unreliable across torch versions). The pipeline moves the
+        # model to the device itself.
+        self.device = resolve_device(device)
+        dtype = torch.float16 if _is_cuda_device(self.device) else torch.float32
         model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, dtype=dtype, low_cpu_mem_usage=True)
-        if device >= 0:
-            model = model.to(f"cuda:{device}")
         processor = AutoProcessor.from_pretrained(model_id)
 
         generate_kwargs = {}
@@ -89,7 +124,7 @@ class StandardHuggingFaceASR(ASRModel):
             model=model,
             tokenizer=processor.tokenizer,
             feature_extractor=processor.feature_extractor,
-            device=device,
+            device=self.device,
             chunk_length_s=chunk_length_s,
             generate_kwargs=generate_kwargs,
         )
@@ -114,7 +149,7 @@ class WhisperASRModel(ASRModel):
         import librosa
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device is None else device
+        self.device = resolve_device(device)
         self.processor = WhisperProcessor.from_pretrained(model_id)
         self.model = WhisperForConditionalGeneration.from_pretrained(model_id, torch_dtype=torch.float32).to(
             self.device
@@ -183,19 +218,17 @@ class KhushiDSBengaliModel(ASRModel):
             ) from exc
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
-        device = 0 if device is None and torch.cuda.is_available() else (-1 if device is None else device)
-        dtype = torch.float16 if device >= 0 and torch.cuda.is_available() else torch.float32
+        self.device = resolve_device(device)
+        dtype = torch.float16 if _is_cuda_device(self.device) else torch.float32
         base = AutoModelForSpeechSeq2Seq.from_pretrained("openai/whisper-large-v3", dtype=dtype, low_cpu_mem_usage=True)
         model = PeftModel.from_pretrained(base, model_id).merge_and_unload()
-        if device >= 0:
-            model = model.to(f"cuda:{device}")
         processor = AutoProcessor.from_pretrained(model_id)
         self.pipe = pipeline(
             "automatic-speech-recognition",
             model=model,
             tokenizer=processor.tokenizer,
             feature_extractor=processor.feature_extractor,
-            device=device,
+            device=self.device,
             chunk_length_s=chunk_length_s,
         )
 
@@ -219,7 +252,7 @@ class Wav2Vec2BengaliModel(ASRModel):
     def __init__(self, model_id="arijitx/wav2vec2-xls-r-300m-bengali", device=None):
         from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device is None else device
+        self.device = resolve_device(device)
         try:
             self.processor = Wav2Vec2Processor.from_pretrained(model_id)
         except Exception as e:
@@ -274,7 +307,7 @@ class Wav2Vec2KoreanModel(ASRModel):
     def __init__(self, model_id="kresnik/wav2vec2-large-xlsr-korean", device=None):
         from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device is None else device
+        self.device = resolve_device(device)
         try:
             self.processor = Wav2Vec2Processor.from_pretrained(model_id)
             self.model = Wav2Vec2ForCTC.from_pretrained(model_id).to(self.device)
@@ -306,7 +339,7 @@ class WhisperKoreanModel(ASRModel):
     def __init__(self, model_id="SungBeom/whisper-small-ko", device=None):
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device is None else device
+        self.device = resolve_device(device)
         try:
             self.processor = WhisperProcessor.from_pretrained(model_id)
             self.model = WhisperForConditionalGeneration.from_pretrained(model_id).to(self.device)
@@ -353,7 +386,9 @@ class CustomHuggingFaceModel(ASRModel):
 
         Args:
             model_id: HuggingFace model ID (e.g., "username/model-name")
-            device: Device to use (None for auto-detect, 0 for cuda:0, -1 for CPU)
+            device: Device to use (None auto-detects CUDA, then MPS, then CPU;
+                explicit values — 0 for cuda:0, -1 for CPU, "mps", or a
+                torch.device — are used as given)
             chunk_length_s: Chunk length for pipeline models (default: 30)
             language: Language code for forced decoding (e.g., "ko", "bn")
             trust_remote_code: Whether to trust remote code when loading model config/weights
@@ -363,7 +398,7 @@ class CustomHuggingFaceModel(ASRModel):
         from transformers import pipeline as hf_pipeline
 
         self.model_id = model_id
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device is None else device
+        self.device = resolve_device(device)
         self.librosa = librosa
         self.language = language
 
@@ -396,9 +431,8 @@ class CustomHuggingFaceModel(ASRModel):
                 # Only this branch hands file paths to the pipeline; the
                 # whisper/wav2vec2 branches decode via librosa themselves.
                 _require_ffmpeg(f"{type(self).__name__} ({model_id}, generic pipeline)")
-                device_id = 0 if self.device.type == "cuda" else -1
                 self.pipe = hf_pipeline(
-                    "automatic-speech-recognition", model=model_id, device=device_id, chunk_length_s=chunk_length_s
+                    "automatic-speech-recognition", model=model_id, device=self.device, chunk_length_s=chunk_length_s
                 )
                 self.model_type = "pipeline"
 
