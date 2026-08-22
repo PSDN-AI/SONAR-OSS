@@ -142,6 +142,15 @@ dev = [
 requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
+# A checkout following the documented workflow accumulates prepared datasets
+# under data/ and run outputs under results/; a local `uv build` once shipped
+# a 455 MB sdist that way (issue #115). Hatchling already respects .gitignore
+# (which now covers both), so this exclusion is a second line of defense for
+# force-added files or ignore-vcs builds. CI builds from clean clones and the
+# wheel only packages psdn_sonar/, so releases were never affected.
+[tool.hatch.build.targets.sdist]
+exclude = ["/data", "/results"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["psdn_sonar"]
 

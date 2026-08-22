@@ -54,7 +54,11 @@ AGENTS.md
 # Logs
 *.log
 
-# Local results / scratch data / model bundles
+# Local results / scratch data / model bundles.
+# /data/ is where the documented workflow prepares datasets
+# (psdn-sonar discover --output data/<lang>); root-anchored so the tracked
+# psdn_sonar/data/ package is unaffected (issue #115).
 results/
+/data/
 *.tar.gz
 *.tar
