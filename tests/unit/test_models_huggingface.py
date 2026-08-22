@@ -159,6 +159,128 @@ class TestFfmpegPreflight:
 
 
 @requires_ml
+class TestDeviceResolution:
+    """Issue #111: adapters checked CUDA only, so on Apple Silicon diarization
+    used the GPU while ASR inference silently ran on CPU — and the device
+    recorded in scores.json (mps) misstated where inference happened. Auto-
+    detection must follow the diarization order: CUDA, then MPS, then CPU."""
+
+    def _force(self, monkeypatch, *, cuda: bool, mps: bool):
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda)
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: mps)
+
+    def test_cuda_preferred_over_mps(self, monkeypatch):
+        from psdn_sonar.models.huggingface import resolve_device
+
+        self._force(monkeypatch, cuda=True, mps=True)
+        assert resolve_device() == torch.device("cuda")
+
+    def test_mps_when_cuda_absent(self, monkeypatch):
+        from psdn_sonar.models.huggingface import resolve_device
+
+        self._force(monkeypatch, cuda=False, mps=True)
+        assert resolve_device() == torch.device("mps")
+
+    def test_cpu_fallback(self, monkeypatch):
+        from psdn_sonar.models.huggingface import resolve_device
+
+        self._force(monkeypatch, cuda=False, mps=False)
+        assert resolve_device() == torch.device("cpu")
+
+    def test_explicit_device_passes_through_unchanged(self, monkeypatch):
+        """Every historically accepted form stays valid and untouched."""
+        from psdn_sonar.models.huggingface import resolve_device
+
+        self._force(monkeypatch, cuda=True, mps=True)  # must NOT override explicit values
+        for explicit in (torch.device("cpu"), -1, 0, "mps", "cuda:1"):
+            assert resolve_device(explicit) is explicit or resolve_device(explicit) == explicit
+
+    def test_is_cuda_device_across_accepted_forms(self):
+        from psdn_sonar.models.huggingface import _is_cuda_device
+
+        assert _is_cuda_device(torch.device("cuda"))
+        assert _is_cuda_device(0)
+        assert _is_cuda_device("cuda:1")
+        assert not _is_cuda_device(torch.device("cpu"))
+        assert not _is_cuda_device(torch.device("mps"))
+        assert not _is_cuda_device(-1)
+        assert not _is_cuda_device("mps")
+
+    def test_whisper_adapter_lands_on_mps(self, monkeypatch):
+        """Direct-model adapters must move the model to the resolved device."""
+        from psdn_sonar.models.huggingface import WhisperASRModel
+
+        self._force(monkeypatch, cuda=False, mps=True)
+        with (
+            patch("transformers.WhisperProcessor") as mock_proc,
+            patch("transformers.WhisperForConditionalGeneration") as mock_model,
+        ):
+            mock_proc.from_pretrained.return_value = MagicMock()
+            mock_model.from_pretrained.return_value = MagicMock()
+            adapter = WhisperASRModel("org/whisper-fine-tune")
+        assert adapter.device == torch.device("mps")
+        mock_model.from_pretrained.return_value.to.assert_called_once_with(torch.device("mps"))
+
+    def test_pipeline_adapter_passes_mps_and_stays_fp32(self, monkeypatch):
+        """Pipeline adapters hand the resolved device to the pipeline; fp16
+        remains CUDA-only (fp16 Whisper generation on MPS is unreliable)."""
+        from psdn_sonar.models.huggingface import StandardHuggingFaceASR
+
+        self._force(monkeypatch, cuda=False, mps=True)
+        import psdn_sonar.models.huggingface as hf
+
+        monkeypatch.setattr(hf.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        with (
+            patch("transformers.AutoModelForSpeechSeq2Seq") as mock_model,
+            patch("transformers.AutoProcessor") as mock_proc,
+            patch("transformers.pipeline") as mock_pipeline,
+        ):
+            mock_model.from_pretrained.return_value = MagicMock()
+            mock_proc.from_pretrained.return_value = MagicMock()
+            adapter = StandardHuggingFaceASR("openai/whisper-base")
+        assert adapter.device == torch.device("mps")
+        assert mock_model.from_pretrained.call_args.kwargs["dtype"] is torch.float32
+        assert mock_pipeline.call_args.kwargs["device"] == torch.device("mps")
+
+    def test_pipeline_adapter_uses_fp16_on_cuda(self, monkeypatch):
+        from psdn_sonar.models.huggingface import StandardHuggingFaceASR
+
+        self._force(monkeypatch, cuda=True, mps=False)
+        import psdn_sonar.models.huggingface as hf
+
+        monkeypatch.setattr(hf.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        with (
+            patch("transformers.AutoModelForSpeechSeq2Seq") as mock_model,
+            patch("transformers.AutoProcessor") as mock_proc,
+            patch("transformers.pipeline") as mock_pipeline,
+        ):
+            mock_model.from_pretrained.return_value = MagicMock()
+            mock_proc.from_pretrained.return_value = MagicMock()
+            adapter = StandardHuggingFaceASR("openai/whisper-base")
+        assert adapter.device == torch.device("cuda")
+        assert mock_model.from_pretrained.call_args.kwargs["dtype"] is torch.float16
+        assert mock_pipeline.call_args.kwargs["device"] == torch.device("cuda")
+
+    def test_custom_model_generic_pipeline_receives_resolved_device(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from psdn_sonar.models.huggingface import CustomHuggingFaceModel
+
+        self._force(monkeypatch, cuda=False, mps=True)
+        import psdn_sonar.models.huggingface as hf
+
+        monkeypatch.setattr(hf.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        with (
+            patch("transformers.AutoConfig") as mock_config,
+            patch("transformers.pipeline") as mock_pipeline,
+        ):
+            mock_config.from_pretrained.return_value = SimpleNamespace(model_type="hubert")
+            adapter = CustomHuggingFaceModel("org/some-hubert-model")
+        assert adapter.device == torch.device("mps")
+        assert mock_pipeline.call_args.kwargs["device"] == torch.device("mps")
+
+
+@requires_ml
 class TestMissingPeftIsActionable:
     """Issue #108: khushids_bengali needs peft ([bengali] extra), which the
     documented [ml] environment lacks. The bare ModuleNotFoundError must

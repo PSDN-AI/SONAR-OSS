@@ -800,7 +800,15 @@ Examples:
     custom_parser.add_argument(
         "--output", default="results/custom-eval", help="Output directory (default: results/custom-eval)"
     )
-    custom_parser.add_argument("--max-samples", type=int, default=0, help="Maximum samples to process (0=all)")
+    custom_parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=0,
+        help=(
+            "Maximum samples to process (0=all). Bounds processing only: the "
+            "configured HuggingFace split is still downloaded in full on first run"
+        ),
+    )
     custom_parser.add_argument("--report", action="store_true", help="Generate comprehensive evaluation report")
     custom_parser.set_defaults(func=run_custom)
 
@@ -865,7 +873,16 @@ Examples:
         default=None,
         help="Comma-separated dataset filter (e.g. fleurs,voxpopuli). Default: all available.",
     )
-    discover_parser.add_argument("--max-samples", type=int, default=0, help="Limit samples per split (0=all)")
+    discover_parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=0,
+        help=(
+            "Limit samples prepared per split (0=all). Bounds processing only: "
+            "each full split is still downloaded to the HuggingFace cache on "
+            "first run (FLEURS is several GB per language)"
+        ),
+    )
     discover_parser.add_argument(
         "--split-ratio",
         type=str,

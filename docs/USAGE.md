@@ -65,6 +65,10 @@ Without `[ml]`, `compute_semantic_similarity()` returns `None` and
 install `psdn-sonar[ml]`. Handle the `None` explicitly if semantic similarity
 is optional in your pipeline.
 
+Note that the first `compute_semantic_similarity()` call in an environment
+touches the network: it downloads the ~64 MB sentence-transformers scorer
+into the HuggingFace cache. Later calls are offline.
+
 ## 2. Evaluate a model over a dataset
 
 Create a tab-separated `eval.tsv` with `audio_path` and `transcription` columns:
@@ -91,6 +95,13 @@ SingleSpeakerEvaluator.run_evaluation(
 This writes per-utterance metrics to `results/demo/asr_detailed_<model>.csv`
 and a machine-readable `results/demo/scores_<model>.json` — WER/CER/POSEIDON
 aggregates plus a reproducibility record (git SHA, seed, model, timestamp).
+
+Local models auto-select the best available device (CUDA, then MPS, then
+CPU), and the device used is recorded in `scores_<model>.json` under
+`config.device`. Before sizing a run, read "What a first run costs" in the
+[README](../README.md#requirements): first runs download models and datasets
+in full (several GB), and Whisper-class models on CPU run at roughly
+20 s/sample versus ~1 s/sample for CTC models.
 
 ## 3. Discover available models
 
