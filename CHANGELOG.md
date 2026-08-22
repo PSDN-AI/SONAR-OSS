@@ -33,6 +33,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A wrong-but-supported `--language` no longer produces a silent,
+  healthy-looking scorecard (#148). `--language ko` on English data used to
+  run with zero warnings and emit plausible scores with self-consistent
+  provenance — indistinguishable downstream from a correct run, even though
+  the language selects the normalization branch and every WER/CER in the
+  run was computed with the wrong rules. The single-speaker evaluator now
+  compares the dominant Unicode script of the reference transcriptions
+  against the script the selected language is written in (bn→Bengali,
+  hi→Devanagari, ko→Hangul, en→Latin; `psdn_sonar.language.script_check`).
+  On a clear majority mismatch it logs a WARNING naming both scripts and
+  the likely correct code, and records the same text in a new top-level
+  `warnings` list in `scores.json`, so the artifact itself carries the
+  signal. Code-switched references where the expected script keeps the
+  majority do not trip the check; same-script confusions (en vs sw) are out
+  of its reach by design. Runs stay warnings-only — nothing is rejected.
 - `scores.json` provenance no longer misattributes the code and now records
   the score-changing inputs (#110). `git_sha` used to be resolved with
   `git rev-parse HEAD` in the caller's working directory, so a run started

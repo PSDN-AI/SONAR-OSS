@@ -92,6 +92,11 @@ class RunScoresArtifact(BaseModel):
     model_name: str
     aggregate: RunAggregate
     lineage: Optional[RunLineage] = None
+    # Run-level configuration warnings that make the numbers suspect, e.g.
+    # the reference script contradicting --language (issue #148: such a run
+    # used to be indistinguishable from a correct one downstream). Empty for
+    # a clean run; absent in pre-#148 artifacts.
+    warnings: list[str] = Field(default_factory=list)
     utterances: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -106,13 +111,16 @@ def build_run_scores(
     compute_sem: bool = False,
     significant_wer_threshold: float = DEFAULT_SIGNIFICANT_WER_THRESHOLD,
     lineage: Optional[RunLineage] = None,
+    run_warnings: Optional[list[str]] = None,
 ) -> RunScoresArtifact:
     """Build a scores artifact from ``SingleSpeakerEvaluator.evaluate_one`` output.
 
     ``significant_wer_threshold`` is the WER value at and above which an
     utterance is counted as a significant error. The threshold is
     recorded on the artifact so consumers do not have to assume the
-    library default.
+    library default. ``run_warnings`` are run-level configuration warnings
+    (e.g. a reference-script/--language mismatch) preserved verbatim in the
+    artifact.
     """
     summary = evaluate_result.get("summary") or {}
     results = evaluate_result.get("results") or []
@@ -157,6 +165,7 @@ def build_run_scores(
         model_name=model_name,
         aggregate=aggregate,
         lineage=lineage,
+        warnings=list(run_warnings or []),
         utterances=[_slim_utterance(row) for row in results],
     )
 

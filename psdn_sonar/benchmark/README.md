@@ -21,6 +21,7 @@ Multi-model runs use one `scores_<model>.json` per model to avoid clobbering.
 | `model_name` | Registry model id for this run |
 | `aggregate` | Mean CER/WER, optional sem/POSEIDON, latency avg/median/p95, counts |
 | `lineage` | `RunLineage` — resolved HF checkpoint (`hf_model_id`, `hf_revision`) and the WER normalization contract in force (`normalization`, e.g. `"bn:v3+bnlp"`). Best-effort; fields are `null` for hosted API models. Recorded because the registry pins no model revisions, so without it the exact weights and rule set behind a number are unrecoverable. |
+| `warnings` | Run-level configuration warnings that make the numbers suspect, preserved verbatim (issue #148). Currently: the dominant Unicode script of the reference transcriptions contradicting `--language` (e.g. Latin-script references scored as `ko`), which means WER/CER were normalized with the wrong rules. Empty for a clean run; absent in artifacts written before the field existed. |
 | `utterances` | Slim per-row metrics (paths, WER/CER, sem, POSEIDON, latency, errors) |
 
 ### Missing values and metric ranges
@@ -90,6 +91,7 @@ pairs.
     "hf_revision": null,
     "normalization": "bn:v3+bnlp"
   },
+  "warnings": [],
   "aggregate": {
     "cer_mean": 0.12,
     "wer_mean": 0.18,
