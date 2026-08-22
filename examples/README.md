@@ -30,10 +30,13 @@ python examples/huggingface_complete_workflow.py --dataset google/fleurs --confi
 ```
 
 ```bash
-# Single-speaker evaluation on the bundled sample clip (needs [ml])
+# Single-speaker evaluation on the bundled sample clip (needs [ml]).
+# The clip is a 0.4 s synthetic tone, not speech: expect WER ~1.0. This
+# verifies the pipeline runs end to end — the scores are not meaningful.
 psdn-sonar single --input examples/test_data.tsv --models whisper_base_en --language en --output results/example-single
 
-# Multi-speaker evaluation on the bundled two-speaker fixture (needs [ml])
+# Multi-speaker evaluation on the bundled two-speaker fixture (needs [ml]).
+# Also synthetic tones — a format fixture, so its scores are not meaningful either.
 psdn-sonar multi --input examples/test_manifest.jsonl --models whisper_base_en --language en --method no_trim --output results/example-multi
 
 # Custom-language evaluation from a YAML config (downloads FLEURS pt_br unless you change the dataset)
@@ -59,7 +62,11 @@ python examples/visualization.py --summary-csv results/summary.csv --output-dir 
 
 ## Sample data
 
-- `test_data.tsv` — one-row single-speaker TSV pointing at `sample_audio/single/sample.wav`.
+- `test_data.tsv` — one-row single-speaker TSV pointing at
+  `sample_audio/single/sample.wav`, a 0.4 s 440 Hz synthetic sine tone
+  (format fixture, not real speech). Any model scores WER ~1.0 on it; use it
+  to verify the pipeline runs, not to judge model quality. For meaningful
+  numbers, prepare real speech with `psdn-sonar discover`.
 - `test_manifest.jsonl` — one two-speaker clip. Each line must have `audio_id`,
   `audio_filepaths` (`speaker_a` / `speaker_b`), `transcript_filepath` (JSON),
   and `num_speakers`. Combined audio, when present, is

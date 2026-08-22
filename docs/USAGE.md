@@ -17,8 +17,13 @@ steps listed there).
 From a clone, the contributor install that includes local-model extras is:
 
 ```bash
+make setup-ml            # uv: frozen dev + [ml] extras
+# or, inside an activated virtual environment:
 pip install -e ".[ml]"   # core + ML models/backends
 ```
+
+Plain `make setup` and `pip install -e ".[dev]"` do **not** include `[ml]`,
+and the examples below need it.
 
 Core WER/CER work on the base install; POSEIDON's semantic similarity and
 running HuggingFace models need the `[ml]` extra.
