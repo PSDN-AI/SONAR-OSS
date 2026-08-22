@@ -619,6 +619,55 @@ def run_discover(args):
         logger.info("All %d dataset(s) prepared. Output: %s/", len(prepared), output_base)
 
 
+def run_leaderboard(args):
+    """Render a leaderboard table from ``scores_*.json`` run artifacts.
+
+    Shows only measured numbers from completed runs — nothing is derived or
+    back-solved from other metrics (issue #117).
+    """
+    from psdn_sonar.benchmark.leaderboard import (
+        build_leaderboard,
+        collect_scores,
+        render_leaderboard,
+        rows_as_json,
+        run_language,
+    )
+
+    roots = [Path(r) for r in args.runs]
+    missing_roots = [str(r) for r in roots if not r.is_dir()]
+    if missing_roots:
+        logger.error("Not a directory: %s", ", ".join(missing_roots))
+        sys.exit(1)
+
+    loaded, skipped = collect_scores(roots)
+    for message in skipped:
+        logger.warning(message)
+
+    if not loaded:
+        logger.error(
+            "No scores_*.json artifacts found under: %s. Every `psdn-sonar single` run "
+            "writes scores_<model>.json into its --output directory; point --runs there.",
+            ", ".join(str(r) for r in roots),
+        )
+        sys.exit(1)
+
+    rows = build_leaderboard(loaded, language=args.language, sort=args.sort)
+    if not rows:
+        languages = sorted({lang for run in loaded if (lang := run_language(run.artifact)) is not None})
+        logger.error(
+            "Found %d run artifact(s), but none for --language '%s'. Languages present: %s.",
+            len(loaded),
+            args.language,
+            ", ".join(languages) or "none recorded",
+        )
+        sys.exit(1)
+
+    if args.json:
+        print(rows_as_json(rows))
+    else:
+        print(render_leaderboard(rows, sort=args.sort))
+
+
 def run_custom(args):
     """Run custom language evaluation from YAML config."""
     from psdn_sonar.custom_eval import CustomEvalConfig, run_custom_evaluation
@@ -681,6 +730,9 @@ Examples:
 
   # Discover and download a small FLEURS subset
   psdn-sonar discover --language en --datasets fleurs --max-samples 10 --output data/en
+
+  # Leaderboard table from completed runs' scores_*.json artifacts
+  psdn-sonar leaderboard --runs results/ --language bn
         """.strip(),
     )
 
@@ -836,6 +888,35 @@ Examples:
         help="Only show available datasets, do not download",
     )
     discover_parser.set_defaults(func=run_discover)
+
+    leaderboard_parser = subparsers.add_parser(
+        "leaderboard",
+        help="Render a leaderboard table from scores_*.json run artifacts (measured numbers only)",
+    )
+    leaderboard_parser.add_argument(
+        "--runs",
+        nargs="+",
+        default=["."],
+        metavar="DIR",
+        help="Director(y/ies) scanned recursively for scores_*.json (default: current directory)",
+    )
+    leaderboard_parser.add_argument(
+        "--language",
+        default=None,
+        help="Only include runs recorded with this language code (e.g. bn)",
+    )
+    leaderboard_parser.add_argument(
+        "--sort",
+        default="poseidon",
+        choices=("poseidon", "semantic", "wer", "cer"),
+        help="Metric to sort by (default: poseidon; rows missing it sort last)",
+    )
+    leaderboard_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of a table",
+    )
+    leaderboard_parser.set_defaults(func=run_leaderboard)
 
     args = parser.parse_args()
 
