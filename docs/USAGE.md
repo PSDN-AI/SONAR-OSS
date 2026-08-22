@@ -108,6 +108,25 @@ is skipped with a message naming the extra, and the rest of a multi-model
 run continues. Hosted API models (`*_api`) need their respective API keys
 and are skipped from language defaults when the keys are unset.
 
+## 4. Compare completed runs: the leaderboard
+
+Every evaluation run writes a `scores_<model>.json` artifact into its output
+directory. `psdn-sonar leaderboard` scans one or more directories for those
+artifacts and renders a comparison table:
+
+```bash
+psdn-sonar leaderboard --runs results/ --language bn
+psdn-sonar leaderboard --runs results/ --sort wer
+psdn-sonar leaderboard --runs results/ --json   # machine-readable
+```
+
+The table shows only measured numbers. A metric no contributing run computed
+(for example POSEIDON without the `[ml]` extra) is rendered as `—` — it is
+never derived or back-solved from the other columns. Models evaluated under
+multiple runs show the mean of their per-run aggregates and the run count,
+and rows whose runs recorded configuration warnings in `scores.json` (such as
+a reference-script/`--language` mismatch) are marked with `!`.
+
 ---
 
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) to contribute, and the module

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `psdn-sonar leaderboard` renders a comparison table from the
+  `scores_<model>.json` artifacts that evaluation runs write (#117). It shows
+  measured numbers only: metrics absent from every contributing run render as
+  `—` and are never derived or back-solved from other columns — the failure
+  mode behind #117, where the published web leaderboard back-solved WER/CER
+  from POSEIDON medians and rendered generated distributions as measurements.
+  Runs are grouped per model and language, multiple runs are averaged with
+  the run count shown, rows whose artifacts carry configuration warnings are
+  marked with `!`, and `--sort`/`--language`/`--json` control the view. The
+  fabricated web leaderboard is being removed from `PSDN-AI/psdn-portals`;
+  this command is its measured-data replacement.
 - Documented what the published scores measure and made the caveats
   machine-readable (#119): `docs/SCORE_INTERPRETATION.md` states the
   project's position on the three reader traps — multi-speaker WER/CER
