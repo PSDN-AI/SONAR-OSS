@@ -58,24 +58,25 @@ class TestGetHfLineage:
 
 class TestWerNormalizationContract:
     def test_versioned_languages(self):
-        # en/hi/ko at v2 since thousands-separator stripping (issue #135).
-        assert wer_normalization_contract("en") == "en:v2"
-        assert wer_normalization_contract("hi") == "hi:v2"
-        assert wer_normalization_contract("ko") == "ko:v2"
+        # en/hi/ko at v3 since invisible-character folding (issue #140).
+        assert wer_normalization_contract("en") == "en:v3"
+        assert wer_normalization_contract("hi") == "hi:v3"
+        assert wer_normalization_contract("ko") == "ko:v3"
 
     def test_case_insensitive(self):
-        assert wer_normalization_contract("EN") == "en:v2"
+        assert wer_normalization_contract("EN") == "en:v3"
 
     def test_unversioned_language(self):
         assert wer_normalization_contract("pt") == "pt:unversioned"
         assert wer_normalization_contract("") == ":unversioned"
 
     def test_bengali_marks_bnlp_availability(self, monkeypatch):
-        # bn is at v3: symbol verbalization (#136), then suffix-split guards (#142).
+        # bn is at v4: symbols (#136), suffix guards (#142), invisible-character
+        # folding (#140).
         monkeypatch.setattr(text_processing, "_BNLP_TOKENIZER_AVAILABLE", True)
-        assert wer_normalization_contract("bn") == "bn:v3+bnlp"
+        assert wer_normalization_contract("bn") == "bn:v4+bnlp"
         monkeypatch.setattr(text_processing, "_BNLP_TOKENIZER_AVAILABLE", False)
-        assert wer_normalization_contract("bn") == "bn:v3-bnlp"
+        assert wer_normalization_contract("bn") == "bn:v4-bnlp"
 
 
 class TestRunLineageHelper:
@@ -85,7 +86,7 @@ class TestRunLineageHelper:
         lineage = _run_lineage(model, "en")
         assert lineage.hf_model_id == "org/model"
         assert lineage.hf_revision == FAKE_SHA
-        assert lineage.normalization == "en:v2"
+        assert lineage.normalization == "en:v3"
 
     def test_never_raises_for_hostile_doubles(self):
         class Broken:
@@ -103,7 +104,7 @@ class TestRunLineageHelper:
             lineage = _run_lineage(double, "ko")
             assert lineage.hf_model_id is None
             assert lineage.hf_revision is None
-            assert lineage.normalization == "ko:v2"
+            assert lineage.normalization == "ko:v3"
 
 
 class TestScoresArtifactLineage:

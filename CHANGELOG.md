@@ -78,6 +78,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Invisible characters no longer score as transcription errors (#140). The
+  punctuation strip filters Unicode categories `P*`/`S*` only, so format
+  characters (category `Cf`) survived normalization in every language — a
+  zero-width space in the reference scored as a substitution against a
+  byte-identical prediction — and English applied no Unicode normalization
+  at all, so the NFC and NFD encodings of the same word (`café` composed vs
+  `e` + combining acute) counted as different words. Every normalization
+  path now starts with one shared fold: ZWSP/ZWNBSP become a space (they
+  mark word boundaries, so an invisible separator cannot glue words
+  together), all other format characters (ZWJ/ZWNJ, soft hyphen,
+  directional marks) are removed, and NFC composition applies. In the
+  Bengali canonical pipeline the fold runs before loanword replacement, so
+  a zero-width character inside a Latin token cannot defeat the cache
+  lookup. This changes scoring on affected corpora, so every WER
+  normalization contract is bumped (`en`/`hi`/`ko` v3, `bn` v4) and
+  recorded per run in `scores.json` lineage as before.
 - Single-speaker runs now write the normalized text WER was computed over
   (#143). `asr_detailed_<model>.csv` (both `single` and `custom`) gains
   `normalized_reference` / `normalized_hypothesis` columns — the exact
