@@ -612,6 +612,18 @@ class SingleSpeakerEvaluator:
         data = cls.load_data(tsv_path, allow_absolute_audio_paths=allow_absolute_audio_paths)
         logger.info(f"Loaded {len(data)} samples from {tsv_path}")
 
+        # A supported --language applied to data in a different language used
+        # to run silently and produce a healthy-looking scorecard (issue
+        # #148). Warn once per run and record it in every scores.json so the
+        # artifact itself is distinguishable from a correct run's.
+        from psdn_sonar.language.script_check import script_mismatch_warning
+
+        run_warnings: List[str] = []
+        mismatch = script_mismatch_warning((row.get("ground_truth", "") for row in data), language)
+        if mismatch:
+            logger.warning(mismatch)
+            run_warnings.append(mismatch)
+
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         # Pre-warm DNSMOS/UTMOS/SQUIM in background while the first ASR model loads.
@@ -704,6 +716,7 @@ class SingleSpeakerEvaluator:
                     compute_sem=compute_sem,
                     significant_wer_threshold=significant_wer_threshold,
                     lineage=lineage,
+                    run_warnings=run_warnings,
                 )
                 write_scores_json(scores_path, artifact)
                 logger.info(f"Scores saved to {scores_path}")

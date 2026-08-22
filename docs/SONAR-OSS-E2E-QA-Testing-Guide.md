@@ -533,6 +533,7 @@ MOS columns (`dnsmos_*`, UTMOS, SQUIM) may be null if those optional scorers fai
     "hf_revision": "<40-char checkpoint sha>",
     "normalization": "en:v2"
   },
+  "warnings": [],
   "aggregate": {
     "cer_mean": 0.0,
     "wer_mean": 0.0,
@@ -1274,18 +1275,23 @@ echo "exit=$?"
 
 ### 10.6 NEG-WRONG-LANGUAGE-CODE
 
+A **supported** code applied to data in a different language (issue #148). The run is not rejected — Latin-script references cannot distinguish English from every Latin-script language — but it must warn and mark the artifact.
+
 ```bash
 psdn-sonar single \
   --input data/qa/en/fleurs/test.tsv \
   --models whisper_base_en \
-  --language hi \
-  --max-samples 1 \
+  --language ko \
+  --max-samples 3 \
   --output results/neg-wrong-lang
+python -c "import json; print(json.load(open('results/neg-wrong-lang/scores_whisper_base_en.json'))['warnings'])"
 ```
 
-**Expected:** Run **succeeds**. English text is scored with the Hindi processor (loanwords/digits). WER will look odd. This is not rejected.
+**Expected:** the run completes (exit 0), but a `WARNING ... Reference transcriptions look like Latin script (100% of script-bearing characters), but --language 'ko' expects Hangul. ... WER/CER are computed with the wrong rules and are not comparable ...` appears right after data load, and the same text is recorded in `scores_whisper_base_en.json` under the top-level `warnings` list. The correct-code control (`--language en`, same data) must print no such warning and record `"warnings": []`.
 
-**Pass:** completes. File as a usability issue if there is no warning that references fail `validate_text`.
+**Pass:** wrong code → warning in the log **and** a non-empty `warnings` in scores.json; correct code → neither. **Fail:** a wrong-but-supported code producing a scorecard with `warnings: []` and no log warning (the pre-fix behavior: such a run was indistinguishable from a correct one).
+
+Note: same-script confusions (e.g. `--language hi` on Bengali-adjacent Devanagari data, or `en` on Swahili) cannot be detected this way; the check covers cross-script mistakes only.
 
 ### 10.7 NEG-UNSUPPORTED-LANGUAGE
 
@@ -1698,6 +1704,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D40 | The documented `--language bn` default run aborted at `khushids_bengali` with a bare `ModuleNotFoundError: No module named 'peft'` (the `[bengali]` extra is not part of the README `[ml]` environment and was documented nowhere), and because the model constructor ran outside any try/except, the whole 9-model loop died and already-evaluated models lost their output | **Fixed** | `khushids_bengali` now raises `MissingDependencyError` naming `peft` and `pip install "psdn-sonar[bengali]"` before any download; `run_evaluation` isolates constructor failures per model — the failing model is skipped with the reason logged and the rest of the run continues (results are written per model, so nothing is lost). If every model skips, the run still fails loudly with exit 1. README and `docs/USAGE.md` now name the `[bengali]` extra. |
 | D41 | `discover` into an unwritable `--output` failed correctly (exit 1, no download, actionable ERROR lines) but printed a full traceback between them whose exception chain named `FileNotFoundError` before the real `PermissionError` — leading with the wrong diagnosis and breaking the one-clean-line convention every other checked error path follows | **Fixed** | Dataset-preparation `OSError`s (unwritable output, disk full, network) are now logged as the single actionable ERROR line only — `str(e)` is the exception that actually propagated, i.e. the real cause. Unexpected non-OS errors keep their traceback. See 10.29. |
 | D42 | `scores.json` provenance could misattribute and was incomplete: `git_sha` ran `git rev-parse HEAD` in the caller's working directory, so a run started from an unrelated repo recorded that repo's commit (a well-formed 40-char SHA pointing at a different codebase); and the score-changing inputs — POSEIDON weights (`POSEIDON_*_WEIGHT`), `similarity_model` (`SIMILARITY_MODEL`), OS/Python/device — were not recorded at all. The `SONAR_GIT_SHA` override was documented nowhere | **Fixed** | `git_sha` now resolves against the package's own directory and is recorded only when the package file is tracked by that repo (a venv nested inside an unrelated repo records `unknown`, not the host repo's HEAD); wheel/pip installs record `unknown`. `SubmissionConfig.from_env()` now also records `poseidon_weights`, `similarity_model`, `os_platform`, `python_version`, and `device`. `SONAR_GIT_SHA` is documented in `.env.example` and `psdn_sonar/benchmark/README.md`. Pre-existing artifacts without the new fields still validate. |
+| D43 | A wrong-but-supported `--language` (e.g. `ko` on English data) ran with zero warnings and produced a complete, healthy-looking scorecard with self-consistent provenance (`ko:v2`) — the only silent case left after the #125 language validation, and the dangerous one, since the wrong normalizer shifts every WER/CER in the run | **Fixed** | The single-speaker evaluator now checks the dominant Unicode script of the reference transcriptions against the script the selected language is written in (bn→Bengali, hi→Devanagari, ko→Hangul, en→Latin). On a clear majority mismatch (≥50% of script-bearing characters) it logs a WARNING naming both scripts and the likely correct code, and records the same text in a new top-level `warnings` list in `scores.json`, so the artifact itself is distinguishable from a correct run's. Code-switched corpora where the expected script keeps the majority do not trip it; same-script confusions remain undetectable by design. See 10.6. |
 
 ---
 
@@ -1786,6 +1793,7 @@ Copy this into the test report.
 - [ ] Punctuation-only reference → row failed as `CER/WER uncomputable`, never scored as WER 0.0
 - [ ] `--language bn` defaults without `[bengali]` → `khushids_bengali` skipped naming the extra, other models still evaluated
 - [ ] `discover` into unwritable `--output` → exit 1, one clean `Permission denied` ERROR line, no traceback
+- [ ] Wrong-but-supported `--language` (cross-script) → WARNING in log and non-empty `warnings` in scores.json; correct code → neither
 
 ### Reproducibility
 
