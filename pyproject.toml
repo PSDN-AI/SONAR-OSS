@@ -80,7 +80,11 @@ ml = [
     "onnxruntime>=1.10.0",
 ]
 pyannote = [
-    "pyannote.audio>=3.1.0,<4.0.0",
+    # 3.x cannot import against the torchaudio >= 2.9 that [ml] locks
+    # (torchaudio removed AudioMetaData; issue #129). 4.x decodes audio via
+    # torchcodec (needs system ffmpeg, which the ASR adapters already
+    # require); >= 4.0.7 for its torch/torchcodec compatibility pins.
+    "pyannote.audio>=4.0.7,<5.0.0",
 ]
 bengali = [
     "bnlp_toolkit",

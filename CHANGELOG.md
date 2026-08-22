@@ -78,6 +78,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `[pyannote]` extra installs a pair that can actually import (#129).
+  The extra pinned `pyannote.audio` 3.x, which references
+  `torchaudio.AudioMetaData` — removed in the torchaudio ≥ 2.9 that `[ml]`
+  locks — so `import pyannote.audio` crashed with an `AttributeError` and
+  every advertised pyannote feature (`--method pyannote_vad`, diarization)
+  was unusable as shipped. The extra now requires `pyannote.audio`
+  ≥ 4.0.7, which decodes audio through torchcodec instead of the removed
+  torchaudio APIs, and the two `from_pretrained` call sites use the
+  renamed `token` argument (4.x removed `use_auth_token`). pyannote 4.x
+  needs a system `ffmpeg` (via torchcodec) — the same binary the
+  pipeline-based ASR adapters already require — and the README says so.
+  With the import fixed, the missing-`HF_TOKEN` path is reachable again
+  and produces the actionable gated-model error instead of dying at
+  import.
 - `EVAL_REPORT.md` no longer claims a public-benchmark comparison the repo
   cannot make (#113). Every benchmark claim in the report is now gated on
   benchmark data actually being present, probed through the same loaders

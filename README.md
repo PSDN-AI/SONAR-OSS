@@ -28,7 +28,9 @@ reporting, and benchmarks. Distributed as the `psdn-sonar` Python package.
   binary. Adapters that decode audio themselves (the `wav2vec2_*` models and
   the non-pipeline Whisper fine-tunes) evaluate WAV without `ffmpeg`; MP3 and
   some `pydub` paths need it regardless. Install: `sudo apt-get install
-  ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS)
+  ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS). The `[pyannote]`
+  extra needs `ffmpeg` too: pyannote.audio 4.x decodes audio through
+  torchcodec, which loads the system ffmpeg libraries at runtime
 
 **Supported environments.** CI validates Linux x86_64 with CPython 3.10, 3.11,
 and 3.12, plus macOS arm64 with CPython 3.12 and the `[ml]` extra installed
