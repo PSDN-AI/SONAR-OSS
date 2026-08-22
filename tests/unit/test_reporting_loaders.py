@@ -5,6 +5,7 @@ import json
 import pytest
 
 from psdn_sonar.reporting.loaders.benchmark_loader import (
+    available_benchmark_datasets,
     load_public_benchmark_diversity,
     load_public_lexical_data,
 )
@@ -91,3 +92,32 @@ class TestBenchmarkLoader:
         monkeypatch.setattr("psdn_sonar.reporting.loaders.benchmark_loader._BENCHMARKS_DIR", tmp_path)
         assert load_public_lexical_data("bengali") == {"legacy": True}
         assert load_public_lexical_data("hindi") == {}
+
+    def test_short_language_codes_are_canonicalized(self, monkeypatch, tmp_path):
+        (tmp_path / "public_diversity_stats_korean.json").write_text('{"unigram": 0.5}')
+        monkeypatch.setattr("psdn_sonar.reporting.loaders.benchmark_loader._BENCHMARKS_DIR", tmp_path)
+        assert load_public_benchmark_diversity("ko") == {"unigram": 0.5}
+
+
+class TestAvailableBenchmarkDatasets:
+    """Issue #113: this probe is what gates every public-benchmark claim in
+    EVAL_REPORT.md, so its default answer in a stock checkout must be []."""
+
+    def test_stock_checkout_has_no_benchmark_data(self):
+        for language in ("bn", "bengali", "en", "english", "hi", "ko", "swahili"):
+            assert available_benchmark_datasets(language) == []
+
+    def test_datasets_derived_from_csvs_present(self, monkeypatch, tmp_path):
+        eval_dir = tmp_path / "bengali" / "raw-evaluations"
+        (eval_dir / "model_a").mkdir(parents=True)
+        (eval_dir / "model_b").mkdir()
+        (eval_dir / "model_a" / "commonvoice_results.csv").write_text("cer,wer\n")
+        (eval_dir / "model_a" / "fleurs_results.csv").write_text("cer,wer\n")
+        # Duplicate dataset under a second model must not repeat the name.
+        (eval_dir / "model_b" / "commonvoice_results.csv").write_text("cer,wer\n")
+        # Unknown filenames are ignored, matching the plot loader.
+        (eval_dir / "model_b" / "mystery.csv").write_text("cer,wer\n")
+        monkeypatch.setattr("psdn_sonar.reporting.loaders.benchmark_loader._BENCHMARKS_DIR", tmp_path)
+
+        assert available_benchmark_datasets("bn") == ["Common Voice", "FLEURS"]
+        assert available_benchmark_datasets("korean") == []

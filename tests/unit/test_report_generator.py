@@ -93,7 +93,8 @@ class TestGenerateReport:
         text = output.read_text(encoding="utf-8")
         assert "# SONAR - My Dataset Results" in text
         assert "## Dataset Statistics" in text
-        assert "public Bengali benchmarks" in text
+        # No benchmark data ships, so the setup table must say so (issue #113).
+        assert "None included" in text
         assert "## Key Insights" in text
         # No plot directories exist, so plot sections are absent.
         assert "Cross-Dataset Comparison" not in text
@@ -106,8 +107,8 @@ class TestGenerateReport:
         generate_report("DS", tsv, output, language="swahili")
 
         text = output.read_text(encoding="utf-8")
-        assert "Swahili (custom evaluation)" in text
-        assert "Not available for this language" in text
+        assert "| **Language** | Swahili |" in text
+        assert "None included" in text
 
     def test_model_comparison_preferred_over_cross_dataset(self, tmp_path):
         tsv = self._dataset(tmp_path)
@@ -136,7 +137,11 @@ class TestGenerateReport:
         generate_report("DS", tsv, report_dir / "EVAL_REPORT.md")
 
         text = (report_dir / "EVAL_REPORT.md").read_text(encoding="utf-8")
-        assert "### Cross-Dataset Comparison" in text
+        # No benchmark data ships, so the section must not claim a comparison
+        # the plot does not make (issue #113).
+        assert "### Performance Distributions" in text
+        assert "the plots contain your dataset only" in text
+        assert "Cross-Dataset Comparison" not in text
         assert "![Word Error Rate (WER) by Dataset and Model](cross-dataset-analysis/wer_by_dataset_model.png)" in text
         # Only the existing plot is embedded.
         assert "cer_by_dataset_model.png" not in text
@@ -184,7 +189,8 @@ class TestGenerateReport:
         assert "## Demographic Analysis" in text
         assert "gender_wer_conv.png" in text
         assert "### Zipf's Law Curve" in text
-        assert "public Korean benchmarks" in text
+        # No diversity benchmark JSONs ship, so no benchmark mention (issue #113).
+        assert "public Korean benchmarks" not in text
 
     def test_latency_section(self, tmp_path):
         tsv = self._dataset(tmp_path)
@@ -206,3 +212,79 @@ class TestGenerateReport:
         generate_report("DS", tsv, output)
 
         assert output.exists()
+
+
+class TestBenchmarkClaimGating:
+    """Issue #113: every public-benchmark claim in EVAL_REPORT.md must be
+    gated on benchmark data actually being present. In a stock install none
+    ships, so the report may never say the user's numbers were compared
+    against public benchmarks."""
+
+    _FORBIDDEN_WITHOUT_DATA = [
+        "against public benchmarks",
+        "reference numbers shown for comparison",
+        "public Bengali benchmarks",
+        "public English benchmarks",
+        "relative to established benchmarks",
+        "compared to public",
+        "consistent with public",
+    ]
+
+    def _dataset(self, tmp_path):
+        tsv = tmp_path / "data.tsv"
+        _write_tsv(tsv, ["hello world", "another sample here"])
+        return tsv
+
+    def _full_report(self, tmp_path, language):
+        report_dir = tmp_path / "report"
+        for sub, name in [
+            ("cross-dataset-analysis", "wer_by_dataset_model.png"),
+            ("hard-negatives-analysis", "wer_overall_vs_hard_negatives.png"),
+            ("diversity-analysis", "diversity_gt_zipf_law.png"),
+        ]:
+            (report_dir / sub).mkdir(parents=True, exist_ok=True)
+            (report_dir / sub / name).write_bytes(b"png")
+        generate_report("DS", self._dataset(tmp_path), report_dir / "EVAL_REPORT.md", language=language)
+        return (report_dir / "EVAL_REPORT.md").read_text(encoding="utf-8")
+
+    def test_stock_install_makes_no_benchmark_comparison_claim(self, tmp_path):
+        """The exact report shape from the issue's repro (cross-dataset plots
+        rendered, no benchmark data) must not claim any comparison."""
+        text = self._full_report(tmp_path, "english")
+
+        for forbidden in self._FORBIDDEN_WITHOUT_DATA:
+            assert forbidden not in text, f"unsupported claim in report: {forbidden!r}"
+        assert "None included" in text
+        assert "describes your dataset only" in text
+        assert "the plots contain your dataset only" in text
+
+    def test_coverage_row_derived_from_data_actually_present(self, tmp_path, monkeypatch):
+        """When raw-evaluation CSVs exist, the coverage row names exactly the
+        datasets found on disk — not a hardcoded per-language constant."""
+        benchmarks = tmp_path / "benchmarks"
+        eval_dir = benchmarks / "bengali" / "raw-evaluations" / "some_model"
+        eval_dir.mkdir(parents=True)
+        (eval_dir / "commonvoice_results.csv").write_text("cer,wer\n0.1,0.2\n", encoding="utf-8")
+        (eval_dir / "fleurs_results.csv").write_text("cer,wer\n0.1,0.2\n", encoding="utf-8")
+        monkeypatch.setattr("psdn_sonar.reporting.loaders.benchmark_loader._BENCHMARKS_DIR", benchmarks)
+
+        text = self._full_report(tmp_path, "bn")
+
+        assert "benchmark evaluations (Common Voice, FLEURS)" in text
+        assert "### Cross-Dataset Comparison" in text
+        assert "against public benchmarks" in text
+        assert "None included" not in text
+        # OpenSLR ships no CSV here, so the old hardcoded claim must not return.
+        assert "OpenSLR" not in text
+
+    def test_diversity_captions_gated_on_diversity_data(self, tmp_path, monkeypatch):
+        benchmarks = tmp_path / "benchmarks"
+        benchmarks.mkdir()
+        (benchmarks / "public_diversity_stats_korean.json").write_text('{"unigram": 0.5}', encoding="utf-8")
+        monkeypatch.setattr("psdn_sonar.reporting.loaders.benchmark_loader._BENCHMARKS_DIR", benchmarks)
+
+        text = self._full_report(tmp_path, "korean")
+
+        assert "public Korean benchmark curves" in text
+        # Cross-dataset evaluations are still absent, so that claim stays gated.
+        assert "the plots contain your dataset only" in text
