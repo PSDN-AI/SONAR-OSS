@@ -155,8 +155,38 @@ class DatasetDiscovery:
                 print(f"  {ds.name:<30} {ds.hf_id:<45} {ds.config or '(none)':<20} {splits_str}{sizes}")
 
             print()
+            _print_data_rights_note(datasets)
 
         _print_catalog_scope_note()
+
+
+def _print_data_rights_note(datasets: list[AvailableDataset]) -> None:
+    """Show each dataset's upstream license and redistribution-review state.
+
+    Issue #116: seven catalog entries are enabled while their redistribution
+    review is still ``pending``, and nothing at the point of download said
+    so. `discover` performs user-initiated acquisition — it downloads from
+    the pinned upstream directly to the user's machine under the upstream
+    license — which is why non-approved entries are downloadable at all;
+    project redistribution/publishing stays blocked by the approved-
+    fingerprint gate (``catalog.identity(publishable=True)``). Printing the
+    license and review state here makes that posture visible instead of
+    implicit.
+    """
+    print(
+        "  Data rights: `discover` downloads each dataset directly from its pinned\n"
+        "  upstream source to your machine, under the upstream license shown below\n"
+        "  (user-initiated acquisition). This project redistributes no dataset\n"
+        "  content, and data whose review is not approved cannot pass the publish\n"
+        '  gate (docs/import-gate.md, "Acquisition vs. redistribution").'
+    )
+    for ds in datasets:
+        spec = _BENCHMARK_CATALOG.benchmarks.get(ds.name)
+        if spec is None:
+            continue
+        review_note = "approved" if spec.review.approved else f"redistribution review: {spec.review.decision}"
+        print(f"    {ds.name:<28} license: {spec.license:<38} {review_note}")
+    print()
 
 
 def _print_catalog_scope_note() -> None:

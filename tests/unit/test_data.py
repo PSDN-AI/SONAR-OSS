@@ -122,6 +122,23 @@ class TestDiscovery:
         assert "library loaders" in out
         assert "disabled in the catalog" in out
 
+    def test_print_summary_shows_license_and_review_state(self, capsys):
+        """Issue #116: enabled-but-pending entries are downloadable, so the
+        point of download must show the upstream license and the fact that
+        redistribution review is not closed."""
+        DatasetDiscovery.print_summary(DatasetDiscovery.discover("en"), "en")
+        out = capsys.readouterr().out
+        assert "user-initiated acquisition" in out
+        assert "redistributes no dataset" in out
+        assert "license: CC-BY-4.0" in out  # fleurs
+        assert "redistribution review: pending" in out
+        assert "docs/import-gate.md" in out
+
+    def test_print_summary_no_rights_note_when_nothing_found(self, capsys):
+        DatasetDiscovery.print_summary([], "ko")
+        out = capsys.readouterr().out
+        assert "user-initiated acquisition" not in out
+
 
 class TestDatasetFilterValidation:
     def test_unknown_name_raises_and_lists_discoverable(self):
