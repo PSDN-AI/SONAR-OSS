@@ -180,16 +180,6 @@ class BanglaASRModel(WhisperASRModel):
         super().__init__(model_id, device)
 
 
-class TugstugiBengaliWhisperModel(WhisperASRModel):
-    def __init__(self, model_id="bengaliAI/tugstugi_bengaliai-asr_whisper-medium", device=None):
-        super().__init__(model_id, device)
-
-
-class TugstugiRegionalWhisperModel(WhisperASRModel):
-    def __init__(self, model_id="bengaliAI/tugstugi_bengaliai-regional-asr_whisper-medium", device=None):
-        super().__init__(model_id, device)
-
-
 class BanglaASRV5Model(WhisperASRModel):
     def __init__(self, model_id="arif11/bangla-ASR-v5", device=None):
         super().__init__(model_id, device)

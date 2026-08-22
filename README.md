@@ -35,6 +35,10 @@ and 3.12. macOS and Windows are expected to work for the core package but are
 not CI-validated; some optional extras have platform-sensitive dependencies
 (`[korean]` needs a Java runtime at runtime, `[ml]`/`[pyannote]` pull large
 PyTorch trees). Open an issue if an install fails on a supported Python.
+The checked-in `.python-version` pins `uv` to CPython 3.12, so `make setup`
+on a machine with no Python selected builds a supported interpreter instead
+of whatever newest version `uv` manages (CI passes `--python` explicitly and
+is unaffected).
 
 **What a first run costs.** On a fresh machine, budget several gigabytes of
 downloads and tens of minutes before the first number appears; everything is

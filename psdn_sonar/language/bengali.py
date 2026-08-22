@@ -27,11 +27,18 @@ class BengaliProcessor(LanguageProcessor):
     available, degrading gracefully to Unicode normalization and whitespace
     splitting.
 
-    Note: WER scoring for Bengali normally goes through the canonical
-    pipeline in ``psdn_sonar.utils.text_processing.normalize_bengali_for_wer``
-    (loanword replacement, suffix splitting, nasal normalization); this
-    processor provides the general config-driven normalize/tokenize contract
-    used elsewhere (validation, dataset preparation).
+    Note: this processor is currently NOT on any production path (issue
+    #115). WER scoring goes through the canonical pipeline in
+    ``psdn_sonar.utils.text_processing.normalize_bengali_for_wer`` — the
+    ``"bn"`` branch of ``normalize_text_unified`` short-circuits to it
+    before the processor registry is consulted — and dataset preparation
+    calls ``normalize_text_unified``, so it routes the same way. The class
+    is registered to satisfy the config-driven normalize/tokenize contract
+    that every supported language exposes. Its rules deliberately differ
+    from the canonical pipeline (no loanword replacement, suffix splitting,
+    or nasal normalization), so wiring it into scoring later would shift
+    Bengali WER and requires a normalization-contract bump plus
+    re-baselining.
     """
 
     def normalize(self, text: str) -> str:

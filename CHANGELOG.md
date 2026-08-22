@@ -78,6 +78,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Swept the six places where docstrings, config, and packaging did not
+  match the code (#115). The shipped loanword caches are now actually
+  CI-validated: `tests/test_loanword_cache_integrity.py` — the file the
+  validator's docstring had always pointed at — exists and hard-asserts
+  all six integrity checks on the bn/hi/ko caches (a polluted entry
+  silently shifts WER, since replacement applies to both reference and
+  hypothesis). The `BengaliProcessor` docstring now states the class is
+  not on any production path and that wiring it into scoring would
+  require a contract bump, instead of claiming "validation, dataset
+  preparation" uses it. The two unreachable Tugstugi adapter classes are
+  deleted (the registry routes those model ids through
+  `StandardHuggingFaceASR`). The `llm_metrics` module docstring now names
+  stable `gemini-2.5-pro` as the default judge — matching
+  `DEFAULT_MODEL` — with `gemini-3.1-pro-preview` framed as the opt-in it
+  is. A checked-in `.python-version` pins `uv` to CPython 3.12 so
+  `make setup` cannot build an interpreter outside the documented
+  3.10–3.12 range (CI passes `--python` explicitly and is unaffected).
+  And the top-level `data/` directory the documented discover workflow
+  writes into is now gitignored (root-anchored; the `psdn_sonar/data/`
+  package is untouched) plus excluded from sdists, closing the path to a
+  455 MB local `uv build` and accidental audio commits.
 - Invisible characters no longer score as transcription errors (#140). The
   punctuation strip filters Unicode categories `P*`/`S*` only, so format
   characters (category `Cf`) survived normalization in every language — a

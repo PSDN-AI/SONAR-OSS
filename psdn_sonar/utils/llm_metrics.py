@@ -14,18 +14,16 @@ returns malformed output, so callers can distinguish "model said the
 score is X" from "we don't know" — never silently default to a passing
 or failing score.
 
-Default judge model: ``gemini-3.1-pro-preview`` (released Feb 2026,
-preview status). The combined entity+intent prompt (see
-``evaluate_sample``) returns both metrics in a single round-trip,
-halving cost and latency relative to running the two prompts
-separately.
-
-Note on the ``-preview`` suffix: Gemini 3.1 Pro is currently a
-preview-tier model. Google may renumber, alias, or deprecate it
-without notice while in preview. The cache key in the analysis
-script includes the judge-model string verbatim, so the cache will
-auto-invalidate the moment we move to a stable name (e.g.
-``gemini-3.1-pro``) — no manual cache flush needed.
+Default judge model: stable ``gemini-2.5-pro`` (see ``DEFAULT_MODEL``
+below for the reproducibility and calibration-parity rationale).
+``gemini-3.1-pro-preview`` (released Feb 2026, preview status) is the
+recommended opt-in for stronger Indic reasoning via ``--judge-model``;
+being preview-tier, Google may renumber, alias, or deprecate it without
+notice, and the analysis script's cache key includes the judge-model
+string verbatim, so switching models auto-invalidates cached judgments.
+The combined entity+intent prompt (see ``evaluate_sample``) returns both
+metrics in a single round-trip, halving cost and latency relative to
+running the two prompts separately.
 
 Calibration & known biases
 --------------------------
