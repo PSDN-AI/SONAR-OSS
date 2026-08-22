@@ -2,6 +2,12 @@
 
 All pyannote imports are behind try/except so the main pipeline works
 without pyannote installed. Check PYANNOTE_AVAILABLE before calling any function.
+
+Requires ``pyannote.audio`` >= 4.0 (the ``[pyannote]`` extra). The 3.x series
+cannot import against the modern torchaudio the ``[ml]`` extra locks
+(``torchaudio.AudioMetaData`` was removed in torchaudio 2.9 — issue #129);
+4.x decodes audio through torchcodec instead, which needs a system ``ffmpeg``
+— the same binary the pipeline-based ASR adapters already require.
 """
 
 import logging
@@ -67,8 +73,9 @@ def get_vad_pipeline(hf_token: Optional[str] = None, min_duration_on: float = 0.
     from pyannote.audio import Model
     from pyannote.audio.pipelines import VoiceActivityDetection
 
+    # pyannote.audio 4.x renamed ``use_auth_token`` to ``token`` (issue #129).
     token = hf_token or os.getenv("HF_TOKEN")
-    model = Model.from_pretrained("pyannote/segmentation-3.0", use_auth_token=token)
+    model = Model.from_pretrained("pyannote/segmentation-3.0", token=token)
     _vad_pipeline = VoiceActivityDetection(segmentation=model)
     _vad_pipeline.instantiate(
         {
@@ -90,8 +97,9 @@ def get_diarization_pipeline(hf_token: Optional[str] = None):
     import torch
     from pyannote.audio import Pipeline
 
+    # pyannote.audio 4.x renamed ``use_auth_token`` to ``token`` (issue #129).
     token = hf_token or os.getenv("HF_TOKEN")
-    _diarization_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=token)
+    _diarization_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", token=token)
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         _diarization_pipeline.to(torch.device("mps"))
     elif torch.cuda.is_available():
