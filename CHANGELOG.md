@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whitespace-split fallback changes tokenization — and therefore absolute
   WER/POSEIDON — between otherwise identical environments.
 
+### Removed
+
+- The end-to-end QA testing guide (`docs/SONAR-OSS-E2E-QA-Testing-Guide.md`).
+  It was an internal QA workflow document — environment setup runbooks, test
+  matrices, and sign-off checklists for the QA team — and does not belong in
+  the published repository. QA runbooks are distributed to the QA team
+  directly; user-facing usage documentation lives in `docs/USAGE.md` and
+  `docs/FAQ.md`.
+
 ### Fixed
 
 - The catalog's acquisition-vs-redistribution posture is now documented and
