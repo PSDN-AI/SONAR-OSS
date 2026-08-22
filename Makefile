@@ -1,10 +1,11 @@
-.PHONY: help setup install test clean lint format typecheck pre-commit-install pre-commit-run check-internal-refs
+.PHONY: help setup setup-ml install test clean lint format typecheck pre-commit-install pre-commit-run check-internal-refs
 
 help:
 	@echo "SONAR-OSS: Multi-Language ASR Evaluation Toolkit"
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make setup               - Create virtual environment and install dependencies (requires uv)"
+	@echo "  make setup-ml            - Same, plus the [ml] extra needed to run the USAGE examples"
 	@echo "  make install             - Install package in editable mode"
 	@echo "  make test                - Run tests"
 	@echo "  make clean               - Remove build artifacts and cache"
@@ -22,6 +23,16 @@ help:
 setup:
 	@echo "Installing frozen environment with uv..."
 	uv sync --frozen --extra dev
+	@echo ""
+	@echo "Setup complete! Activate with:"
+	@echo "  source .venv/bin/activate"
+	@echo ""
+	@echo "Note: this does NOT include the [ml] extra (local HuggingFace models,"
+	@echo "POSEIDON semantic similarity). For that, run: make setup-ml"
+
+setup-ml:
+	@echo "Installing frozen environment with uv (dev + ml extras, ~1.5 GB on disk)..."
+	uv sync --frozen --extra dev --extra ml
 	@echo ""
 	@echo "Setup complete! Activate with:"
 	@echo "  source .venv/bin/activate"

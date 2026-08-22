@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Fixed the three obstacles a new reader hits on the README → USAGE path
+  (#112). `make setup-ml` now installs the frozen environment with the
+  `[ml]` extra the USAGE examples require, and the README contributor
+  section shows it (plus `pip install -e ".[dev,ml]"`) instead of leaving
+  `[ml]` to a footnote. The plain-pip block now carries the same
+  create-a-venv prerequisite as the TestPyPI section, naming the PEP 668
+  `externally-managed-environment` failure it prevents. And the bundled
+  example now says what it produces: `examples/sample_audio/single/
+  sample.wav` is a 0.4 s synthetic sine tone, so the recommended command
+  scores WER ~1.0 by design — the disclosure sits next to the command and
+  the fixture description, with a pointer to `psdn-sonar discover` for real
+  speech.
 - Documented what a first run actually costs and which device it runs on
   (#111). The README now states the order of magnitude up front — several GB
   of downloads and tens of minutes before the first number (measured: FLEURS

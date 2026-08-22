@@ -113,3 +113,13 @@ class TestSampleData:
         assert config.language_code == "pt"
         assert config.hf_dataset_id == "google/fleurs"
         assert config.models[0]["hf_model_id"] == "openai/whisper-small"
+
+    def test_synthetic_fixture_is_disclosed_where_recommended(self):
+        """Issue #112: the bundled single-speaker clip is a synthetic tone
+        that scores WER ~1.0 — the first number a new user sees. The docs
+        must say so next to the recommended command and the fixture
+        description, not only for the multi-speaker fixture."""
+        readme = (EXAMPLES_DIR / "README.md").read_text(encoding="utf-8")
+        assert "not real speech" in readme
+        assert readme.count("WER ~1.0") >= 2  # command block + sample-data bullet
+        assert "synthetic sine tone" in readme  # the single-speaker fixture's own disclosure

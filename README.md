@@ -123,19 +123,27 @@ Contributors install the frozen, locked environment (exactly what CI runs):
 ```bash
 git clone https://github.com/PSDN-AI/SONAR-OSS.git
 cd SONAR-OSS
-make setup            # uv sync --frozen with dev extras
+make setup            # uv sync --frozen with dev extras — does NOT include [ml]
+# or, to run the docs/USAGE.md examples (local models, semantic similarity):
+make setup-ml         # dev + [ml] extras, ~1.5 GB on disk
 source .venv/bin/activate
 ```
 
-Or with plain pip (editable, freshly resolved):
+Or with plain pip (editable, freshly resolved). **Create and activate a
+virtual environment first** — exactly as in step 1 of the TestPyPI section
+above. On "externally managed" interpreters (PEP 668: Homebrew and
+Debian/Ubuntu system Pythons) pip otherwise refuses with
+`error: externally-managed-environment` and installs nothing:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev]"       # contributor tooling only — no [ml]
+pip install -e ".[dev,ml]"    # what the docs/USAGE.md examples need
 ```
 
-Neither path installs the `[ml]` extra. To run local HuggingFace models or
-POSEIDON's semantic similarity from a source checkout, add it:
-`uv pip install -e ".[ml]"` (after `make setup`) or `pip install -e ".[dev,ml]"`.
+The `[ml]` extra is what runs local HuggingFace models and POSEIDON's
+semantic similarity; without it the USAGE examples fail with a `TypeError`
+naming the extra. Add it to an existing `make setup` environment with
+`uv pip install -e ".[ml]"`.
 
 One model in the Bengali defaults needs more than `[ml]`: `khushids_bengali`
 is a PEFT/LoRA adapter and requires `peft` from the `[bengali]` extra
