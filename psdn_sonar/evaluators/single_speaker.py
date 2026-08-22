@@ -268,6 +268,8 @@ class SingleSpeakerEvaluator:
         aq: Dict,
         *,
         prediction: str = "",
+        normalized_reference: str = "",
+        normalized_hypothesis: str = "",
         wer: Optional[float] = None,
         cer: Optional[float] = None,
         significant_wer: Optional[bool] = None,
@@ -280,11 +282,19 @@ class SingleSpeakerEvaluator:
 
         Key order is the CSV column order (the writer derives fieldnames from
         the first row), so all rows must come from this single builder.
+
+        ``normalized_reference`` / ``normalized_hypothesis`` are the exact
+        strings CER/WER were computed over (issue #143) — without them,
+        problems that are invisible in the raw text (e.g. a zero-width space
+        surviving normalization in the reference) cannot be diagnosed from
+        the artifact. They are empty on rows where scoring never ran.
         """
         return {
             "audio_path": audio_path,
             "ground_truth": ground_truth,
             "prediction": prediction,
+            "normalized_reference": normalized_reference,
+            "normalized_hypothesis": normalized_hypothesis,
             "wer": wer,
             "cer": cer,
             "semantic_similarity": None,
@@ -448,6 +458,8 @@ class SingleSpeakerEvaluator:
                     # scored as best case (this used to substitute 0.0,
                     # deflating the run averages). Transcription itself
                     # succeeded, so the prediction is preserved on the row.
+                    # The normalized pair is preserved too: an empty
+                    # normalized_reference IS the diagnosis here.
                     failed += 1
                     scoring_error = (
                         "CER/WER uncomputable (reference normalized to empty, or jiwer "
@@ -461,6 +473,8 @@ class SingleSpeakerEvaluator:
                             ground_truth,
                             aq,
                             prediction=prediction,
+                            normalized_reference=gt_norm,
+                            normalized_hypothesis=pred_norm,
                             inference_latency_s=inference_latency_s,
                             ttft_s=ttft_s,
                             complete_s=complete_s,
@@ -482,6 +496,8 @@ class SingleSpeakerEvaluator:
                         ground_truth,
                         aq,
                         prediction=prediction,
+                        normalized_reference=gt_norm,
+                        normalized_hypothesis=pred_norm,
                         wer=wer,
                         cer=cer,
                         significant_wer=is_significant_wer(wer, significant_wer_threshold),
