@@ -1,3 +1,26 @@
+# Pinned pointers to upstream datasets — this file stores no dataset content.
+#
+# `review.decision` gates PROJECT REDISTRIBUTION: mirroring, shipping dataset
+# content in this repository or its releases, and publishing results through
+# the approved-fingerprint path (enforced in code by
+# `catalog.identity(..., publishable=True)`, which refuses any benchmark whose
+# review is not approved or whose data fingerprint does not match). It does
+# NOT gate user-initiated acquisition: `psdn-sonar discover` and the library
+# loaders download from the pinned upstream directly to the user's machine,
+# under the license recorded per entry (and printed by `discover`).
+#
+#   pending        acquisition pointers live; publish gate closed until the
+#                  review loop is completed with approver, date, evidence URL,
+#                  and verified fingerprints (docs/import-gate.md section 3)
+#   reference_only / redistributable
+#                  approved — requires approved_by, approved_at, evidence_url,
+#                  and fingerprints (schema-enforced)
+#   prohibited     negative decision; entry must also be disabled
+#
+# `enabled: false` means there is no valid upstream pointer (common_voice: its
+# former Hugging Face source is retired) or the decision is prohibited — not
+# merely that a review is pending.
+# See docs/import-gate.md, "Acquisition vs. redistribution".
 schema_version: 1
 benchmarks:
   common_voice:

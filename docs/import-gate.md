@@ -46,13 +46,46 @@ fingerprint upstream-order `{text, audio_sha256}` records with
 evidence URL and decision, then run `pytest tests/unit/test_benchmark_catalog.py`.
 Never commit source data, credentials, private paths or private locations as evidence.
 
-- [ ] Every dataset shipped, referenced, or used for benchmarking (e.g. Common Voice, FLEURS,
-      Zeroth, VoxPopuli, MLS, OpenSLR) has a documented license and confirmed redistribution
-      rights recorded alongside the import.
+- [ ] Every dataset whose **content is shipped, mirrored, or otherwise redistributed** by this
+      project has a documented license **and** confirmed redistribution rights recorded alongside
+      the import (`review.decision` of `reference_only` or `redistributable`, with approver,
+      date, evidence URL, and verified fingerprints).
+- [ ] Every dataset merely **referenced** (a catalog pointer used for user-initiated acquisition
+      — see below) has a documented license, license URL, attribution, and a pinned source
+      revision in the catalog. These fields are schema-mandatory for every entry.
 - [ ] Only non-proprietary datasets are imported. No proprietary, internally licensed, or
       customer-supplied data is included.
 - [ ] Required attribution or citation for each dataset is included in the docs or dataset card
       that ships with the import.
+
+#### Acquisition vs. redistribution
+
+The benchmark catalog (`psdn_sonar/data/benchmark_catalog.yaml`) stores pointers — a pinned
+upstream source, license, attribution, and a review record — never dataset content. Two
+different actions pass through it, with different bars:
+
+- **User-initiated acquisition** (`psdn-sonar discover`, the library loaders): the tool
+  downloads from the pinned upstream directly to the user's machine, under the upstream
+  license, which `discover` prints per dataset together with the review state. This is not
+  project redistribution — it is the same act as the user fetching the dataset from
+  HuggingFace or OpenSLR by hand — and it is available for enabled entries regardless of
+  review state.
+- **Project redistribution / publishing** (mirroring data, shipping audio or transcripts in
+  this repository or its releases, publishing results through the approved-fingerprint path):
+  requires an approved `review.decision` with named evidence and verified fingerprints. This
+  is enforced in code: `catalog.identity(..., publishable=True)` refuses any benchmark whose
+  review is not approved or whose data fingerprint does not match the recorded one.
+
+`review.decision: pending` therefore means: acquisition pointers are live, but nothing derived
+from that dataset can pass the publish gate until a maintainer closes the review loop with
+approver, date, evidence URL, and fingerprints. Entries are disabled (`enabled: false`) when
+there is no valid upstream pointer (`common_voice`: its former Hugging Face source is retired)
+or when a review concludes `prohibited` — not merely because a review is pending. Closing a
+pending review is a maintainer/rights action recorded in the catalog, not a code change.
+
+The "do not merge the material" rule in the Purpose section applies to *material* — dataset
+content, mirrors, and derived artifacts published through the gate — not to catalog pointers,
+which carry their license evidence with them.
 
 ### 4. PII / private references
 

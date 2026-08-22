@@ -33,6 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The catalog's acquisition-vs-redistribution posture is now documented and
+  surfaced at the point of download (#116). All eight benchmark catalog
+  entries carry `review.decision: pending`, seven of them enabled and
+  downloadable through `psdn-sonar discover`, which read as a contradiction
+  of the import gate's "confirmed redistribution rights" bar. The position
+  is now written into `docs/import-gate.md` ("Acquisition vs.
+  redistribution") and the catalog file header: the catalog stores pinned
+  pointers, never dataset content; `discover` performs user-initiated
+  acquisition from the upstream source under the per-entry license; and
+  `review.decision` gates project redistribution/publishing, which
+  `catalog.identity(publishable=True)` already refuses for non-approved
+  data. `discover` now prints a data-rights note listing each discovered
+  dataset's upstream license and review state, so a pending review is
+  visible to the user acquiring the data. New tests pin the posture
+  invariants (license evidence on every entry, `prohibited` implies
+  disabled, enabled-but-pending refuses the publish gate). Closing the
+  pending reviews themselves — approver, date, evidence URL, verified
+  fingerprints — remains a maintainer/rights action recorded in the
+  catalog, not a code change.
 - A wrong-but-supported `--language` no longer produces a silent,
   healthy-looking scorecard (#148). `--language ko` on English data used to
   run with zero warnings and emit plausible scores with self-consistent

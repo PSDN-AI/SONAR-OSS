@@ -72,6 +72,39 @@ def test_only_approved_exact_data_is_publishable():
         approved.verify_publishable_identity(identity.model_copy(update={"selection": "changed@1"}))
 
 
+def test_catalog_posture_invariants():
+    """Issue #116: the documented acquisition-vs-redistribution posture.
+
+    Every entry — enabled or not — must carry its license evidence (license,
+    license URL, attribution: the acquisition-side record), a pending entry
+    must say in its rationale what is still open, and a `prohibited` decision
+    must never remain enabled. Approved-side requirements (evidence +
+    fingerprints) are schema-enforced separately.
+    """
+    catalog = load_catalog()
+    for name, spec in catalog.benchmarks.items():
+        assert spec.license.strip(), f"{name}: missing license"
+        assert spec.license_url.startswith("https://"), f"{name}: missing license_url"
+        assert spec.attribution.strip(), f"{name}: missing attribution"
+        assert spec.review.rationale.strip(), f"{name}: missing review rationale"
+        if spec.review.decision == "prohibited":
+            assert not spec.enabled, f"{name}: prohibited entries must be disabled"
+        if spec.enabled and not spec.review.approved:
+            # Enabled-but-pending is acquisition-only; the publish gate must
+            # refuse it regardless of fingerprints.
+            split = spec.splits[0]
+            config = spec.allowed_configs[0] if spec.config_template else None
+            fingerprint = spec.review.fingerprints.get(spec.fingerprint_key(config, split), DATA_FINGERPRINT)
+            with pytest.raises(ValueError, match="not approved"):
+                catalog.identity(
+                    name,
+                    resolved_config=config,
+                    split=split,
+                    data_fingerprint=fingerprint,
+                    publishable=True,
+                )
+
+
 def test_approved_review_requires_named_evidence():
     document = load_catalog().model_dump(mode="json")
     review = document["benchmarks"]["fleurs"]["review"]
