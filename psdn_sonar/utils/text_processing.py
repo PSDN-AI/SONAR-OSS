@@ -142,6 +142,36 @@ def _apply_symbol_normalization(text: str, language: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Invisible-character folding (issue #140)
+# ---------------------------------------------------------------------------
+
+# Zero-width characters that render as nothing but mark a word boundary:
+# folded to a regular space (collapsed later) so a ZWSP used as an invisible
+# separator never glues two words together.
+_ZERO_WIDTH_BOUNDARY = frozenset({"\u200b", "\ufeff"})  # ZERO WIDTH SPACE, ZWNBSP/BOM
+
+
+def fold_invisible_characters(text: str) -> str:
+    """Fold characters that are invisible in rendered text but survived the
+    category-based punctuation strip (issue #140).
+
+    The punctuation filter removes Unicode categories ``P*`` and ``S*``
+    only, so format characters (category ``Cf``) survived normalization in
+    every language and scored as substitutions against visually identical
+    text. ZWSP and ZWNBSP become a space (they mark word boundaries); every
+    other ``Cf`` character — ZWJ/ZWNJ, soft hyphen, directional marks — is
+    removed (they join or annotate within a word). NFC composition then
+    makes the NFC and NFD encodings of the same word (``café`` as one code
+    point vs ``e`` + combining acute) normalize identically; English
+    previously applied no Unicode normalization at all.
+    """
+    folded = "".join(
+        " " if ch in _ZERO_WIDTH_BOUNDARY else "" if unicodedata.category(ch) == "Cf" else ch for ch in text
+    )
+    return unicodedata.normalize("NFC", folded)
+
+
+# ---------------------------------------------------------------------------
 # Canonical Bengali normalization helpers
 #
 # The exact rule set and rule ORDER below are a compatibility contract:
@@ -151,7 +181,6 @@ def _apply_symbol_normalization(text: str, language: str) -> str:
 # change that requires re-baselining benchmarks.
 # ---------------------------------------------------------------------------
 
-_RE_ZWJ = re.compile(r"[\u200c\u200d]")
 _RE_DIGIT_COMMA = re.compile(r"(?<=[০-৯\d]),(?=[০-৯\d])")
 _RE_PUNCTUATION_BN = re.compile(r"[।॥৳,.!?;:\"'\-\(\)\[\]\{\}<>…—–]")
 _RE_WHITESPACE = re.compile(r"\s+")
@@ -407,7 +436,16 @@ def _tokenize_bengali(text: str) -> list[str]:
 # before digit verbalization (issue #135) — "1,000" now verbalizes as
 # "one thousand" instead of producing "one000", which changes absolute
 # WER on corpora with separated numerals relative to v1.
-WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 3, "en": 2, "hi": 2, "ko": 2}
+#
+# en/hi/ko v3, bn v4: invisible-character folding (issue #140) — zero-width
+# spaces and ZWNBSP fold to a space, every other format character (ZWJ/ZWNJ,
+# soft hyphen, directional marks; category Cf) is removed, and NFC
+# composition applies on every path. English previously applied no Unicode
+# normalization at all, so the NFC and NFD encodings of the same word scored
+# as a substitution; a ZWSP in the reference did the same in all four
+# languages. Bengali already removed ZWJ/ZWNJ; its change is ZWSP/other-Cf
+# handling.
+WER_NORMALIZATION_CONTRACTS: dict[str, int] = {"bn": 4, "en": 3, "hi": 3, "ko": 3}
 
 
 def wer_normalization_contract(language: str) -> str:
@@ -451,9 +489,12 @@ def normalize_bengali_for_wer(text: str) -> str:
     helpers.
 
     Pipeline:
-    1. Loanword replacement (Latin-script → Bengali via cache)
-    2. Unicode NFKC normalization
-    3. ZWJ/ZWNJ removal
+    1. Invisible-character folding (ZWSP/ZWNBSP → space; ZWJ/ZWNJ and other
+       format characters removed; NFC — issue #140). Runs first so a
+       zero-width character inside a Latin token cannot defeat the loanword
+       cache lookup.
+    2. Loanword replacement (Latin-script → Bengali via cache)
+    3. Unicode NFKC normalization
     4. Symbol verbalization (% → শতাংশ, + → যোগ, … — issue #136)
     5. Digit comma stripping (২,০০০ → ২০০০)
     6. Punctuation → space
@@ -469,12 +510,14 @@ def normalize_bengali_for_wer(text: str) -> str:
     Symbols verbalize before digits and before punctuation handling (same
     ordering contract as the other three languages), so ``৫০%`` becomes
     ``পঞ্চাশ শতাংশ`` and matches a hypothesis written ``৫০ শতাংশ``. Rule
-    set v2 (``WER_NORMALIZATION_CONTRACTS``).
+    set v4 (``WER_NORMALIZATION_CONTRACTS``).
     """
     if not text or not text.strip():
         return ""
 
     from .symbols import BENGALI_SYMBOL_MAP, verbalize_symbols
+
+    text = fold_invisible_characters(text)
 
     cache = _get_loanword_cache()
     protected = None
@@ -486,7 +529,6 @@ def normalize_bengali_for_wer(text: str) -> str:
         protected = _get_protected_tokens()
 
     text = unicodedata.normalize("NFKC", text)
-    text = _RE_ZWJ.sub("", text)
     text = verbalize_symbols(text, BENGALI_SYMBOL_MAP)
     text = _RE_DIGIT_COMMA.sub("", text)
     text = _RE_PUNCTUATION_BN.sub(" ", text)
@@ -569,6 +611,12 @@ def normalize_text_unified(text: str, language: str = "en") -> str:
     """
     if not text or not text.strip():
         return ""
+
+    # Shared first step for every language path — processor, fallback, and
+    # the Bengali canonical pipeline alike (issue #140). Idempotent, so the
+    # repeat inside normalize_bengali_for_wer (kept for direct callers) is
+    # harmless.
+    text = fold_invisible_characters(text)
 
     if language == "en":
         result = _normalize_with_processor(text, "en")
