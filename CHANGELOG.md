@@ -66,6 +66,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Single-speaker runs now write the normalized text WER was computed over
+  (#143). `asr_detailed_<model>.csv` (both `single` and `custom`) gains
+  `normalized_reference` / `normalized_hypothesis` columns — the exact
+  strings CER/WER scored after language normalization. Previously the single
+  path wrote no normalized text at all, so a reference whose score was
+  poisoned by an invisible character (e.g. a zero-width space surviving
+  normalization) was undiagnosable from the artifact, while the multi path
+  did expose it under `transcription_norm` / `asr_transcription_norm_*`.
+  Rows where CER/WER were uncomputable also carry the pair, since an empty
+  `normalized_reference` is itself the diagnosis. The
+  `normalize_bengali_for_wer` docstring, which promised these column names
+  while no path produced them, now states the actual per-path columns.
 - ASR adapters now use MPS on Apple Silicon (#111). Every HuggingFace adapter
   selected its device with `torch.cuda.is_available()` only, so on Apple
   Silicon diarization ran on the GPU while ASR inference silently fell back

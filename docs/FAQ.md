@@ -112,6 +112,11 @@ results/single-speaker-eval/
 └── analysis/whisper_base_en/            # only when --report is set
 ```
 
+The per-utterance CSV carries `normalized_reference` / `normalized_hypothesis`
+next to the raw `ground_truth` / `prediction` — the exact strings WER/CER were
+computed over, which is what you need when two visually identical references
+score differently (e.g. an invisible zero-width character).
+
 ### After adding `--report`
 
 One analysis directory per model:

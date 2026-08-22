@@ -440,11 +440,15 @@ def normalize_bengali_for_wer(text: str) -> str:
     """Normalize Bengali text for WER computation (canonical pipeline).
 
     This is the single canonical normalization applied to BOTH the reference
-    and the hypothesis before scoring (it produces the
-    ``normalized_reference`` / ``normalized_hypothesis`` columns in
-    results.csv), so WER numbers are directly comparable across runs and
-    against published results. The rule set and rule order are a stability
-    contract — see the section comment above the helpers.
+    and the hypothesis before scoring, so WER numbers are directly comparable
+    across runs and against published results. The normalized strings are
+    written to the run artifacts (issue #143): the single-speaker / custom
+    ``asr_detailed_<model>.csv`` carries them as ``normalized_reference`` /
+    ``normalized_hypothesis``, and the multi-speaker CSV as
+    ``transcription_norm`` (reference) / ``asr_transcription_norm_non`` and
+    ``asr_transcription_norm_conv`` (hypothesis variants). The rule set and
+    rule order are a stability contract — see the section comment above the
+    helpers.
 
     Pipeline:
     1. Loanword replacement (Latin-script → Bengali via cache)

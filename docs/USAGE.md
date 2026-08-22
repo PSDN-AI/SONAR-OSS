@@ -95,6 +95,8 @@ SingleSpeakerEvaluator.run_evaluation(
 This writes per-utterance metrics to `results/demo/asr_detailed_<model>.csv`
 and a machine-readable `results/demo/scores_<model>.json` — WER/CER/POSEIDON
 aggregates plus a reproducibility record (git SHA, seed, model, timestamp).
+The CSV includes `normalized_reference` / `normalized_hypothesis`, the exact
+strings WER/CER were computed over after language normalization.
 
 Local models auto-select the best available device (CUDA, then MPS, then
 CPU), and the device used is recorded in `scores_<model>.json` under
