@@ -77,7 +77,12 @@ pairs.
     "prompt_version": null,
     "git_sha": "3a4c7b106ff16bd3f689c9d88c24b0134dfc883e",
     "package_version": "0.1.0",
-    "timestamp_utc": "2026-05-22T12:00:00Z"
+    "timestamp_utc": "2026-05-22T12:00:00Z",
+    "poseidon_weights": {"wer": 0.35, "cer": 0.20, "semantic": 0.45},
+    "similarity_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "os_platform": "Linux-6.8.0-57-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.3",
+    "device": "cpu"
   },
   "model_name": "whisper_api",
   "lineage": {
@@ -115,8 +120,19 @@ pairs.
 ## `SubmissionConfig`
 
 Use `SubmissionConfig.from_env()` to fill `git_sha`, `package_version`, `timestamp_utc`,
-and `seed` (from `conf/config.yaml` via `config_loader.get_run_seed()`). Callers supply
+`seed` (from `conf/config.yaml` via `config_loader.get_run_seed()`), and the
+score-changing inputs: `poseidon_weights` and `similarity_model` as actually
+in effect (including `POSEIDON_*_WEIGHT` / `SIMILARITY_MODEL` env overrides),
+plus `os_platform`, `python_version`, and `device`. Callers supply
 run-specific fields (`provider`, `model_snapshot`, `region`, `protocol`, etc.).
+
+`git_sha` identifies the psdn-sonar checkout the package ran from: it is
+resolved against the package's own directory (never the caller's working
+directory) and only when the package files are tracked by that repository.
+Installs without a checkout (wheel/pip) record `"unknown"` — use
+`package_version` there, or set the `SONAR_GIT_SHA` environment variable to
+stamp a known commit (e.g. in CI when evaluating a built wheel). `device` is
+`null` when torch is not installed (API-only environments).
 
 ```python
 from psdn_sonar.benchmark import SubmissionConfig

@@ -33,6 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `scores.json` provenance no longer misattributes the code and now records
+  the score-changing inputs (#110). `git_sha` used to be resolved with
+  `git rev-parse HEAD` in the caller's working directory, so a run started
+  from inside an unrelated repository recorded that repository's commit — a
+  well-formed 40-char SHA pointing at a different codebase. It is now
+  resolved against the package's own directory and recorded only when the
+  package file is tracked by that repository (so a venv nested inside an
+  unrelated repo records `unknown` rather than the host repo's HEAD, as do
+  wheel/pip installs; the `SONAR_GIT_SHA` override — now documented in
+  `.env.example` and the benchmark README — stamps a known commit, e.g. in
+  CI). `SubmissionConfig.from_env()` additionally records the POSEIDON
+  weights and semantic-similarity model actually in effect (including
+  `POSEIDON_*_WEIGHT` / `SIMILARITY_MODEL` env overrides) plus
+  `os_platform`, `python_version`, and `device`, so two runs whose scores
+  differ across environments no longer have identical-looking provenance.
+  The new fields default to null; pre-existing artifacts still validate.
 - `discover` no longer prints a traceback for an unwritable output
   directory (#149): the run already failed correctly (exit 1, no download,
   two actionable ERROR lines), but a full traceback appeared between them

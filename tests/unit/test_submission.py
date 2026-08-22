@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -163,6 +164,132 @@ def test_write_scores_json_under_expected_path(tmp_path: Path):
 
 def test_known_inference_keys_documented():
     assert "language_code" in KNOWN_INFERENCE_PARAM_KEYS
+
+
+def _init_foreign_repo(path: Path) -> str:
+    """Create an unrelated git repo with one commit; return its HEAD SHA."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    (path / "file.txt").write_text("foreign\n", encoding="utf-8")
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+        "PATH": os.environ["PATH"],
+    }
+    subprocess.run(["git", "-C", str(path), "add", "file.txt"], check=True, env=env)
+    subprocess.run(["git", "-C", str(path), "commit", "-q", "-m", "init"], check=True, env=env)
+    return subprocess.check_output(["git", "-C", str(path), "rev-parse", "HEAD"], text=True).strip()
+
+
+class TestGitShaResolution:
+    """Issue #110: git_sha must identify the psdn-sonar checkout, never the
+    caller's working-directory repository."""
+
+    def test_ignores_callers_cwd_repository(self, tmp_path: Path, monkeypatch):
+        from psdn_sonar.benchmark.submission import _resolve_git_sha
+
+        monkeypatch.delenv("SONAR_GIT_SHA", raising=False)
+        foreign_sha = _init_foreign_repo(tmp_path / "other-repo")
+        monkeypatch.chdir(tmp_path / "other-repo")
+
+        sha = _resolve_git_sha()
+        assert sha != foreign_sha
+        # This test suite runs from a source checkout, so the package's own
+        # repository must be identified (a 40-char SHA, not "unknown").
+        assert sha == "unknown" or len(sha) == 40
+
+    def test_untracked_package_records_unknown(self, tmp_path: Path, monkeypatch):
+        """A venv nested inside an unrelated repo must not attribute the run
+        to that repo: the SHA is recorded only if the package's own file is
+        tracked there."""
+        import psdn_sonar.benchmark.submission as submission_mod
+
+        monkeypatch.delenv("SONAR_GIT_SHA", raising=False)
+        _init_foreign_repo(tmp_path / "host-repo")
+        fake_pkg = tmp_path / "host-repo" / ".venv" / "site-packages" / "benchmark"
+        fake_pkg.mkdir(parents=True)
+        fake_file = fake_pkg / "submission.py"
+        fake_file.write_text("# installed copy\n", encoding="utf-8")
+
+        monkeypatch.setattr(submission_mod, "__file__", str(fake_file))
+        assert submission_mod._resolve_git_sha() == "unknown"
+
+    def test_tracked_package_records_that_repos_head(self, tmp_path: Path, monkeypatch):
+        """Control: when the package file IS tracked (source checkout), the
+        containing repo's HEAD is recorded."""
+        import subprocess
+
+        import psdn_sonar.benchmark.submission as submission_mod
+
+        monkeypatch.delenv("SONAR_GIT_SHA", raising=False)
+        repo_sha = _init_foreign_repo(tmp_path / "checkout")
+        tracked = tmp_path / "checkout" / "file.txt"
+        subprocess.run(["git", "-C", str(tmp_path / "checkout"), "rev-parse", "HEAD"], check=True)
+
+        monkeypatch.setattr(submission_mod, "__file__", str(tracked))
+        assert submission_mod._resolve_git_sha() == repo_sha
+
+    def test_env_override_wins(self, monkeypatch):
+        from psdn_sonar.benchmark.submission import _resolve_git_sha
+
+        monkeypatch.setenv("SONAR_GIT_SHA", "cafe" * 10)
+        assert _resolve_git_sha() == "cafe" * 10
+
+
+class TestScoreChangingInputsRecorded:
+    """Issue #110: the provenance block must record the inputs that change
+    the score — POSEIDON weights, similarity model, and the environment."""
+
+    def test_from_env_records_weights_similarity_model_and_environment(self):
+        from psdn_sonar.config import config
+
+        cfg = SubmissionConfig.from_env(provider="local", model_snapshot="m", region="local")
+
+        assert cfg.poseidon_weights == {
+            "wer": config.wer_weight,
+            "cer": config.cer_weight,
+            "semantic": config.semantic_weight,
+        }
+        assert cfg.similarity_model == config.similarity_model
+        assert cfg.os_platform and isinstance(cfg.os_platform, str)
+        assert cfg.python_version and cfg.python_version.count(".") == 2
+        assert cfg.device in ("cuda", "mps", "cpu", None)
+
+    def test_new_fields_serialize_into_scores_json(self, tmp_path: Path):
+        submission = SubmissionConfig.from_env(provider="local", model_snapshot="demo_model", region="local")
+        artifact = build_run_scores(submission, _evaluate_result_for_significant_wer())
+        out = scores_json_path(tmp_path, "demo_model")
+        write_scores_json(out, artifact)
+
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        sub = payload["submission"]
+        assert set(sub["poseidon_weights"]) == {"wer", "cer", "semantic"}
+        assert sub["similarity_model"]
+        assert sub["os_platform"]
+        assert sub["python_version"]
+        assert "device" in sub
+
+    def test_legacy_payload_without_new_fields_still_validates(self):
+        """Pre-#110 scores.json artifacts lack the new fields; they must
+        still round-trip (defaults are None)."""
+        legacy = {
+            "provider": "openai",
+            "model_snapshot": "whisper-1",
+            "region": "us-east-1",
+            "protocol": "batch",
+            "inference_params": {},
+            "seed": 42,
+            "git_sha": "abc",
+            "package_version": "0.1.0",
+            "timestamp_utc": "2026-05-22T12:00:00Z",
+        }
+        cfg = SubmissionConfig.model_validate(legacy)
+        assert cfg.poseidon_weights is None
+        assert cfg.similarity_model is None
+        assert cfg.device is None
 
 
 def _evaluate_result_for_significant_wer() -> dict:

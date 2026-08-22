@@ -518,9 +518,14 @@ MOS columns (`dnsmos_*`, UTMOS, SQUIM) may be null if those optional scorers fai
     "protocol": "batch",
     "inference_params": {"language_code": "en"},
     "seed": 42,
-    "git_sha": "<40-char sha or unknown>",
+    "git_sha": "<40-char sha of the psdn-sonar checkout, or unknown>",
     "package_version": "0.1.0",
-    "timestamp_utc": "<ISO-8601 Z>"
+    "timestamp_utc": "<ISO-8601 Z>",
+    "poseidon_weights": {"wer": 0.35, "cer": 0.2, "semantic": 0.45},
+    "similarity_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "os_platform": "<platform.platform() string>",
+    "python_version": "<x.y.z>",
+    "device": "<cuda|mps|cpu, or null without torch>"
   },
   "model_name": "whisper_base_en",
   "lineage": {
@@ -1622,7 +1627,10 @@ psdn-sonar single \
 | `submission.inference_params.language_code` | `en` |
 | `submission.seed` | `42` (from `psdn_sonar/conf/config.yaml` `run.seed`) |
 | `submission.protocol` | `batch` |
-| `submission.git_sha` | same if run from the same git checkout |
+| `submission.git_sha` | same across both runs; identifies the **psdn-sonar checkout** regardless of the directory the command was run from (`unknown` for wheel/pip installs; `SONAR_GIT_SHA` overrides) |
+| `submission.poseidon_weights` | `{"wer": 0.35, "cer": 0.2, "semantic": 0.45}` unless `POSEIDON_*_WEIGHT` env overrides are set |
+| `submission.similarity_model` | the sentence-transformers id in effect (default `paraphrase-multilingual-MiniLM-L12-v2`) |
+| `submission.os_platform` / `python_version` / `device` | same on the same machine; these explain cross-machine score differences |
 | `lineage.hf_model_id` | `openai/whisper-base` (the repo id actually loaded) |
 | `lineage.hf_revision` | same 40-char checkpoint SHA across both runs |
 | `lineage.normalization` | `en:v2` (Bengali runs also carry `+bnlp`/`-bnlp`) |
@@ -1689,6 +1697,7 @@ Items marked **Fixed** were corrected in this repository before this guide was s
 | D39 | Three scoring paths handled a missing metric three contradictory ways (single-speaker rollups: best case 0.0; `PoseidonScorer`: worst case 1.0/0.0; `significant_wer_rate`: excluded), and `semantic_similarity` was clamped to `[0,1]` inside POSEIDON but stored/averaged raw, so `semantic_similarity_mean` could go negative while `poseidon_score_mean` could not | **Fixed** | One convention everywhere: an uncomputable metric is `null`, the row is failed with the reason in `error` (prediction preserved), and aggregates cover only present values; `ensure_poseidon_score` leaves `NaN` instead of fabricating scores. Similarity is cosine clamped to `[0,1]` at the point of computation, so every artifact reports the same range. Documented in `psdn_sonar/benchmark/README.md` ("Missing values and metric ranges"). |
 | D40 | The documented `--language bn` default run aborted at `khushids_bengali` with a bare `ModuleNotFoundError: No module named 'peft'` (the `[bengali]` extra is not part of the README `[ml]` environment and was documented nowhere), and because the model constructor ran outside any try/except, the whole 9-model loop died and already-evaluated models lost their output | **Fixed** | `khushids_bengali` now raises `MissingDependencyError` naming `peft` and `pip install "psdn-sonar[bengali]"` before any download; `run_evaluation` isolates constructor failures per model — the failing model is skipped with the reason logged and the rest of the run continues (results are written per model, so nothing is lost). If every model skips, the run still fails loudly with exit 1. README and `docs/USAGE.md` now name the `[bengali]` extra. |
 | D41 | `discover` into an unwritable `--output` failed correctly (exit 1, no download, actionable ERROR lines) but printed a full traceback between them whose exception chain named `FileNotFoundError` before the real `PermissionError` — leading with the wrong diagnosis and breaking the one-clean-line convention every other checked error path follows | **Fixed** | Dataset-preparation `OSError`s (unwritable output, disk full, network) are now logged as the single actionable ERROR line only — `str(e)` is the exception that actually propagated, i.e. the real cause. Unexpected non-OS errors keep their traceback. See 10.29. |
+| D42 | `scores.json` provenance could misattribute and was incomplete: `git_sha` ran `git rev-parse HEAD` in the caller's working directory, so a run started from an unrelated repo recorded that repo's commit (a well-formed 40-char SHA pointing at a different codebase); and the score-changing inputs — POSEIDON weights (`POSEIDON_*_WEIGHT`), `similarity_model` (`SIMILARITY_MODEL`), OS/Python/device — were not recorded at all. The `SONAR_GIT_SHA` override was documented nowhere | **Fixed** | `git_sha` now resolves against the package's own directory and is recorded only when the package file is tracked by that repo (a venv nested inside an unrelated repo records `unknown`, not the host repo's HEAD); wheel/pip installs record `unknown`. `SubmissionConfig.from_env()` now also records `poseidon_weights`, `similarity_model`, `os_platform`, `python_version`, and `device`. `SONAR_GIT_SHA` is documented in `.env.example` and `psdn_sonar/benchmark/README.md`. Pre-existing artifacts without the new fields still validate. |
 
 ---
 
