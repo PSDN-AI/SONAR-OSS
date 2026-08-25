@@ -5,9 +5,57 @@ multi-speaker pipelines resolve models through this registry.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NoReturn, Optional, Tuple
+
+from psdn_sonar.models.base import MissingDependencyError
 
 logger = logging.getLogger(__name__)
+
+# Top-level module name -> the install extra that provides it. Used to turn a
+# bare ModuleNotFoundError raised while importing an adapter module into an
+# actionable "install this extra" message (issue #169: a core-only install
+# asking for any local model got only "No module named 'torch'").
+_EXTRA_FOR_MODULE = {
+    "torch": "ml",
+    "torchaudio": "ml",
+    "transformers": "ml",
+    "sentence_transformers": "ml",
+    "speechmos": "ml",
+    "onnxruntime": "ml",
+    "peft": "bengali",
+    "pyannote": "pyannote",
+    "openai": "apis",
+    "elevenlabs": "apis",
+    "assemblyai": "apis",
+}
+
+
+def _raise_adapter_import_error(exc: ModuleNotFoundError) -> NoReturn:
+    """Re-raise an adapter-module import failure, naming the install extra.
+
+    Only translates modules that ship with a known extra; anything else —
+    including a broken ``psdn_sonar``-internal class path — re-raises
+    unchanged rather than guessing.
+    """
+    top_level = (exc.name or "").partition(".")[0]
+    extra = _EXTRA_FOR_MODULE.get(top_level)
+    if extra is None:
+        raise exc
+    raise MissingDependencyError(
+        f"{exc} — the '{top_level}' package ships with the [{extra}] extra. "
+        f'Install with: pip install "psdn-sonar[{extra}]"'
+    ) from exc
+
+
+class UnknownModelError(ValueError):
+    """Raised by :func:`create_model` when the model name is not registered.
+
+    Subclasses ``ValueError`` for backwards compatibility, but lets callers
+    distinguish "no such model" from other ``ValueError``\\s an adapter's
+    constructor may raise — e.g. a missing API key (issue #168), which must
+    reach the user instead of being reported as an unknown model.
+    """
+
 
 # Maps model name -> (class_path_string, default_kwargs)
 # Using strings for class paths avoids importing heavy ML libraries at import time.
@@ -130,21 +178,30 @@ def create_model(name: str, *, custom_hf_model: Optional[str] = None, language: 
         An ASRModel instance
 
     Raises:
-        ValueError: If model name is not registered and no custom_hf_model given
+        UnknownModelError: If model name is not registered and no custom_hf_model
+            given (a ``ValueError`` subclass)
+        MissingDependencyError: If the adapter module needs a package that ships
+            with an install extra which is not installed (e.g. torch / ``[ml]``)
     """
     if custom_hf_model:
-        from psdn_sonar.models.huggingface import CustomHuggingFaceModel
+        try:
+            from psdn_sonar.models.huggingface import CustomHuggingFaceModel
+        except ModuleNotFoundError as exc:
+            _raise_adapter_import_error(exc)
 
         logger.info(f"Loading custom HuggingFace model: {custom_hf_model}")
         return CustomHuggingFaceModel(model_id=custom_hf_model, language=language)
 
     config = _MODEL_CONFIGS.get(name)
     if config is None:
-        raise ValueError(f"Unknown model '{name}'. Available: {list_models()}")
+        raise UnknownModelError(f"Unknown model '{name}'. Available: {list_models()}")
 
     class_path, default_kwargs = config
     merged_kwargs = {**default_kwargs, **kwargs}
-    cls = _import_class(class_path)
+    try:
+        cls = _import_class(class_path)
+    except ModuleNotFoundError as exc:
+        _raise_adapter_import_error(exc)
     return cls(**merged_kwargs)
 
 

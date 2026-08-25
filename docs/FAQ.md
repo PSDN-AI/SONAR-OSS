@@ -59,7 +59,7 @@ psdn-sonar custom --config examples/custom_eval_portuguese.yaml --max-samples 10
 |------|--------|-------------------|
 | `data/*.tsv` | Tab-separated: `audio_path \t transcription` | `psdn-sonar discover`, manual prep, or `scripts/prepare_data.py` |
 | `data/manifest.jsonl` | JSON lines, one recording per line (see manifest format below) | Written by hand or by your recording tooling |
-| `.env` | API keys: `OPENAI_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`, `HF_TOKEN` | Manually created from `.env.example` |
+| `.env` | API keys: `OPENAI_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`, `HF_TOKEN` (for pyannote, the token's account must also accept the gated-model conditions — see the pre-run checklist in Q4) | Manually created from `.env.example` |
 | `examples/custom_eval_*.yaml` | BYOL config: language, HF model IDs, dataset path, text processing flags | Written by hand per new language |
 | Audio files (`.wav`/`.flac`) | Referenced by `audio_path` column in the TSV | HuggingFace download or your own recordings |
 
@@ -193,7 +193,7 @@ synced locally with `scripts/download_data.py --config your_sync.yaml` — see
 **Environment:**
 
 - [ ] `.env` file exists with valid, non-expired API keys (especially if using `whisper_api`, `assemblyai_api`, or `elevenlabs_api`)
-- [ ] `HF_TOKEN` is set if using pyannote VAD/diarization
+- [ ] `HF_TOKEN` is set if using pyannote VAD/diarization, **and** the token's account has accepted the user conditions of the gated models: [`pyannote/segmentation-3.0`](https://huggingface.co/pyannote/segmentation-3.0) and [`pyannote/speaker-diarization-3.1`](https://huggingface.co/pyannote/speaker-diarization-3.1) (a one-time form on each model page). A valid token that has not accepted the conditions fails with `403 ... not in the authorized list`
 - [ ] Disk, bandwidth, and time are budgeted for a **first** run: datasets and model checkpoints download in full (several GB — see "What a first run costs" in the README), and `--max-samples` bounds processing, not the download
 - [ ] You know which device the run will use: local models pick CUDA, then MPS, then CPU (recorded in `scores_<model>.json` under `config.device`); on CPU, Whisper-class models run at roughly 20 s/sample vs ~1 s/sample for CTC models
 

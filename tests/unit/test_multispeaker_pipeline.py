@@ -1,5 +1,7 @@
 """Tests for the multi-speaker evaluation pipeline."""
 
+import os
+
 import pytest
 
 from psdn_sonar.multispeaker_pipeline import run_multispeaker_evaluation
@@ -65,6 +67,42 @@ class TestRunMultispeakerEvaluation:
 
         assert captured["methods"] == ["energy_trim", "no_trim"]
         assert captured["config_settings"]["methods"] == ["energy_trim", "no_trim"]
+
+    def test_loads_env_before_model_creation(self, manifest, tmp_path, monkeypatch):
+        """load_env() must run before create_model so API adapters see .env keys (issue #167)."""
+        calls = []
+        monkeypatch.setattr("psdn_sonar.multispeaker_pipeline.load_env", lambda: calls.append("load_env"))
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: calls.append("process"))
+        monkeypatch.setattr(
+            "psdn_sonar.models.registry.create_model",
+            lambda name, **kw: (calls.append("create_model"), "model")[1],
+        )
+
+        run_multispeaker_evaluation(str(manifest), "whisper_api", output_dir=str(tmp_path / "out"))
+
+        assert "load_env" in calls
+        assert calls.index("load_env") < calls.index("create_model")
+        assert calls.index("create_model") < calls.index("process")
+
+    def test_dotenv_credential_reaches_api_adapter(self, manifest, tmp_path, monkeypatch):
+        """End-to-end repro of issue #167: a key set only in .env (not the shell)
+        must reach the real ElevenLabs adapter instead of raising 'API key not found'."""
+        monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+        monkeypatch.delenv("XI_API_KEY", raising=False)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text("ELEVENLABS_API_KEY=fake-key-from-dotenv\nHF_TOKEN=fake-hf-token-from-dotenv\n")
+
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+
+        # Pre-fix this raised ValueError("ElevenLabs API key not found...") from
+        # the adapter's __init__ despite .env sitting in the working directory.
+        run_multispeaker_evaluation(str(manifest), "elevenlabs_api", output_dir=str(tmp_path / "out"))
+
+        assert os.environ["ELEVENLABS_API_KEY"] == "fake-key-from-dotenv"
+        # HF_TOKEN is read later by pyannote VAD/diarization via os.getenv, so
+        # loading .env here also fixes the 401-with-valid-token failure mode.
+        assert os.environ["HF_TOKEN"] == "fake-hf-token-from-dotenv"
 
     def test_custom_hf_model_and_language_forwarded(self, manifest, tmp_path, monkeypatch):
         captured = {}

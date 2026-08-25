@@ -19,7 +19,9 @@ import pytest
 from psdn_sonar.evaluators.single_speaker import (
     NoSamplesEvaluatedError,
     SingleSpeakerEvaluator,
+    _model_factory,
 )
+from psdn_sonar.models.base import MissingDependencyError
 
 
 @pytest.fixture
@@ -283,6 +285,62 @@ class TestRunEvaluationFailsLoudly:
         assert "whisper_base_en" in results
 
 
+class TestMissingApiKeyNotReportedAsUnknownModel:
+    """Issue #168: an adapter's missing-API-key ValueError used to be swallowed
+    by _model_factory's `except ValueError` and reported as 'not found in the
+    registry' — a listing that contained the exact id the user passed. Only
+    the registry's own UnknownModelError may be translated into that message."""
+
+    def test_model_factory_returns_none_only_for_unknown_names(self):
+        assert _model_factory("nonexistent_model_xyz") is None
+
+    def test_model_factory_propagates_credential_valueerror(self, monkeypatch):
+        def raising_create_model(*args, **kwargs):
+            raise ValueError("ElevenLabs API key not found. Set ELEVENLABS_API_KEY ...")
+
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker.create_model", raising_create_model)
+
+        with pytest.raises(ValueError, match="API key not found"):
+            _model_factory("elevenlabs_api")
+
+    def test_missing_key_surfaces_adapter_message_not_registry_listing(
+        self, tmp_path, patched_run_evaluation_env, monkeypatch, caplog
+    ):
+        # Real registry, real ElevenLabs adapter (needs only `requests`): with
+        # no key anywhere, its __init__ raises the actionable ValueError.
+        monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+        monkeypatch.delenv("XI_API_KEY", raising=False)
+
+        with caplog.at_level("ERROR"), pytest.raises(ValueError, match="could be constructed"):
+            SingleSpeakerEvaluator.run_evaluation(
+                tsv_path="eval.tsv",
+                output_dir=str(tmp_path),
+                models=["elevenlabs_api"],
+                language="en",
+                write_scores=False,
+            )
+
+        assert "could not be constructed" in caplog.text
+        assert "ElevenLabs API key not found" in caplog.text
+        assert "Set ELEVENLABS_API_KEY" in caplog.text
+        assert "not found in the registry" not in caplog.text
+
+    def test_truly_unknown_model_still_gets_the_registry_listing(
+        self, tmp_path, patched_run_evaluation_env, monkeypatch, caplog
+    ):
+        with caplog.at_level("ERROR"), pytest.raises(ValueError, match="could be constructed"):
+            SingleSpeakerEvaluator.run_evaluation(
+                tsv_path="eval.tsv",
+                output_dir=str(tmp_path),
+                models=["not_a_real_model"],
+                language="en",
+                write_scores=False,
+            )
+
+        assert "Model not_a_real_model not found in the registry" in caplog.text
+        assert "Registered ids:" in caplog.text
+
+
 class TestConstructorFailureIsolated:
     """Issue #108: a raising model constructor used to kill the entire
     multi-model loop, losing the output of models already evaluated in the
@@ -357,6 +415,37 @@ class TestConstructorFailureIsolated:
                 language="bn",
                 write_scores=False,
             )
+
+    def test_missing_extra_names_the_extra_and_drops_the_blanket_advice(
+        self, tmp_path, patched_run_evaluation_env, monkeypatch, caplog
+    ):
+        """Issue #169: the run-level error used to close with 'Pass a registered
+        id via --models or a HuggingFace repo id via --hf-model' — two remedies
+        that fail identically when the [ml] extra is missing."""
+
+        def factory(*args, **kwargs):
+            raise MissingDependencyError(
+                "No module named 'torch' — the 'torch' package ships with the [ml] extra. "
+                'Install with: pip install "psdn-sonar[ml]"'
+            )
+
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker._model_factory", factory)
+
+        with caplog.at_level("ERROR"), pytest.raises(ValueError, match="could be constructed") as excinfo:
+            SingleSpeakerEvaluator.run_evaluation(
+                tsv_path="eval.tsv",
+                output_dir=str(tmp_path),
+                models=["whisper_base_en"],
+                language="en",
+                write_scores=False,
+            )
+
+        # The per-model log line carries the install command.
+        assert 'pip install "psdn-sonar[ml]"' in caplog.text
+        # The closing advice points at the reasons, not at ids that fail the same way.
+        text = str(excinfo.value)
+        assert "Fix the per-model reasons" in text
+        assert "Pass a registered id via --models or a HuggingFace repo id via --hf-model." not in text
 
 
 class TestScoresArtifactNullMeans:

@@ -17,7 +17,7 @@ from psdn_sonar.config import load_env
 from psdn_sonar.evaluators.utterance import UtteranceEvaluator
 from psdn_sonar.models.base import unpack_transcription
 from psdn_sonar.models.registry import LANGUAGE_DEFAULT_MODELS as _LANG_DEFAULTS
-from psdn_sonar.models.registry import create_model, list_models
+from psdn_sonar.models.registry import UnknownModelError, create_model, list_models
 from psdn_sonar.quality_models import _EMPTY_MOS
 from psdn_sonar.utils.metrics import (
     DEFAULT_SIGNIFICANT_WER_THRESHOLD,
@@ -114,10 +114,16 @@ def _model_factory(
     custom_hf_model: Optional[str] = None,
     language: Optional[str] = None,
 ):
-    """Create an ASR model by name. Delegates to the centralized ModelRegistry."""
+    """Create an ASR model by name. Delegates to the centralized ModelRegistry.
+
+    Returns ``None`` only for a name the registry does not know. Any other
+    constructor failure — including a missing API key, which adapters raise as
+    a plain ``ValueError`` — propagates, so the caller logs the adapter's own
+    actionable message instead of "not found in the registry" (issue #168).
+    """
     try:
         return create_model(name, custom_hf_model=custom_hf_model, language=language, **(kwargs or {}))
-    except ValueError:
+    except UnknownModelError:
         return None
 
 
@@ -738,11 +744,16 @@ class SingleSpeakerEvaluator:
                 logger.info(f"Scores saved to {scores_path}")
 
         if not all_results:
+            # Do not blanket-recommend "--models / --hf-model" here: when the
+            # reason is a missing install extra or API key, every model that
+            # needs it fails the same way (issue #169).
             raise ValueError(
                 f"None of the requested models could be constructed: {', '.join(skipped_models)}. "
-                "Per-model reasons are in the log lines above. "
-                f"Registered model ids: {', '.join(cls.AVAILABLE_MODELS)}. "
-                "Pass a registered id via --models or a HuggingFace repo id via --hf-model."
+                "Fix the per-model reasons in the log lines above first — a missing install "
+                "extra or API key affects every model that needs it, so trying another id "
+                "fails the same way. For a mistyped id, pass a registered one via --models "
+                f"(registered ids: {', '.join(cls.AVAILABLE_MODELS)}) or a HuggingFace repo id "
+                "via --hf-model."
             )
 
         total_successful = sum(r["summary"]["successful"] for r in all_results.values())

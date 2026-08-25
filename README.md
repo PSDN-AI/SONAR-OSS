@@ -164,7 +164,15 @@ normal contract for downstream package installs; use `uv` when you need the
 locked contributor environment.
 
 Copy `.env.example` to `.env` and fill in only the values you need (API keys
-are required only for optional hosted-model backends).
+are required only for optional hosted-model backends). For pyannote
+VAD/diarization, setting `HF_TOKEN` is not enough on its own: the pyannote
+models are gated on HuggingFace, so the token's account must also accept the
+user conditions on each model page —
+[`pyannote/segmentation-3.0`](https://huggingface.co/pyannote/segmentation-3.0)
+and
+[`pyannote/speaker-diarization-3.1`](https://huggingface.co/pyannote/speaker-diarization-3.1)
+— otherwise runs fail with `403 ... not in the authorized list` even though
+the token is valid.
 
 ## Usage
 
