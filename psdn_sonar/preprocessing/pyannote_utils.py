@@ -12,9 +12,33 @@ cannot import against the modern torchaudio the ``[ml]`` extra locks
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 
 logger = logging.getLogger(__name__)
+
+GATED_MODEL_HINT = (
+    "pyannote models are gated on HuggingFace: a valid HF_TOKEN alone is not "
+    "enough. The token's account must also accept each model's user conditions "
+    "(a one-time form on the model page) at "
+    "https://huggingface.co/pyannote/segmentation-3.0 and "
+    "https://huggingface.co/pyannote/speaker-diarization-3.1. Until then "
+    "HuggingFace rejects the request even though the token itself is valid. "
+    "Also check that HF_TOKEN is set (in .env or the environment) and not expired."
+)
+
+_AUTH_ERROR_MARKERS = ("401", "403", "gated", "authorized", "forbidden", "restricted")
+
+
+def _raise_load_error(model_id: str, exc: Exception) -> NoReturn:
+    """Re-raise a ``from_pretrained`` failure, attaching the gated-model guidance
+    when it looks like an auth/gating rejection (issue #171): the raw HuggingFace
+    401/403 (e.g. ``403 ... not in the authorized list``) carries no hint that
+    accepting the model's user conditions is a required step beyond HF_TOKEN.
+    """
+    text = str(exc).lower()
+    if any(marker in text for marker in _AUTH_ERROR_MARKERS):
+        raise RuntimeError(f"Could not load '{model_id}' from HuggingFace: {exc}. {GATED_MODEL_HINT}") from exc
+    raise exc
 
 
 def _import_pyannote() -> bool:
@@ -75,7 +99,10 @@ def get_vad_pipeline(hf_token: Optional[str] = None, min_duration_on: float = 0.
 
     # pyannote.audio 4.x renamed ``use_auth_token`` to ``token`` (issue #129).
     token = hf_token or os.getenv("HF_TOKEN")
-    model = Model.from_pretrained("pyannote/segmentation-3.0", token=token)
+    try:
+        model = Model.from_pretrained("pyannote/segmentation-3.0", token=token)
+    except Exception as e:
+        _raise_load_error("pyannote/segmentation-3.0", e)
     _vad_pipeline = VoiceActivityDetection(segmentation=model)
     _vad_pipeline.instantiate(
         {
@@ -99,12 +126,16 @@ def get_diarization_pipeline(hf_token: Optional[str] = None):
 
     # pyannote.audio 4.x renamed ``use_auth_token`` to ``token`` (issue #129).
     token = hf_token or os.getenv("HF_TOKEN")
-    _diarization_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", token=token)
+    try:
+        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", token=token)
+    except Exception as e:
+        _raise_load_error("pyannote/speaker-diarization-3.1", e)
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        _diarization_pipeline.to(torch.device("mps"))
+        pipeline.to(torch.device("mps"))
     elif torch.cuda.is_available():
-        _diarization_pipeline.to(torch.device("cuda"))
+        pipeline.to(torch.device("cuda"))
 
+    _diarization_pipeline = pipeline
     return _diarization_pipeline
 
 
