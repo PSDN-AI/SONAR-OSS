@@ -1,7 +1,10 @@
 """ASR model base interface and protocol-aware latency types."""
 
+import logging
 from dataclasses import dataclass
 from typing import Optional, Tuple, Union
+
+logger = logging.getLogger(__name__)
 
 
 class MissingFfmpegError(RuntimeError):
@@ -74,6 +77,24 @@ class ASRModel:
     """
 
     supports_latency_metrics: bool = False
+
+    #: Cause of the most recent ``transcribe`` failure, or ``None``. Set by
+    #: :meth:`_record_transcribe_failure`; cleared by the evaluator before each
+    #: call. Exists because ``transcribe`` returns ``None`` on failure by design
+    #: (one bad clip must not abort a run), which used to reduce every failure —
+    #: including a 401 from an invalid API key — to "Empty prediction" in the
+    #: CSV/scores artifacts the CLI points at (issue #170).
+    last_transcribe_error: Optional[str] = None
+
+    def _record_transcribe_failure(self, audio_path: str, exc: Exception) -> None:
+        """Log a per-clip transcription failure and keep its cause on the adapter.
+
+        Adapters call this from their catch-and-return-``None`` blocks so the
+        evaluator can write the real cause into the per-row ``error`` column
+        instead of the downstream "Empty prediction" symptom.
+        """
+        self.last_transcribe_error = str(exc)
+        logger.error("Transcription failed for %s: %s", audio_path, exc)
 
     def get_hf_lineage(self) -> Tuple[Optional[str], Optional[str]]:
         """Best-effort ``(model_id, revision)`` of the loaded HF checkpoint.

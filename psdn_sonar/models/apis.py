@@ -34,15 +34,21 @@ def _retry(max_retries: int = 3, backoff: float = 1.0):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
+            last_exc = None
             for attempt in range(1, max_retries + 1):
                 try:
                     return fn(*args, **kwargs)
                 except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                    last_exc = e
                     if attempt < max_retries:
                         wait = backoff * (2 ** (attempt - 1))
                         logger.warning("Attempt %d/%d failed (%s), retrying in %.1fs…", attempt, max_retries, e, wait)
                         time.sleep(wait)
             logger.error("All %d attempts failed", max_retries)
+            # Keep the cause on the adapter so the artifacts carry it (issue
+            # #170) — the decorated method is a bound ASRModel.transcribe.
+            if args and isinstance(args[0], ASRModel):
+                args[0].last_transcribe_error = f"All {max_retries} attempts failed: {last_exc}"
             return None
 
         return wrapper
@@ -78,7 +84,7 @@ class WhisperAPIModel(ASRModel):
                     params["language"] = self.language
                 return self.client.audio.transcriptions.create(**params).text
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
 
 
@@ -110,19 +116,20 @@ class ElevenLabsAPIModel(ASRModel):
     def _detect_content_type(audio_path: str) -> str:
         return "audio/mpeg" if audio_path.lower().endswith(".mp3") else "audio/wav"
 
-    @staticmethod
-    def _handle_error(e):
+    def _handle_error(self, e):
         err = getattr(e, "response", None)
         if err is not None:
             try:
                 body = err.json()
                 d = body.get("detail")
                 msg = d.get("message", str(d)) if isinstance(d, dict) else (d or str(body))
-                logger.error("API error: %s", msg)
             except Exception:
-                logger.error("API error: %s %s", err.status_code, err.text[:200])
+                msg = f"{err.status_code} {err.text[:200]}"
         else:
-            logger.error("API error: %s", e)
+            msg = str(e)
+        # Keep the cause on the adapter so the artifacts carry it (issue #170).
+        self.last_transcribe_error = str(msg)
+        logger.error("API error: %s", msg)
 
     @_retry()
     def transcribe(self, audio_path: str) -> Optional[str]:
@@ -239,11 +246,18 @@ class AssemblyAIAPIModel(ASRModel):
                 logger.warning("Streaming transcription failed (%s); falling back to batch for %s", e, audio_path)
         try:
             t0 = time.perf_counter()
-            text = self.transcriber.transcribe(audio_path).text or ""
+            transcript = self.transcriber.transcribe(audio_path)
+            text = transcript.text or ""
             complete_s = round(time.perf_counter() - t0, 4)
+            if not text and getattr(transcript, "error", None):
+                # The SDK reports some failures (e.g. rejected audio) as an
+                # errored transcript object rather than an exception.
+                self.last_transcribe_error = str(transcript.error)
+                logger.error("Transcription failed for %s: %s", audio_path, transcript.error)
+                return None
             return text, LatencyMetrics(complete_s=complete_s, ttft_s=None)
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
 
     @staticmethod

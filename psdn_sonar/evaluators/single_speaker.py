@@ -419,6 +419,10 @@ class SingleSpeakerEvaluator:
             ttft_s = None
             complete_s = None
             try:
+                # Clear any stale failure cause so a previous clip's error is
+                # never attributed to this one (issue #170).
+                if hasattr(model, "last_transcribe_error"):
+                    model.last_transcribe_error = None
                 if not os.path.exists(audio_path):
                     logger.warning(f"[{idx}/{len(data)}] Audio file not found: {audio_path}")
                     prediction = ""
@@ -439,6 +443,11 @@ class SingleSpeakerEvaluator:
                 prediction = (prediction or "").strip()
                 if not prediction:
                     failed += 1
+                    # Prefer the adapter's recorded cause (401, invalid key,
+                    # network failure, …) over the downstream symptom, so the
+                    # CSV error column and scores JSON the CLI points at are
+                    # self-explaining (issue #170).
+                    cause = getattr(model, "last_transcribe_error", None)
                     results.append(
                         SingleSpeakerEvaluator._result_row(
                             audio_path,
@@ -447,7 +456,7 @@ class SingleSpeakerEvaluator:
                             inference_latency_s=inference_latency_s,
                             ttft_s=ttft_s,
                             complete_s=complete_s,
-                            error="Empty prediction",
+                            error=f"Transcription failed: {cause}" if cause else "Empty prediction",
                         )
                     )
                     continue

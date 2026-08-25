@@ -133,7 +133,7 @@ class StandardHuggingFaceASR(ASRModel):
         try:
             return _pipeline_text(self.pipe(audio_path))
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
 
 
@@ -166,7 +166,7 @@ class WhisperASRModel(ASRModel):
             transcription = self.processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
             return transcription.strip()
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
 
 
@@ -226,7 +226,7 @@ class KhushiDSBengaliModel(ASRModel):
         try:
             return _pipeline_text(self.pipe(audio_path))
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
 
 
@@ -287,7 +287,7 @@ class Wav2Vec2BengaliModel(ASRModel):
                 logits = self.model(**inputs).logits
             return self.processor.decode(torch.argmax(logits, dim=-1)[0]).strip()
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
 
 
@@ -319,7 +319,7 @@ class Wav2Vec2KoreanModel(ASRModel):
             transcription = self.processor.batch_decode(predicted_ids)[0]
             return transcription.strip()
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
 
 
@@ -351,7 +351,7 @@ class WhisperKoreanModel(ASRModel):
             transcription = self.processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
             return transcription.strip()
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
 
 
@@ -471,5 +471,5 @@ class CustomHuggingFaceModel(ASRModel):
                 return _pipeline_text(self.pipe(audio_path))
 
         except Exception as e:
-            logger.error("Transcription failed for %s: %s", audio_path, e)
+            self._record_transcribe_failure(audio_path, e)
             return None
