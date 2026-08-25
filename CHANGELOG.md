@@ -78,6 +78,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A failed transcription now records its cause in the artifacts the CLI
+  points at (#170). Every adapter catches broadly and returns `None` by
+  design, so one bad clip cannot abort a long run — but that also meant an
+  authentication failure reached the CSV `error` column and
+  `scores_<model>.json` as a bare `Empty prediction`, with the real 401
+  visible only in the terminal. `ASRModel` now keeps the cause on the
+  adapter (`last_transcribe_error`) and every catch-and-return-`None` path
+  records it: the three vendor API adapters, the `_retry` decorator's
+  exhaustion path, AssemblyAI's errored-transcript object (the SDK reports
+  some failures without raising), and all seven HuggingFace adapter failure
+  paths. The single-speaker evaluator clears the attribute before each clip,
+  so a stale cause is never attributed to the next row, and writes
+  `Transcription failed: <cause>` into the row; the scores JSON exports the
+  same field from the same results list. A genuinely empty transcription
+  with no recorded failure still reads `Empty prediction`, preserving the
+  distinction automation needs.
+- The type-check gate reaches the same verdict whether or not the optional
+  extras are installed (#172). Its two standing `unused-ignore-comment`
+  warnings were "unused" only while torch was absent — the `torch.load`
+  suppression is live once `[ml]` is installed — so the fix removes the need
+  for the suppressions rather than silencing the rule. All three sites are
+  the same idiom, a monkeypatch or optional import whose type error exists
+  only when the optional package's types are visible: the two
+  `pyannote_utils.py` patch sites now use `setattr`, and `llm_metrics.py`
+  imports the two `httpx` transport-error classes into a tuple instead of
+  rebinding the module to `None`, because `isinstance(exc, ())` is `False`
+  on its own — exactly what the discarded `httpx is not None` guard did.
+- A missing optional dependency names the extra that ships it (#169). In a
+  core-only install, asking for any local model failed with the bare `No
+  module named 'torch'`, and the run-level error then closed by suggesting
+  `--models` and `--hf-model`, two remedies that fail identically in that
+  environment. The registry now translates a `ModuleNotFoundError` raised
+  while importing an adapter into the existing `MissingDependencyError`,
+  preserving the original error and naming the extra —
+  `torch`/`torchaudio`/`transformers`/`sentence_transformers`/`speechmos`/`onnxruntime`
+  → `[ml]`, `peft` → `[bengali]`, `pyannote` → `[pyannote]`,
+  `openai`/`elevenlabs`/`assemblyai` → `[apis]` — while modules with no
+  known extra re-raise unchanged rather than guessing. Both import points in
+  `create_model` are covered, so `--models`, `--hf-model`, and the `multi`
+  pipeline get the message from one place, and the closing advice now sends
+  the user at the per-model reasons first and reserves the flags for
+  mistyped ids.
+- A hosted-API model with no key is no longer reported as "not found in the
+  registry" (#168). `_model_factory` caught every `ValueError` to translate
+  the registry's unknown-model error, but the ElevenLabs adapter and the
+  AssemblyAI SDK also raise `ValueError` when their key is missing, so their
+  actionable "set this environment variable" messages were swallowed and the
+  run then listed the exact id the user had passed. The registry now raises
+  a dedicated `UnknownModelError` — a `ValueError` subclass, so every
+  existing `except ValueError` caller and test keeps working — and
+  `_model_factory` catches only that, letting a credential failure reach the
+  constructor-failure branch that logs the adapter's own message and
+  continues the multi-model run.
+- Accepting the gated pyannote models' user conditions is documented as the
+  required step it is (#171). A valid `HF_TOKEN` alone returns HuggingFace's
+  bare `403 ... not in the authorized list`: the token's account must also
+  accept each model's conditions once on its model page, and the one
+  sentence in the codebase that mentioned the terms sat on the `not
+  PYANNOTE_AVAILABLE` branch, which an affected user never reaches. Every
+  place that tells the user to set `HF_TOKEN` — `.env.example`,
+  `docs/FAQ.md`, `README.md` — now names the acceptance step with links to
+  both model pages and the `403` symptom, and the VAD and diarization
+  loaders wrap auth and gating rejections from `from_pretrained` in a
+  `RuntimeError` that preserves the original error and appends the same
+  guidance, so it lands in the run's log warnings and per-row error results
+  where the bare 403 used to. Unrelated failures re-raise unchanged.
+- The `multi` subcommand loads `.env` before anything reads credentials
+  (#167). It never called `load_env()`, so a credential configured only in
+  `.env` was invisible to it — and the failure it produced told the user to
+  set the key in `.env`, which is exactly where it already was.
+  `run_multispeaker_evaluation()` now mirrors the single-speaker path, and
+  one call site covers both entry points (the CLI `multi` subcommand and the
+  standalone `psdn_sonar.multispeaker_pipeline` script) because every
+  downstream credential read goes through `os.getenv`: the hosted-API
+  adapter keys read at `create_model()` time, and the pyannote `HF_TOKEN`
+  reads in VAD and diarization, which is also the 401-with-a-valid-token
+  failure the issue reported.
 - The `[pyannote]` extra installs a pair that can actually import (#129).
   The extra pinned `pyannote.audio` 3.x, which references
   `torchaudio.AudioMetaData` — removed in the torchaudio ≥ 2.9 that `[ml]`
