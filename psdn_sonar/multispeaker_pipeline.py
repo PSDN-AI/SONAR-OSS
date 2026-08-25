@@ -9,6 +9,8 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
+from psdn_sonar.config import load_env
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,6 +45,11 @@ def run_multispeaker_evaluation(
         RuntimeError: If an explicitly requested method needs pyannote.audio
             and it is not installed, or if no clip could be processed.
     """
+    # Same credential sources as the single-speaker path (issue #167): hosted
+    # API adapters and the pyannote HF_TOKEN reads all go through os.getenv,
+    # so .env must be loaded before create_model / manifest processing.
+    load_env()
+
     from psdn_sonar.core import process_manifest_with_asr
     from psdn_sonar.models.registry import create_model
     from psdn_sonar.preprocessing.config_loader import load_multi_speaker_config
