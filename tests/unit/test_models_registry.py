@@ -4,10 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from psdn_sonar.models.base import MissingDependencyError
 from psdn_sonar.models.registry import (
     _MODEL_CONFIGS,
     LANGUAGE_DEFAULT_MODELS,
     UnknownModelError,
+    _raise_adapter_import_error,
     create_model,
     get_language_defaults,
     list_models,
@@ -83,6 +85,54 @@ class TestCreateModel:
 
     # NOTE: the custom_hf_model path is covered in the HuggingFace adapter
     # tests — patching it requires psdn_sonar.models.huggingface to exist.
+
+
+class TestMissingExtraNamedOnImportFailure:
+    """Issue #169: a core-only install asking for any local model failed with a
+    bare 'No module named torch' and no mention of the [ml] extra that ships it."""
+
+    @patch(
+        "psdn_sonar.models.registry._import_class",
+        side_effect=ModuleNotFoundError("No module named 'torch'", name="torch"),
+    )
+    def test_local_model_without_ml_extra_names_the_extra(self, mock_import):
+        with pytest.raises(MissingDependencyError) as excinfo:
+            create_model("whisper_base_en")
+
+        text = str(excinfo.value)
+        assert "No module named 'torch'" in text  # the original error is preserved
+        assert 'pip install "psdn-sonar[ml]"' in text
+        assert isinstance(excinfo.value.__cause__, ModuleNotFoundError)
+
+    def test_missing_dependency_error_is_a_runtime_error(self):
+        # The multi CLI handler catches RuntimeError for a clean, traceback-free
+        # exit; this pins the contract that registry import failures ride it.
+        assert issubclass(MissingDependencyError, RuntimeError)
+
+    def test_submodule_name_maps_through_its_top_level_package(self):
+        exc = ModuleNotFoundError("No module named 'pyannote.audio'", name="pyannote.audio")
+        with pytest.raises(MissingDependencyError, match=r"psdn-sonar\[pyannote\]"):
+            _raise_adapter_import_error(exc)
+
+    def test_peft_maps_to_the_bengali_extra(self):
+        exc = ModuleNotFoundError("No module named 'peft'", name="peft")
+        with pytest.raises(MissingDependencyError, match=r"psdn-sonar\[bengali\]"):
+            _raise_adapter_import_error(exc)
+
+    def test_module_without_a_known_extra_reraises_unchanged(self):
+        exc = ModuleNotFoundError("No module named 'somethingelse'", name="somethingelse")
+        with pytest.raises(ModuleNotFoundError) as excinfo:
+            _raise_adapter_import_error(exc)
+        assert excinfo.value is exc
+
+    def test_broken_internal_class_path_reraises_unchanged(self):
+        # A typo'd psdn_sonar class path must not be blamed on an extra.
+        exc = ModuleNotFoundError(
+            "No module named 'psdn_sonar.models.nonexistent'", name="psdn_sonar.models.nonexistent"
+        )
+        with pytest.raises(ModuleNotFoundError) as excinfo:
+            _raise_adapter_import_error(exc)
+        assert excinfo.value is exc
 
 
 class TestModelConfigs:

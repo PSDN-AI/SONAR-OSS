@@ -744,11 +744,16 @@ class SingleSpeakerEvaluator:
                 logger.info(f"Scores saved to {scores_path}")
 
         if not all_results:
+            # Do not blanket-recommend "--models / --hf-model" here: when the
+            # reason is a missing install extra or API key, every model that
+            # needs it fails the same way (issue #169).
             raise ValueError(
                 f"None of the requested models could be constructed: {', '.join(skipped_models)}. "
-                "Per-model reasons are in the log lines above. "
-                f"Registered model ids: {', '.join(cls.AVAILABLE_MODELS)}. "
-                "Pass a registered id via --models or a HuggingFace repo id via --hf-model."
+                "Fix the per-model reasons in the log lines above first — a missing install "
+                "extra or API key affects every model that needs it, so trying another id "
+                "fails the same way. For a mistyped id, pass a registered one via --models "
+                f"(registered ids: {', '.join(cls.AVAILABLE_MODELS)}) or a HuggingFace repo id "
+                "via --hf-model."
             )
 
         total_successful = sum(r["summary"]["successful"] for r in all_results.values())

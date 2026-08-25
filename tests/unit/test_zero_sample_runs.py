@@ -21,6 +21,7 @@ from psdn_sonar.evaluators.single_speaker import (
     SingleSpeakerEvaluator,
     _model_factory,
 )
+from psdn_sonar.models.base import MissingDependencyError
 
 
 @pytest.fixture
@@ -414,6 +415,37 @@ class TestConstructorFailureIsolated:
                 language="bn",
                 write_scores=False,
             )
+
+    def test_missing_extra_names_the_extra_and_drops_the_blanket_advice(
+        self, tmp_path, patched_run_evaluation_env, monkeypatch, caplog
+    ):
+        """Issue #169: the run-level error used to close with 'Pass a registered
+        id via --models or a HuggingFace repo id via --hf-model' — two remedies
+        that fail identically when the [ml] extra is missing."""
+
+        def factory(*args, **kwargs):
+            raise MissingDependencyError(
+                "No module named 'torch' — the 'torch' package ships with the [ml] extra. "
+                'Install with: pip install "psdn-sonar[ml]"'
+            )
+
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker._model_factory", factory)
+
+        with caplog.at_level("ERROR"), pytest.raises(ValueError, match="could be constructed") as excinfo:
+            SingleSpeakerEvaluator.run_evaluation(
+                tsv_path="eval.tsv",
+                output_dir=str(tmp_path),
+                models=["whisper_base_en"],
+                language="en",
+                write_scores=False,
+            )
+
+        # The per-model log line carries the install command.
+        assert 'pip install "psdn-sonar[ml]"' in caplog.text
+        # The closing advice points at the reasons, not at ids that fail the same way.
+        text = str(excinfo.value)
+        assert "Fix the per-model reasons" in text
+        assert "Pass a registered id via --models or a HuggingFace repo id via --hf-model." not in text
 
 
 class TestScoresArtifactNullMeans:
