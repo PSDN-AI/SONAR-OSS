@@ -298,10 +298,16 @@ def _is_retryable(exc: Exception) -> bool:
     except ImportError:
         APIError = ClientError = ServerError = None  # type: ignore[assignment]
 
+    # Collected as a tuple instead of rebinding the module name to ``None``:
+    # an empty tuple makes the isinstance check below False on its own, and it
+    # needs no suppression whose "unused" status flips with whether httpx is
+    # installed (issue #172).
     try:
-        import httpx  # transitive via google-genai
+        from httpx import TimeoutException, TransportError  # transitive via google-genai
+
+        httpx_errors: tuple[type[BaseException], ...] = (TimeoutException, TransportError)
     except ImportError:
-        httpx = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        httpx_errors = ()
 
     if ServerError is not None and isinstance(exc, ServerError):
         return True
@@ -310,7 +316,7 @@ def _is_retryable(exc: Exception) -> bool:
     if APIError is not None and isinstance(exc, APIError):
         return False
 
-    if httpx is not None and isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+    if isinstance(exc, httpx_errors):
         return True
     if isinstance(exc, ConnectionError):
         return True
