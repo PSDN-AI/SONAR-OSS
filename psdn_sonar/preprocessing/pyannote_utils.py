@@ -60,7 +60,7 @@ def _import_pyannote() -> bool:
             kwargs["weights_only"] = False
             return original_pl_load(*args, **kwargs)
 
-        cloud_io._load = _patched_pl_load
+        setattr(cloud_io, "_load", _patched_pl_load)
     except (ImportError, AttributeError):
         pass
 
@@ -70,13 +70,17 @@ def _import_pyannote() -> bool:
         kwargs.setdefault("weights_only", False)
         return original_torch_load(*args, **kwargs)
 
-    torch.load = _patched_torch_load  # ty: ignore[invalid-assignment]
+    # Patched through setattr, not by assignment: a type checker reads the
+    # assignment as an incompatible attribute write, and the suppression it
+    # needs is only "used" when torch's types are visible — so the gate's
+    # verdict flipped with whether torch was installed (issue #172).
+    setattr(torch, "load", _patched_torch_load)
     try:
         import pyannote.audio  # noqa: F401
     except ImportError:
         return False
     finally:
-        torch.load = original_torch_load
+        setattr(torch, "load", original_torch_load)
     return True
 
 
