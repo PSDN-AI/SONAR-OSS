@@ -36,6 +36,19 @@ def patched_run_evaluation_env(monkeypatch):
     )
 
 
+def _tiny_wav(tmp_path) -> str:
+    import struct
+    import wave
+
+    path = tmp_path / "clip.wav"
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(struct.pack("<" + "h" * 1600, *([1000] * 1600)))
+    return str(path)
+
+
 def _fake_result(successful: int, failed: int, results=None):
     return {
         "model_name": "stub",
@@ -173,18 +186,7 @@ class TestUncomputableMetricsExcluded:
     Such rows are now failed and excluded from every aggregate, with the
     transcription preserved on the row."""
 
-    @staticmethod
-    def _tiny_wav(tmp_path) -> str:
-        import struct
-        import wave
-
-        path = tmp_path / "clip.wav"
-        with wave.open(str(path), "wb") as handle:
-            handle.setnchannels(1)
-            handle.setsampwidth(2)
-            handle.setframerate(16000)
-            handle.writeframes(struct.pack("<" + "h" * 1600, *([1000] * 1600)))
-        return str(path)
+    _tiny_wav = staticmethod(_tiny_wav)
 
     def test_reference_normalizing_to_empty_fails_row(self, tmp_path):
         model = SimpleNamespace(transcribe=lambda path: "hello world")
@@ -213,6 +215,58 @@ class TestUncomputableMetricsExcluded:
         assert result["summary"]["successful"] == 1
         assert result["summary"]["failed"] == 0
         assert result["summary"]["avg_wer"] == 0.0
+
+
+class TestFailureCauseInErrorColumn:
+    """Issue #170: an API authentication failure used to be recorded as
+    'Empty prediction' in the CSV error column and scores JSON — the 401
+    existed only in the terminal. Adapters keep the cause on
+    ``last_transcribe_error``; the evaluator writes it into the row."""
+
+    def test_recorded_cause_replaces_empty_prediction(self, tmp_path):
+        class _FailingAdapter:
+            last_transcribe_error = None
+
+            def transcribe(self, path):
+                self.last_transcribe_error = "401 Unauthorized - Incorrect API key provided: qa-inval***"
+                return None
+
+        data = [{"audio_path": _tiny_wav(tmp_path), "ground_truth": "hello"}]
+        result = SingleSpeakerEvaluator.evaluate_one(_FailingAdapter(), data, "whisper_api", language="en")
+
+        assert result["summary"]["failed"] == 1
+        row = result["results"][0]
+        assert row["error"] == "Transcription failed: 401 Unauthorized - Incorrect API key provided: qa-inval***"
+
+    def test_genuinely_empty_prediction_stays_empty_prediction(self, tmp_path):
+        model = SimpleNamespace(transcribe=lambda path: "")
+
+        data = [{"audio_path": _tiny_wav(tmp_path), "ground_truth": "hello"}]
+        result = SingleSpeakerEvaluator.evaluate_one(model, data, "stub-model", language="en")
+
+        assert result["results"][0]["error"] == "Empty prediction"
+
+    def test_stale_cause_is_not_attributed_to_the_next_clip(self, tmp_path):
+        class _OneFailAdapter:
+            last_transcribe_error = None
+            calls = 0
+
+            def transcribe(self, path):
+                self.calls += 1
+                if self.calls == 1:
+                    self.last_transcribe_error = "Invalid API key"
+                    return None
+                return ""  # clip 2: genuinely empty, no failure recorded
+
+        wav = _tiny_wav(tmp_path)
+        data = [
+            {"audio_path": wav, "ground_truth": "hello"},
+            {"audio_path": wav, "ground_truth": "world"},
+        ]
+        result = SingleSpeakerEvaluator.evaluate_one(_OneFailAdapter(), data, "stub-model", language="en")
+
+        assert result["results"][0]["error"] == "Transcription failed: Invalid API key"
+        assert result["results"][1]["error"] == "Empty prediction"
 
 
 class TestRunEvaluationFailsLoudly:

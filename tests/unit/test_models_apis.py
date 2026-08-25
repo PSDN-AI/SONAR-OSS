@@ -69,6 +69,23 @@ class TestRetryDecorator:
         with pytest.raises(ValueError):
             broken()
 
+    def test_exhaustion_records_cause_on_the_adapter(self, monkeypatch):
+        # Issue #170: a run that exhausted its retries used to leave only
+        # "Empty prediction" in the artifacts.
+        from psdn_sonar.models.apis import _retry
+        from psdn_sonar.models.base import ASRModel
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        class _Down(ASRModel):
+            @_retry(max_retries=2, backoff=0.01)
+            def transcribe(self, audio_path):
+                raise requests.exceptions.ConnectionError("connection refused")
+
+        model = _Down()
+        assert model.transcribe("clip.wav") is None
+        assert model.last_transcribe_error == "All 2 attempts failed: connection refused"
+
 
 # ---------------------------------------------------------------------------
 # ElevenLabs (plain HTTP via requests — no SDK involved)
@@ -121,6 +138,19 @@ class TestElevenLabsAPIModel:
             }
         )
         assert model.transcribe_diarized(str(clip)) == {"A": "hello there", "B": "hi"}
+
+    def test_auth_failure_cause_recorded_for_artifacts(self, tmp_path):
+        # Issue #170: the API's own message (parsed from the response body)
+        # must survive into last_transcribe_error, not just the terminal log.
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"\x00")
+        model = _elevenlabs_with_mock_session({})
+        response = MagicMock()
+        response.json.return_value = {"detail": {"message": "Invalid API key"}}
+        model._session.post.side_effect = requests.HTTPError(response=response)
+
+        assert model.transcribe(str(clip)) is None
+        assert model.last_transcribe_error == "Invalid API key"
 
     def test_word_timestamps_filter_non_words(self, tmp_path):
         clip = tmp_path / "clip.wav"
@@ -250,6 +280,68 @@ class TestAssemblyAIStreaming:
         assert text == "batch text"
         assert lm.ttft_s is None
         assert lm.complete_s is not None
+
+    def test_batch_exception_cause_recorded_for_artifacts(self, monkeypatch):
+        # Issue #170: "Failed to upload audio file: Invalid API key" used to
+        # exist only in the terminal; the artifacts said "Empty prediction".
+        _install_assemblyai_stub()
+        from psdn_sonar.models.apis import AssemblyAIAPIModel
+
+        model = AssemblyAIAPIModel(api_key="x", streaming=False)
+
+        def _boom(ap):
+            raise RuntimeError("Failed to upload audio file: Invalid API key")
+
+        monkeypatch.setattr(model.transcriber, "transcribe", _boom)
+
+        assert model.transcribe("clip.wav") is None
+        assert model.last_transcribe_error == "Failed to upload audio file: Invalid API key"
+
+    def test_errored_transcript_object_cause_recorded(self, monkeypatch):
+        # The SDK reports some failures as an errored transcript object rather
+        # than an exception; that cause must be kept too.
+        _install_assemblyai_stub()
+        from psdn_sonar.models.apis import AssemblyAIAPIModel
+
+        model = AssemblyAIAPIModel(api_key="x", streaming=False)
+        monkeypatch.setattr(
+            model.transcriber, "transcribe", lambda ap: SimpleNamespace(text=None, error="Invalid API key")
+        )
+
+        assert model.transcribe("clip.wav") is None
+        assert model.last_transcribe_error == "Invalid API key"
+
+
+def _install_openai_stub() -> None:
+    if "openai" in sys.modules:
+        return
+
+    class _OpenAI:
+        def __init__(self, api_key=None):
+            self.audio = SimpleNamespace(transcriptions=SimpleNamespace(create=lambda **kw: SimpleNamespace(text="")))
+
+    mod = _types.ModuleType("openai")
+    mod.OpenAI = _OpenAI
+    sys.modules["openai"] = mod
+
+
+class TestWhisperAPIModel:
+    def test_api_error_cause_recorded_for_artifacts(self, tmp_path):
+        # Issue #170: the 401 from an invalid OPENAI_API_KEY existed only in
+        # the terminal; the CSV/scores artifacts said "Empty prediction".
+        _install_openai_stub()
+        from psdn_sonar.models.apis import WhisperAPIModel
+
+        model = WhisperAPIModel(api_key="qa-invalid-key-for-testing")
+        model.client = MagicMock()
+        model.client.audio.transcriptions.create.side_effect = Exception(
+            "Error code: 401 - Incorrect API key provided: qa-inval***"
+        )
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"\x00")
+
+        assert model.transcribe(str(clip)) is None
+        assert model.last_transcribe_error == "Error code: 401 - Incorrect API key provided: qa-inval***"
 
 
 class TestIterPcmFrames:
