@@ -73,11 +73,10 @@ your run first.
 
 ### Install the pre-release from TestPyPI (for testing)
 
-This repository is version **`0.1.0`**. A TestPyPI wheel may still be
-published under an older dev tag (historically `0.1.0.dev2`). Check
-[TestPyPI](https://test.pypi.org/project/psdn-sonar/) for the latest
-filename before copying the commands below. The package is not yet on
-PyPI. To install a TestPyPI wheel exactly as released:
+This repository is version **`0.1.0.dev3`**, and that is the pre-release
+published on [TestPyPI](https://test.pypi.org/project/psdn-sonar/) — the
+commands below name it exactly. The package is not yet on PyPI. To install
+the TestPyPI wheel exactly as released:
 
 1. Create and activate a fresh Python 3.10–3.12 virtual environment. These
    examples use Python 3.12; substitute 3.10 or 3.11 if needed.
@@ -102,14 +101,13 @@ PyPI. To install a TestPyPI wheel exactly as released:
    dependencies:
 
    ```text
-   python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --no-cache-dir --dest testpypi-dist "psdn-sonar==0.1.0.dev2"
-   # If 0.1.0 is on TestPyPI, substitute psdn-sonar==0.1.0 and the matching wheel name below.
+   python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --no-cache-dir --dest testpypi-dist "psdn-sonar==0.1.0.dev3"
    ```
 
 3. Install that wheel, resolving dependencies from PyPI only:
 
    ```text
-   python -m pip install --index-url https://pypi.org/simple/ --no-cache-dir "testpypi-dist/psdn_sonar-0.1.0.dev2-py3-none-any.whl"
+   python -m pip install --index-url https://pypi.org/simple/ --no-cache-dir "testpypi-dist/psdn_sonar-0.1.0.dev3-py3-none-any.whl"
    ```
 
 4. Verify the install:
@@ -121,7 +119,7 @@ PyPI. To install a TestPyPI wheel exactly as released:
 
 Then follow [`docs/USAGE.md`](docs/USAGE.md) for runnable examples. To install
 an optional extra in step 3, append it to the wheel path, for example
-`"testpypi-dist/psdn_sonar-0.1.0.dev2-py3-none-any.whl[ml]"`. Once `0.1.0` is
+`"testpypi-dist/psdn_sonar-0.1.0.dev3-py3-none-any.whl[ml]"`. Once `0.1.0` is
 released, this section becomes a plain `pip install psdn-sonar`.
 
 ### Contributor install (from source)
