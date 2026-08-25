@@ -7,6 +7,7 @@ import pytest
 from psdn_sonar.models.registry import (
     _MODEL_CONFIGS,
     LANGUAGE_DEFAULT_MODELS,
+    UnknownModelError,
     create_model,
     get_language_defaults,
     list_models,
@@ -54,6 +55,17 @@ class TestCreateModel:
     def test_unknown_model_raises(self):
         with pytest.raises(ValueError, match="Unknown model"):
             create_model("nonexistent_model_xyz")
+
+    def test_unknown_model_raises_dedicated_type(self):
+        # Issue #168: callers must be able to tell "no such model" apart from
+        # other ValueErrors an adapter constructor raises (e.g. a missing API
+        # key), so the unknown-model error has its own type.
+        with pytest.raises(UnknownModelError):
+            create_model("nonexistent_model_xyz")
+
+    def test_unknown_model_error_is_a_value_error(self):
+        # Backwards compatibility: existing `except ValueError` callers keep working.
+        assert issubclass(UnknownModelError, ValueError)
 
     @patch("psdn_sonar.models.registry._import_class")
     def test_creates_registered_model(self, mock_import):

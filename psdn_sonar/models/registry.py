@@ -9,6 +9,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+
+class UnknownModelError(ValueError):
+    """Raised by :func:`create_model` when the model name is not registered.
+
+    Subclasses ``ValueError`` for backwards compatibility, but lets callers
+    distinguish "no such model" from other ``ValueError``\\s an adapter's
+    constructor may raise — e.g. a missing API key (issue #168), which must
+    reach the user instead of being reported as an unknown model.
+    """
+
+
 # Maps model name -> (class_path_string, default_kwargs)
 # Using strings for class paths avoids importing heavy ML libraries at import time.
 _MODEL_CONFIGS: Dict[str, Tuple[str, dict]] = {
@@ -130,7 +141,8 @@ def create_model(name: str, *, custom_hf_model: Optional[str] = None, language: 
         An ASRModel instance
 
     Raises:
-        ValueError: If model name is not registered and no custom_hf_model given
+        UnknownModelError: If model name is not registered and no custom_hf_model
+            given (a ``ValueError`` subclass)
     """
     if custom_hf_model:
         from psdn_sonar.models.huggingface import CustomHuggingFaceModel
@@ -140,7 +152,7 @@ def create_model(name: str, *, custom_hf_model: Optional[str] = None, language: 
 
     config = _MODEL_CONFIGS.get(name)
     if config is None:
-        raise ValueError(f"Unknown model '{name}'. Available: {list_models()}")
+        raise UnknownModelError(f"Unknown model '{name}'. Available: {list_models()}")
 
     class_path, default_kwargs = config
     merged_kwargs = {**default_kwargs, **kwargs}
