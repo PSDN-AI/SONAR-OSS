@@ -151,3 +151,10 @@ class TestOutputRow:
         row = self._row(all_method_scores={"pyannote": 0.9})
         assert json.loads(row["all_method_scores"]) == {"pyannote": 0.9}
         assert self._row()["all_method_scores"] == ""
+
+    def test_error_column_defaults_empty_and_carries_the_reason(self):
+        # Issue #181: the multi CSV records why a row failed.
+        assert self._row()["error"] == ""
+        assert self._row(error="Transcription failed: Invalid API key")["error"] == (
+            "Transcription failed: Invalid API key"
+        )

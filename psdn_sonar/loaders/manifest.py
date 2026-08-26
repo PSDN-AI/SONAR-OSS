@@ -156,6 +156,7 @@ def get_output_fieldnames() -> List[str]:
         "quality_warnings",
         "inference_latency_s",
         "all_method_scores",
+        "error",
     ]
 
 
@@ -186,6 +187,7 @@ def create_output_row(
     quality_warnings: Optional[str] = None,
     inference_latency_s=None,
     all_method_scores: Optional[dict] = None,
+    error: Optional[str] = None,
 ) -> dict:
     """Create an output row dict matching :func:`get_output_fieldnames`."""
 
@@ -219,4 +221,5 @@ def create_output_row(
         "quality_warnings": quality_warnings or "",
         "inference_latency_s": f"{inference_latency_s:.4f}" if inference_latency_s is not None else "",
         "all_method_scores": json.dumps(all_method_scores) if all_method_scores else "",
+        "error": error or "",
     }

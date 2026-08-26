@@ -265,3 +265,165 @@ class TestProcessManifestWithASR:
 
         stats_text = (tmp_path / "out.txt").read_text(encoding="utf-8")
         assert "Mode: fixed:no_trim" in stats_text
+
+
+class _FailingModel(_StubModel):
+    """Adapter-contract stub for a failing backend: records the cause on the
+    instance and returns ``None`` (issues #170/#178) — never raises."""
+
+    def __init__(self, cause="Invalid API key"):
+        super().__init__()
+        self.cause = cause
+        self.last_transcribe_error = None
+
+    def transcribe(self, audio_path):
+        self.calls.append(audio_path)
+        self.last_transcribe_error = self.cause
+        return None
+
+
+class TestFailedTranscriptionRows:
+    """Issue #181: a transcription that failed is not an empty hypothesis.
+
+    The multi path used to coerce an adapter's ``None`` (auth failure, network
+    error, …) to ``""`` and score it — two CER/WER 1.0 rows, no error field,
+    ``Samples: 2`` and exit 0 — where ``single`` counts the row failed with the
+    cause recorded and exits 1.
+    """
+
+    def _read_rows(self, output):
+        with open(output, encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    def test_all_failed_run_writes_causes_and_raises(self, tmp_path):
+        manifest = _write_manifest_dataset(tmp_path)
+        output = tmp_path / "out.csv"
+
+        with pytest.raises(RuntimeError, match="No clips were successfully processed"):
+            process_manifest_with_asr(
+                str(manifest),
+                _FailingModel("Invalid API key"),
+                str(output),
+                methods=["no_trim"],
+                language="en",
+            )
+
+        rows = self._read_rows(output)
+        assert len(rows) == 2
+        for row in rows:
+            assert row["error"] == "Transcription failed: Invalid API key"
+            assert row["cer_conv"] == ""  # failed, not scored
+            assert row["wer_conv"] == ""
+            assert row["asr_transcription"] == ""
+
+    def test_partial_failure_scores_the_survivor_and_splits_the_summary(self, tmp_path):
+        class _FlakyModel(_StubModel):
+            """Fails the first call (records the cause, returns None), then
+            transcribes normally without touching the attribute — clearing
+            is the caller's job (issue #170)."""
+
+            last_transcribe_error = None
+
+            def transcribe(self, audio_path):
+                self.calls.append(audio_path)
+                if len(self.calls) == 1:
+                    self.last_transcribe_error = "Invalid API key"
+                    return None
+                return self.text
+
+        manifest = _write_manifest_dataset(tmp_path, ref_a="hello world", ref_b="hello world")
+        output = tmp_path / "out.csv"
+
+        # One row succeeded, so the zero-rows guard must NOT trip.
+        process_manifest_with_asr(
+            str(manifest),
+            _FlakyModel("hello world"),
+            str(output),
+            asr_model_name="stub-model",
+            methods=["no_trim"],
+            language="en",
+        )
+
+        rows = {r["speaker"]: r for r in self._read_rows(output)}
+        assert rows["A"]["error"] == "Transcription failed: Invalid API key"
+        assert rows["A"]["wer_conv"] == ""
+        assert rows["B"]["error"] == ""
+        assert float(rows["B"]["wer_conv"]) == 0.0
+
+        stats_text = (tmp_path / "out.txt").read_text(encoding="utf-8")
+        assert "Samples: 1" in stats_text
+        assert "Failed: 1" in stats_text
+
+    def test_genuinely_empty_prediction_is_scored_not_failed(self, tmp_path):
+        """The benchmark README convention holds: an empty hypothesis against a
+        non-empty reference is measurable (WER/CER 1.0), not a failed row."""
+        manifest = _write_manifest_dataset(tmp_path)
+        output = tmp_path / "out.csv"
+
+        class _EmptyModel(_StubModel):
+            last_transcribe_error = None
+
+        process_manifest_with_asr(
+            str(manifest),
+            _EmptyModel(""),
+            str(output),
+            methods=["no_trim"],
+            language="en",
+        )
+
+        rows = self._read_rows(output)
+        assert len(rows) == 2
+        for row in rows:
+            assert row["error"] == ""
+            assert row["wer_conv"] == "1.0000"
+
+        stats_text = (tmp_path / "out.txt").read_text(encoding="utf-8")
+        assert "Samples: 2" in stats_text
+        assert "Failed: 0" in stats_text
+
+    def test_stale_cause_is_not_attributed_to_a_later_empty_prediction(self, tmp_path):
+        """After a failure, a following genuinely-empty transcription must be
+        scored, not blamed on the previous call's recorded cause."""
+
+        class _FailThenEmpty(_StubModel):
+            last_transcribe_error = None
+
+            def transcribe(self, audio_path):
+                self.calls.append(audio_path)
+                if len(self.calls) == 1:
+                    self.last_transcribe_error = "Invalid API key"
+                    return None
+                return ""
+
+        manifest = _write_manifest_dataset(tmp_path)
+        output = tmp_path / "out.csv"
+
+        process_manifest_with_asr(
+            str(manifest),
+            _FailThenEmpty(),
+            str(output),
+            methods=["no_trim"],
+            language="en",
+        )
+
+        rows = {r["speaker"]: r for r in self._read_rows(output)}
+        assert rows["A"]["error"] == "Transcription failed: Invalid API key"
+        assert rows["B"]["error"] == ""
+        assert rows["B"]["wer_conv"] == "1.0000"
+
+    def test_sweep_mode_records_the_cause_too(self, tmp_path):
+        manifest = _write_manifest_dataset(tmp_path)
+        output = tmp_path / "out.csv"
+
+        with pytest.raises(RuntimeError, match="No clips were successfully processed"):
+            process_manifest_with_asr(
+                str(manifest),
+                _FailingModel("Invalid API key"),
+                str(output),
+                methods=["no_trim"],
+                language="en",
+                sweep=True,
+            )
+
+        for row in self._read_rows(output):
+            assert "Invalid API key" in row["error"]
