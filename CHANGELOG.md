@@ -93,6 +93,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gated repo this pipeline depends on`, extracting the repo from the 403's
   own URL or prose while ignoring the documentation/settings links
   HuggingFace errors also carry.
+- The `multi` path now distinguishes a failed transcription from an empty
+  one, the same way `single` does (#181). Adapters return `None` after
+  recording the cause, but the manifest loop coerced that to `""` and scored
+  it as a real empty hypothesis: an authentication failure produced two
+  fully scored rows (CER/WER 1.0), a `Samples: 2` summary with no
+  successful/failed split, no error field anywhere in the CSV, and exit 0 —
+  while the same key on `single` wrote `Transcription failed: <cause>` and
+  exited 1. The multi CSV now carries an `error` column; a transcription
+  with a recorded cause becomes a failed row holding that cause instead of a
+  scored one, and the rows the pipeline already wrote for preprocessing
+  failures now say why (including the pyannote install hint the selector
+  recorded but had nowhere to put). Failed rows no longer count as
+  processed, so the `.txt` summary gains a `Failed:` line and an all-failure
+  run trips the existing zero-rows guard and exits non-zero. A genuinely
+  empty prediction with no recorded cause still scores WER/CER 1.0, per the
+  benchmark README convention, and the stale-cause clearing protocol from
+  #170 applies before every transcription.
 - A failed transcription now records its cause in the artifacts the CLI
   points at (#170). Every adapter catches broadly and returns `None` by
   design, so one bad clip cannot abort a long run — but that also meant an
