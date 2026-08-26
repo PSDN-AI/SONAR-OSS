@@ -311,10 +311,26 @@ def process_manifest_with_asr(
     transcribe_latencies: list[float] = []
 
     def transcribe_with_latency(audio_path: str) -> str:
+        # Clear any stale failure cause so a previous call's error is never
+        # attributed to this one (same protocol as the single-speaker path,
+        # issue #170).
+        if hasattr(asr_model, "last_transcribe_error"):
+            asr_model.last_transcribe_error = None
         t0 = time.perf_counter()
         raw_result = asr_model.transcribe(audio_path)
         transcribe_latencies.append(round(time.perf_counter() - t0, 4))
         text, _ = unpack_transcription(raw_result)
+        if not text:
+            # Adapters record the cause and return None on failure (issue
+            # #178). A failed transcription is not an empty hypothesis, so it
+            # must not be scored as if the model heard silence (issue #181):
+            # raising routes the cause into the per-speaker error plumbing,
+            # and the row comes out failed with the reason in its error
+            # column. A genuinely empty prediction (no recorded cause) still
+            # scores WER/CER 1.0 per the benchmark README convention.
+            cause = getattr(asr_model, "last_transcribe_error", None)
+            if cause:
+                raise RuntimeError(f"Transcription failed: {cause}")
         return text or ""
 
     def compute_metrics(ref_text: str, hyp_text: str):
@@ -328,6 +344,7 @@ def process_manifest_with_asr(
     os.makedirs(os.path.dirname(output_csv) or ".", exist_ok=True)
 
     processed_count = 0
+    failed_count = 0
     acc: Dict[str, list] = {k: [] for k in _METRIC_KEYS}
 
     with open(output_csv, "w", newline="", encoding="utf-8") as outfile:
@@ -343,8 +360,16 @@ def process_manifest_with_asr(
             path: str = "",
             transcription_norm: str = "",
             latency: Optional[float] = None,
+            error: str = "",
         ) -> None:
-            """Row with audio-quality data but no scores, for clips that could not be evaluated."""
+            """Row with audio-quality data but no scores, for clips that could not be evaluated.
+
+            Counted in the failed total and never in ``processed_count``, with
+            the reason in the ``error`` column — the same convention the
+            single-speaker path applies (issue #181).
+            """
+            nonlocal failed_count
+            failed_count += 1
             writer.writerow(
                 create_output_row(
                     audio_id=clip_id,
@@ -372,6 +397,7 @@ def process_manifest_with_asr(
                     snr_tier=aq.get("snr_tier"),
                     quality_warnings=aq.get("quality_warnings", ""),
                     inference_latency_s=latency,
+                    error=error,
                 )
             )
 
@@ -446,7 +472,7 @@ def process_manifest_with_asr(
 
             if eval_error is not None:
                 for speaker, ref_text in [("A", ref_a), ("B", ref_b)]:
-                    write_failure_row(clip_id, speaker, ref_text, aq_map[speaker])
+                    write_failure_row(clip_id, speaker, ref_text, aq_map[speaker], error=str(eval_error))
                 continue
 
             clip_latencies = transcribe_latencies[lat_start_idx:]
@@ -455,7 +481,18 @@ def process_manifest_with_asr(
             if best_a is None and best_b is None:
                 logger.warning(f"No valid methods for {clip_id}, skipping")
                 for speaker, ref_text in [("A", ref_a), ("B", ref_b)]:
-                    write_failure_row(clip_id, speaker, ref_text, aq_map[speaker], latency=clip_latency)
+                    # The selector records the actionable per-speaker reason
+                    # (e.g. the pyannote install hint) in all_results; surface
+                    # it instead of a generic placeholder.
+                    reason = next((r.get("error") for r in all_results.get(speaker, []) if r.get("error")), None)
+                    write_failure_row(
+                        clip_id,
+                        speaker,
+                        ref_text,
+                        aq_map[speaker],
+                        latency=clip_latency,
+                        error=reason or "No preprocessing method produced a result for this clip",
+                    )
                 continue
 
             for speaker, best_result, ref_text, audio_path in [
@@ -473,6 +510,7 @@ def process_manifest_with_asr(
                         path=str(audio_path or ""),
                         transcription_norm=normalize_text_unified(ref_text, language=language),
                         latency=clip_latency,
+                        error=(best_result.get("error") or "") if best_result else "No result for this speaker",
                     )
                     continue
 
@@ -525,6 +563,12 @@ def process_manifest_with_asr(
                 processed_count += 1
                 _accumulate(acc, values)
 
+    if failed_count:
+        logger.warning(
+            f"Successful: {processed_count}, Failed: {failed_count} — "
+            f"per-row reasons are in the error column of {output_csv}"
+        )
+
     if processed_count > 0:
         m_cer_c, _ = _mean_std(acc["cer_c"])
         m_wer_c, _ = _mean_std(acc["wer_c"])
@@ -540,7 +584,7 @@ def process_manifest_with_asr(
                 mode_str = f"fixed:{method}"
             else:
                 mode_str = f"auto ({', '.join(active_methods)})"
-            f.write(f"Mode: {mode_str}\nSamples: {processed_count}\n\n")
+            f.write(f"Mode: {mode_str}\nSamples: {processed_count}\nFailed: {failed_count}\n\n")
             f.write("--- Combined ---\n")
             f.write("\n".join(_stats_lines(acc, "c")) + "\n")
 
@@ -551,6 +595,7 @@ def process_manifest_with_asr(
         # written above still carries the header plus any per-clip error rows.
         raise RuntimeError(
             "No clips were successfully processed — 0 evaluated rows. "
-            f"See the warnings above and the per-clip rows in {output_csv} for the reasons "
-            "(missing transcripts/audio, preprocessing failures, or missing optional dependencies)."
+            f"See the warnings above and the error column of the per-clip rows in {output_csv} "
+            "for the reasons (transcription failures, missing transcripts/audio, "
+            "preprocessing failures, or missing optional dependencies)."
         )
