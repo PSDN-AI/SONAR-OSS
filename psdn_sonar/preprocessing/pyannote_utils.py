@@ -11,6 +11,7 @@ cannot import against the modern torchaudio the ``[ml]`` extra locks
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import NoReturn, Optional
 
@@ -20,13 +21,44 @@ GATED_MODEL_HINT = (
     "pyannote models are gated on HuggingFace: a valid HF_TOKEN alone is not "
     "enough. The token's account must also accept each model's user conditions "
     "(a one-time form on the model page) at "
-    "https://huggingface.co/pyannote/segmentation-3.0 and "
-    "https://huggingface.co/pyannote/speaker-diarization-3.1. Until then "
-    "HuggingFace rejects the request even though the token itself is valid. "
-    "Also check that HF_TOKEN is set (in .env or the environment) and not expired."
+    "https://huggingface.co/pyannote/segmentation-3.0, "
+    "https://huggingface.co/pyannote/speaker-diarization-3.1, and "
+    "https://huggingface.co/pyannote/speaker-diarization-community-1 — the "
+    "diarization pipeline downloads the third as a gated dependency under "
+    "pyannote.audio 4.x, so it needs accepting even though no command names it "
+    "(issue #190). Until then HuggingFace rejects the request even though the "
+    "token itself is valid. Also check that HF_TOKEN is set (in .env or the "
+    "environment) and not expired."
 )
 
 _AUTH_ERROR_MARKERS = ("401", "403", "gated", "authorized", "forbidden", "restricted")
+
+# Repos a HuggingFace error names, as a URL
+# (https://huggingface.co/<org>/<name>/resolve/...) or in prose
+# ("Access to model <org>/<name> is restricted").
+_HF_REPO_IN_ERROR_RE = re.compile(
+    r"huggingface\.co/([\w.-]+/[\w.-]+)|(?:model|repo(?:sitory)?)\s+'?([\w.-]+/[\w.-]+)'?",
+    re.IGNORECASE,
+)
+
+
+def _refused_repo(error_text: str, model_id: str) -> Optional[str]:
+    """The repo the error actually refuses, when it is not *model_id* itself.
+
+    Loading a pipeline can fetch gated dependency repos the caller never named:
+    under pyannote.audio 4.x, ``pyannote/speaker-diarization-3.1`` pulls
+    ``pyannote/speaker-diarization-community-1`` (issue #190). A headline that
+    repeats the requested model sends the reader back to re-check an
+    authorization that is already granted, so surface the repo named by the
+    refusal itself. Candidates outside the requested model's org are ignored —
+    HuggingFace errors also link non-repo pages (docs, settings/tokens).
+    """
+    org = model_id.split("/", 1)[0].lower()
+    for match in _HF_REPO_IN_ERROR_RE.finditer(error_text):
+        repo = (match.group(1) or match.group(2)).rstrip(".")
+        if repo.lower() != model_id.lower() and repo.lower().startswith(f"{org}/"):
+            return repo
+    return None
 
 
 def _raise_load_error(model_id: str, exc: Exception) -> NoReturn:
@@ -34,9 +66,17 @@ def _raise_load_error(model_id: str, exc: Exception) -> NoReturn:
     when it looks like an auth/gating rejection (issue #171): the raw HuggingFace
     401/403 (e.g. ``403 ... not in the authorized list``) carries no hint that
     accepting the model's user conditions is a required step beyond HF_TOKEN.
+    When the refusal is for a dependency repo rather than *model_id* itself,
+    the headline names that repo (issue #190).
     """
     text = str(exc).lower()
     if any(marker in text for marker in _AUTH_ERROR_MARKERS):
+        refused = _refused_repo(str(exc), model_id)
+        if refused is not None:
+            raise RuntimeError(
+                f"Could not load '{model_id}' from HuggingFace: access was refused for "
+                f"'{refused}', a gated repo this pipeline depends on: {exc}. {GATED_MODEL_HINT}"
+            ) from exc
         raise RuntimeError(f"Could not load '{model_id}' from HuggingFace: {exc}. {GATED_MODEL_HINT}") from exc
     raise exc
 
