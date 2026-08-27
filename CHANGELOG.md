@@ -78,6 +78,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `discover` now stops the moment the disk cannot fit the next download,
+  instead of downloading for hours past huggingface_hub's "not enough free
+  disk space" warning until the disk is 99% full (#183). The hub warns with
+  the expected file size *before* each download; the preparer promotes that
+  warning to an error, and any disk-full evidence in a failed split's
+  exception chain (`ENOSPC` errno, "No space left on device", the Rust-style
+  "os error 28") now aborts the run rather than being downgraded to a
+  per-split warning. The failure surfaces through the CLI's clean one-line
+  `OSError` path (#149) and names what the old traceback did not: the disk,
+  the partial download left in the HuggingFace cache and where to delete it,
+  and that `--max-samples` bounds preparation, not the download. The
+  "No samples could be loaded" RuntimeError raised when every split fails
+  for other reasons is no longer unchained — it names and carries the last
+  real failure as its cause.
 - An intact M4A/MP4 file is no longer reported as malformed by the pipeline
   adapters (#182). Given a path, the transformers ASR pipeline pushes the
   file's bytes to ffmpeg on stdin, and an MP4-family container — the default

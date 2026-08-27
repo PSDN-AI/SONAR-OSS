@@ -282,6 +282,28 @@ class TestDiscoverDispatch:
         assert prepare_records[0].exc_info is None
         assert "All 1 dataset(s) failed to prepare: fleurs" in caplog.text
 
+    def test_disk_full_logs_clean_actionable_error_without_traceback(self, caplog):
+        """Issue #183: a full disk must reach the OSError handler as one clean
+        actionable line naming the cache, not the catch-all with a traceback
+        about 'no samples could be loaded'."""
+        disk_full = OSError(
+            28,
+            "the disk filled up while preparing org/fake (No space left on device). "
+            "The partial download is kept in the HuggingFace cache at /home/x/.cache/huggingface.",
+        )
+        with (
+            patch("psdn_sonar.data.discovery.DatasetDiscovery.discover", return_value=[self._fake_dataset()]),
+            patch("psdn_sonar.data.preparer.DatasetPreparer.prepare", side_effect=disk_full),
+        ):
+            with caplog.at_level("ERROR"):
+                with pytest.raises(SystemExit) as exc_info:
+                    run_cli("discover", "--language", "en")
+        assert exc_info.value.code == 1
+        prepare_records = [r for r in caplog.records if "Failed to prepare fleurs" in r.getMessage()]
+        assert len(prepare_records) == 1
+        assert "HuggingFace cache" in prepare_records[0].getMessage()
+        assert prepare_records[0].exc_info is None
+
     def test_unexpected_preparer_error_keeps_traceback(self, caplog):
         """Genuine bugs (non-OSError) must stay loud with their traceback."""
         with (
