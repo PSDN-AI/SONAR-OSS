@@ -178,7 +178,7 @@ testpaths = ["tests"]
 # is for local runs.
 addopts = "--cov=psdn_sonar --cov-report=term-missing --cov-report=xml"
 markers = [
-    "live_gemini: hits the live Gemini API (network); requires RUN_LIVE_GEMINI_TESTS=1 and an API key — never runs in default CI",
+    "live_gemini: hits the live Gemini API (network); requires RUN_LIVE_GEMINI_TESTS=1 and an API key — excluded from PR CI, run weekly by the scheduled live-gemini workflow (#187)",
 ]
 
 [tool.coverage.run]

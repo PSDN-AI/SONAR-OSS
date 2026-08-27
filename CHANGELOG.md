@@ -78,6 +78,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The LLM judge's default model resolves again, and the test that guards it
+  finally runs somewhere (#187). Google retired the entire stable Gemini 2.5
+  generation for new users, taking both names the module hardcoded with it:
+  `gemini-2.5-pro` (the default) and `gemini-2.5-flash` (the documented cheap
+  alternative) now 404 with "no longer available to new users", so the judge
+  failed on its own default. `DEFAULT_MODEL` is now `gemini-3.6-flash`, the
+  name verified live on a fresh key; `gemini-3.1-pro-preview` is the
+  documented stronger opt-in (paid tier only — its free-tier quota is 0). The
+  old docstring preferred stable tier over recency precisely to avoid this
+  404, and events inverted it: the stable generation retired first while the
+  previews stayed up. The real guard was never a naming heuristic but
+  `TestLiveSmoke::test_default_model_string_is_live` — which was opt-in and
+  wired to nothing (zero occurrences of `RUN_LIVE_GEMINI_TESTS` under
+  `.github/workflows/`). A scheduled `live-gemini` workflow now runs it
+  weekly against the live API (needs the `GEMINI_API_KEY` repository secret;
+  until that's configured the run warns instead of silently passing), and a
+  unit test pins the wiring so the workflow can't be deleted unnoticed.
+  Cached judgments key on the model string, so the default change
+  auto-invalidates them — no stale cross-judge comparisons.
 - `--language` now reaches a registered model's constructor (#186).
   `create_model` used its `language` argument only on the `custom_hf_model`
   branch; registered models were built from registry kwargs alone, and the
