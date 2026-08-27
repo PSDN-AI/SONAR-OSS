@@ -298,3 +298,110 @@ class TestDatasetPreparer:
     def test_floating_or_short_revision_is_rejected(self, revision, tmp_path):
         with pytest.raises(ValueError, match="immutable source revision"):
             DatasetPreparer(self._dataset(revision=revision), "en", tmp_path, skip_audio_validation=True, seed=0)
+
+
+class TestDiskFullAbort:
+    """Issue #183: a full disk must abort the run with an actionable OSError,
+    not be downgraded to a per-split warning and buried under an unchained
+    'No samples could be loaded' RuntimeError."""
+
+    def _dataset(self, splits=("train", "validation", "test")):
+        return AvailableDataset(
+            name="fake",
+            hf_id="org/fake",
+            config="en",
+            revision=FAKE_REVISION,
+            splits=list(splits),
+            text_column="sentence",
+            audio_column="audio",
+        )
+
+    def _preparer(self, tmp_path, splits=("train", "validation", "test")):
+        return DatasetPreparer(self._dataset(splits), "en", tmp_path, skip_audio_validation=True, seed=0)
+
+    def _assert_actionable(self, exc: OSError):
+        import errno
+
+        assert exc.errno == errno.ENOSPC
+        message = str(exc)
+        assert "org/fake" in message
+        assert "HuggingFace cache" in message
+        assert "--max-samples" in message
+
+    def test_wrapped_enospc_aborts_instead_of_trying_remaining_splits(self, tmp_path, monkeypatch):
+        calls = []
+
+        def boom(*a, split, **k):
+            calls.append(split)
+            enospc = OSError(28, "No space left on device")
+            raise RuntimeError("An error occurred while generating the dataset") from enospc
+
+        monkeypatch.setattr("datasets.load_dataset", boom)
+        with pytest.raises(OSError) as exc_info:
+            self._preparer(tmp_path).prepare()
+
+        self._assert_actionable(exc_info.value)
+        # Continuing cannot succeed: the remaining splits must not be attempted.
+        assert calls == ["train"]
+
+    def test_rust_style_enospc_text_without_errno_is_recognized(self, tmp_path, monkeypatch):
+        def boom(*a, **k):
+            # hf_transfer/xet render ENOSPC without a Python errno.
+            raise RuntimeError("No space left on device (os error 28)")
+
+        monkeypatch.setattr("datasets.load_dataset", boom)
+        with pytest.raises(OSError) as exc_info:
+            self._preparer(tmp_path).prepare()
+        self._assert_actionable(exc_info.value)
+
+    def test_hub_disk_space_warning_stops_the_run_before_the_download(self, tmp_path, monkeypatch):
+        import warnings
+
+        calls = []
+
+        def warn_then_return(*a, split, **k):
+            calls.append(split)
+            # huggingface_hub._check_disk_space warns and carries on downloading.
+            warnings.warn(
+                "Not enough free disk space to download the file. "
+                "The expected file size is: 3254.87 MB. "
+                "The target location /home/x/.cache only has 3208.73 MB free disk space."
+            )
+            return FakeDataset([{"audio": {"path": "/data/a.wav"}, "sentence": "hi"}])
+
+        monkeypatch.setattr("datasets.load_dataset", warn_then_return)
+        with pytest.raises(OSError) as exc_info:
+            self._preparer(tmp_path).prepare()
+
+        self._assert_actionable(exc_info.value)
+        assert calls == ["train"]
+
+    def test_enospc_while_writing_audio_gets_the_same_treatment(self, tmp_path, monkeypatch):
+        arr = np.zeros(8000, dtype=np.float32)
+        rows = [{"audio": {"array": arr, "sampling_rate": 16000}, "sentence": "hello"}]
+        monkeypatch.setattr("datasets.load_dataset", lambda *a, split, **k: FakeDataset(rows))
+
+        def full_disk(*a, **k):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr("soundfile.write", full_disk)
+        with pytest.raises(OSError) as exc_info:
+            self._preparer(tmp_path, splits=("train",)).prepare()
+        self._assert_actionable(exc_info.value)
+
+    def test_benign_failures_still_continue_and_the_final_error_names_the_cause(self, tmp_path, monkeypatch):
+        calls = []
+
+        def boom(*a, split, **k):
+            calls.append(split)
+            raise ValueError(f"bad config for {split}")
+
+        monkeypatch.setattr("datasets.load_dataset", boom)
+        with pytest.raises(RuntimeError, match="No samples could be loaded") as exc_info:
+            self._preparer(tmp_path).prepare()
+
+        # All splits were still attempted, and the RuntimeError is no longer
+        # unchained: it names and carries the last real failure.
+        assert calls == ["train", "validation", "test"]
+        assert "bad config for test" in str(exc_info.value)
+        assert isinstance(exc_info.value.__cause__, ValueError)

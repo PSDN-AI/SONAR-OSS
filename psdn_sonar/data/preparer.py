@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import csv
+import errno
 import json
 import logging
 import random
+import shutil
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from .catalog import validate_huggingface_revision
 from .registry import DATASET_REGISTRY, AvailableDataset, resolve_config
@@ -17,6 +20,75 @@ if TYPE_CHECKING:
     from datasets import Dataset
 
 logger = logging.getLogger(__name__)
+
+# huggingface_hub._check_disk_space warns with this prefix *before* downloading
+# a file that will not fit on disk. Promoted to an error so the run stops at
+# that point instead of downloading for hours until ENOSPC (issue #183).
+_DISK_SPACE_WARNING = "Not enough free disk space"
+
+# ENOSPC as rendered by layers that drop the errno: pyarrow/C++ keeps the
+# strerror text, hf_transfer/xet (Rust) renders "... (os error 28)".
+_ENOSPC_TEXT_MARKERS = ("No space left on device", "os error 28")
+
+
+def _hf_cache_home() -> Path:
+    """Best-effort location of the HuggingFace cache (holds partial downloads)."""
+    try:
+        from huggingface_hub.constants import HF_HOME
+
+        return Path(HF_HOME)
+    except Exception:
+        return Path.home() / ".cache" / "huggingface"
+
+
+def _disk_full_evidence(exc: BaseException) -> Optional[BaseException]:
+    """Return the exception in *exc*'s cause chain evidencing a full disk, else None.
+
+    datasets/pyarrow/huggingface_hub wrap the original ENOSPC in their own
+    exception types (often losing the errno), so check each link for the errno,
+    the strerror text, or the promoted hub disk-space warning.
+    """
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OSError) and current.errno == errno.ENOSPC:
+            return current
+        if isinstance(current, Warning) and str(current).startswith(_DISK_SPACE_WARNING):
+            return current
+        text = str(current)
+        if any(marker in text for marker in _ENOSPC_TEXT_MARKERS):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def _raise_if_disk_full(exc: BaseException, hf_id: str) -> None:
+    """Re-raise *exc* as an actionable ENOSPC OSError if it evidences a full disk.
+
+    Continuing past a full disk cannot succeed, so this must escape the
+    per-split downgrade-and-continue handling. Raising OSError (not
+    RuntimeError) routes it to the CLI's clean one-line error path (#149),
+    and the message names what the bare "os error 28" does not: the partial
+    download sitting in the HuggingFace cache and how to reclaim it.
+    """
+    evidence = _disk_full_evidence(exc)
+    if evidence is None:
+        return
+    cache = _hf_cache_home()
+    try:
+        free_note = f"; that disk has {shutil.disk_usage(cache).free / 1e9:.1f} GB free now"
+    except OSError:
+        free_note = ""
+    raise OSError(
+        errno.ENOSPC,
+        f"the disk filled up while preparing {hf_id} ({evidence}). "
+        f"The partial download is kept in the HuggingFace cache at {cache}{free_note}. "
+        f"Reclaim the space by deleting the dataset's directories under that cache "
+        f"({cache / 'hub'} holds the raw download, {cache / 'datasets'} the prepared data). "
+        "Note that each requested split is fetched in full on first run; --max-samples "
+        "bounds what is prepared, not the download (see 'What a first run costs' in the README).",
+    ) from exc
 
 
 def _audio_to_path(audio: dict | str | None, index: int, audio_dir: Path) -> str:
@@ -156,6 +228,7 @@ class DatasetPreparer:
         has_predefined_splits = len(hf_splits) > 1
 
         all_records: dict[str, list[dict]] = {}
+        last_error: Optional[BaseException] = None
 
         for split in hf_splits:
             logger.info(
@@ -165,29 +238,46 @@ class DatasetPreparer:
                 split,
             )
             try:
-                if self.dataset.config:
-                    ds = load_dataset(
-                        self.dataset.hf_id,
-                        self.dataset.config,
-                        split=split,
-                        revision=self.dataset.revision,
-                    )
-                else:
-                    ds = load_dataset(
-                        self.dataset.hf_id,
-                        split=split,
-                        revision=self.dataset.revision,
-                    )
+                with warnings.catch_warnings():
+                    # Stop at the first file that will not fit on disk instead
+                    # of downloading past the hub's warning until ENOSPC (#183).
+                    warnings.filterwarnings("error", message=_DISK_SPACE_WARNING)
+                    if self.dataset.config:
+                        ds = load_dataset(
+                            self.dataset.hf_id,
+                            self.dataset.config,
+                            split=split,
+                            revision=self.dataset.revision,
+                        )
+                    else:
+                        ds = load_dataset(
+                            self.dataset.hf_id,
+                            split=split,
+                            revision=self.dataset.revision,
+                        )
             except Exception as exc:
+                # A full disk fails every remaining split too — abort, do not
+                # downgrade it to a per-split warning (#183).
+                _raise_if_disk_full(exc, self.dataset.hf_id)
+                last_error = exc
                 logger.warning("Could not load split '%s': %s", split, exc)
                 continue
 
-            records = self._process_split(ds, split, audio_dir)
+            try:
+                records = self._process_split(ds, split, audio_dir)
+            except OSError as exc:
+                _raise_if_disk_full(exc, self.dataset.hf_id)
+                raise
             all_records[split] = records
             logger.info("  Processed %d samples for split '%s'", len(records), split)
 
         if not any(all_records.values()):
-            raise RuntimeError(f"No samples could be loaded from {self.dataset.hf_id}/{self.dataset.config}")
+            message = f"No samples could be loaded from {self.dataset.hf_id}/{self.dataset.config}"
+            if last_error is not None:
+                # Chain and name the real failure: an unchained RuntimeError
+                # hides the cause from the reader and from the CLI (#183).
+                raise RuntimeError(f"{message} (last failure: {last_error})") from last_error
+            raise RuntimeError(message)
 
         if has_predefined_splits:
             split_map = self._use_predefined_splits(all_records)
