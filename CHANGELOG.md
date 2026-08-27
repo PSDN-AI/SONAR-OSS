@@ -78,6 +78,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A run without the `[ml]` extra no longer reports clean success while
+  semantic similarity and POSEIDON are silently null (#191). The
+  `ModuleNotFoundError` for sentence-transformers was swallowed by the
+  batch-semantics `except Exception` as a warning-with-traceback, so a
+  core-only install evaluating a hosted API model (reachable with no extras
+  at all) produced `successful: N, failed: 0`, null headline metrics, and an
+  empty `warnings` array — nothing in any artifact said the metrics were
+  missing or why. The evaluator now checks for the dependency up front when
+  semantics are requested and emits the same one-actionable-line style as
+  the other dependency paths (#169/#177) — naming
+  `pip install "psdn-sonar[ml]"` — before any transcription time or API
+  spend, and records that line in the `scores.json` `warnings` array so a
+  reader of the artifact alone can tell. A genuine runtime failure in the
+  semantics batch (which has no known remedy) keeps its traceback in the
+  log and is now also recorded in `warnings` instead of vanishing. WER/CER
+  behavior is unchanged.
 - `discover` now stops the moment the disk cannot fit the next download,
   instead of downloading for hours past huggingface_hub's "not enough free
   disk space" warning until the disk is 99% full (#183). The hub warns with

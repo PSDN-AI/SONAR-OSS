@@ -43,6 +43,26 @@ class NoSamplesEvaluatedError(RuntimeError):
     """
 
 
+# One line with the known remedy, matching the other dependency paths
+# (#169/#177): without it a core-only install ran to completion with the
+# headline metrics silently null and nothing in any artifact saying why
+# (issue #191).
+_SEMANTICS_MISSING_EXTRA_WARNING = (
+    "semantic_similarity and poseidon_score were not computed: "
+    "sentence-transformers is not installed (a core install without the [ml] extra). "
+    'WER/CER are unaffected. Install with: pip install "psdn-sonar[ml]"'
+)
+
+
+def _semantics_dependency_missing() -> bool:
+    """True when the [ml] extra needed for semantic similarity is absent."""
+    try:
+        import sentence_transformers  # noqa: F401
+    except ImportError:
+        return True
+    return False
+
+
 _EMPTY_AUDIO_QUALITY = {
     "snr_db": None,
     "clipping_ratio": None,
@@ -327,14 +347,21 @@ class SingleSpeakerEvaluator:
         return list(cls._result_row("", "", dict(_EMPTY_AUDIO_QUALITY)).keys())
 
     @staticmethod
-    def _apply_batch_semantics(results: List[Dict], sem_pairs: List[tuple]) -> None:
+    def _apply_batch_semantics(results: List[Dict], sem_pairs: List[tuple]) -> Optional[str]:
         """Encode all deferred similarity pairs in one batched model.encode() call.
 
         Fills ``semantic_similarity`` and (when CER/WER are present)
         ``poseidon_score`` in-place on the referenced rows.
+
+        Returns ``None`` on success, or a run-warning string when the metrics
+        could not be filled, so the caller can record it in ``scores.json``
+        (issue #191): the one-line missing-extra remedy for an absent
+        sentence-transformers (a known fix, no traceback), or the failure
+        cause for a genuine runtime error (which keeps its traceback in the
+        log).
         """
         if not sem_pairs:
-            return
+            return None
         try:
             from sentence_transformers import util
 
@@ -352,8 +379,17 @@ class SingleSpeakerEvaluator:
                 results[result_idx]["semantic_similarity"] = sim
                 if r["cer"] is not None and r["wer"] is not None:
                     results[result_idx]["poseidon_score"] = calculate_poseidon_score(r["cer"], r["wer"], sim)
-        except Exception:
+        except ImportError:
+            logger.warning(_SEMANTICS_MISSING_EXTRA_WARNING)
+            return _SEMANTICS_MISSING_EXTRA_WARNING
+        except Exception as exc:
             logger.warning("Batch semantic similarity failed", exc_info=True)
+            return (
+                "semantic_similarity and poseidon_score were not computed: "
+                f"batch semantic similarity failed ({exc}). WER/CER are unaffected; "
+                "the traceback is in the run log."
+            )
+        return None
 
     @staticmethod
     def evaluate_one(
@@ -536,8 +572,9 @@ class SingleSpeakerEvaluator:
                     )
                 )
 
+        semantics_warning = None
         if compute_sem:
-            SingleSpeakerEvaluator._apply_batch_semantics(results, _sem_pairs)
+            semantics_warning = SingleSpeakerEvaluator._apply_batch_semantics(results, _sem_pairs)
 
         elapsed = time.time() - start
         # None (null in scores.json), not 0.0: a run with zero successful
@@ -591,6 +628,9 @@ class SingleSpeakerEvaluator:
         return {
             "model_name": model_name,
             "results": results,
+            # Why semantic_similarity/poseidon_score are null when they are —
+            # recorded into the scores.json warnings array (issue #191).
+            "semantics_warning": semantics_warning,
             "summary": {
                 "total_samples": len(data),
                 "successful": successful,
@@ -654,6 +694,15 @@ class SingleSpeakerEvaluator:
         if mismatch:
             logger.warning(mismatch)
             run_warnings.append(mismatch)
+
+        # A core install without [ml] cannot compute the headline metrics.
+        # Say so up front — before any transcription time or API spend — in
+        # the same one-actionable-line style as the other dependency paths
+        # (#169/#177), and record it in every scores.json so a reader of the
+        # artifact alone can tell the metrics are absent and why (issue #191).
+        if compute_sem and _semantics_dependency_missing():
+            logger.warning(_SEMANTICS_MISSING_EXTRA_WARNING)
+            run_warnings.append(_SEMANTICS_MISSING_EXTRA_WARNING)
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -740,6 +789,15 @@ class SingleSpeakerEvaluator:
                     compute_sem=compute_sem,
                 )
 
+                # A semantics failure during this model's evaluation (e.g. a
+                # runtime error in the batch encode) is recorded in this
+                # model's artifact; the missing-extra case is already in
+                # run_warnings from the preflight, so don't duplicate it.
+                model_warnings = run_warnings
+                semantics_warning = result.get("semantics_warning")
+                if semantics_warning and semantics_warning not in run_warnings:
+                    model_warnings = run_warnings + [semantics_warning]
+
                 scores_path = scores_json_path(output_dir, model_name)
                 artifact = build_run_scores(
                     run_submission,
@@ -747,7 +805,7 @@ class SingleSpeakerEvaluator:
                     compute_sem=compute_sem,
                     significant_wer_threshold=significant_wer_threshold,
                     lineage=lineage,
-                    run_warnings=run_warnings,
+                    run_warnings=model_warnings,
                 )
                 write_scores_json(scores_path, artifact)
                 logger.info(f"Scores saved to {scores_path}")
