@@ -78,6 +78,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An intact M4A/MP4 file is no longer reported as malformed by the pipeline
+  adapters (#182). Given a path, the transformers ASR pipeline pushes the
+  file's bytes to ffmpeg on stdin, and an MP4-family container — the default
+  recording format on iOS — cannot be demuxed from a non-seekable pipe: the
+  decode returned an empty buffer and transformers raised "Soundfile is
+  either not in the correct format or is malformed", advice (check the
+  extension, check for corruption) that did not apply, while the same ffmpeg
+  decoded the same file completely when given its path. The three pipeline
+  adapters (`StandardHuggingFaceASR`, `KhushiDSBengaliModel`, and
+  `CustomHuggingFaceModel`'s generic branch) now decode the audio themselves
+  by handing ffmpeg the path — seekable, so every container the installed
+  binary reads now works — at the pipeline's own sampling rate, and pass the
+  raw waveform to the pipeline, so transformers neither re-decodes nor
+  resamples. When decoding genuinely fails, the error names ffmpeg, the
+  path, and ffmpeg's own stderr instead of claiming the file is malformed.
+  The `wav2vec2_*` family and non-pipeline Whisper fine-tunes still decode
+  via libsndfile, which reads no M4A/AAC/ALAC; the FAQ pre-run checklist now
+  states the split per adapter family instead of a flat format list.
 - The gated-model instructions now name all three pyannote repos diarization
   actually needs, and the 403 headline names the repo that was refused
   (#190). The guidance added for #171 listed `pyannote/segmentation-3.0` and

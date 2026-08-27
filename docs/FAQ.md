@@ -201,7 +201,7 @@ synced locally with `scripts/download_data.py --config your_sync.yaml` — see
 
 - [ ] TSV file has correct tab-separated columns: `audio_path` and `transcription`
 - [ ] Audio files actually exist at the paths referenced in the TSV
-- [ ] Audio files are in a supported format (`.wav`, `.flac`, `.mp3`)
+- [ ] Audio files are in a format the chosen models can decode: pipeline-based adapters (`whisper_*`, `khushids_bengali`, generic `--hf-model` pipelines) accept anything the installed `ffmpeg` decodes, including `.m4a`/`.mp4` (issue #182); the `wav2vec2_*` family and the non-pipeline Whisper fine-tunes decode via `libsndfile`, which does not read M4A/AAC/ALAC — convert those to `.wav`, `.flac`, or `.mp3` first (`ffmpeg -i in.m4a out.wav`)
 - [ ] For multi-speaker: `manifest.jsonl` uses `audio_filepaths` + `transcript_filepath` (JSON), and those files exist
 
 **Previous results (if re-running):**

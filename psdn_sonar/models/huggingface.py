@@ -28,23 +28,78 @@ logger = logging.getLogger(__name__)
 def _require_ffmpeg(adapter_name: str) -> None:
     """Fail fast at model-load time when ffmpeg is not on PATH (issue #109).
 
-    The ``transformers`` ASR pipeline shells out to ffmpeg to decode ANY
-    audio file path it is given — WAV included, even though WAV is
-    decodable by ``soundfile``. Without this preflight, a run does not
-    fail until transcription, once per utterance: N identical
-    "ffmpeg was not found" errors and an all-failed result set. Checked
-    before the checkpoint download so the failure costs milliseconds,
-    not gigabytes.
+    The pipeline adapters decode every audio input — WAV included, even
+    though WAV is decodable by ``soundfile`` — with the ffmpeg binary (see
+    :func:`_decode_audio`). Without this preflight, a run does not fail
+    until transcription, once per utterance: N identical "ffmpeg was not
+    found" errors and an all-failed result set. Checked before the
+    checkpoint download so the failure costs milliseconds, not gigabytes.
     """
     if shutil.which("ffmpeg") is None:
         raise MissingFfmpegError(
-            f"{adapter_name} hands audio file paths to the transformers ASR "
-            "pipeline, which requires the ffmpeg binary to decode them — "
+            f"{adapter_name} decodes audio files with the ffmpeg binary "
+            "before handing them to the transformers ASR pipeline — "
             "including WAV. Install ffmpeg (Debian/Ubuntu: sudo apt-get "
             "install ffmpeg; macOS: brew install ffmpeg) or pick an adapter "
             "that decodes audio itself (the wav2vec2_* models and the "
             "non-pipeline Whisper fine-tunes)."
         )
+
+
+def _decode_audio(audio_path: str, sampling_rate: int):
+    """Decode *audio_path* to a mono float32 array at *sampling_rate* by
+    handing ffmpeg the file path.
+
+    The path matters: given a path, the transformers pipeline pushes the
+    file's bytes to ffmpeg on stdin, and an MP4-family container (m4a/mp4 —
+    the default recording format on iOS) cannot be demuxed from a
+    non-seekable pipe, so an intact file came back as an empty buffer and a
+    misleading "Soundfile is ... malformed" error (issue #182). A path
+    input is seekable, so everything the installed ffmpeg can read, this
+    can. When decoding genuinely fails, the error names ffmpeg and carries
+    its stderr instead of claiming the file is malformed.
+    """
+    import subprocess
+
+    import numpy as np
+
+    cmd = [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-i",
+        audio_path,
+        "-ac",
+        "1",
+        "-ar",
+        str(sampling_rate),
+        "-f",
+        "f32le",
+        "pipe:1",
+    ]
+    proc = subprocess.run(cmd, capture_output=True)
+    stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg could not decode '{audio_path}': {stderr or f'exit code {proc.returncode}'}")
+    audio = np.frombuffer(proc.stdout, dtype=np.float32)
+    if audio.size == 0:
+        raise RuntimeError(
+            f"ffmpeg decoded no audio from '{audio_path}': {stderr or 'the file has no decodable audio stream'}"
+        )
+    return audio
+
+
+def _pipeline_transcribe(pipe, audio_path: str) -> str:
+    """Decode *audio_path* ourselves and run the raw waveform through *pipe*.
+
+    Decoding happens at the pipeline's own sampling rate, so transformers
+    neither re-decodes (the stdin route that breaks MP4 containers, issue
+    #182) nor resamples.
+    """
+    extractor = getattr(pipe, "feature_extractor", None)
+    sampling_rate = getattr(extractor, "sampling_rate", None) or 16000
+    audio = _decode_audio(audio_path, sampling_rate)
+    return _pipeline_text(pipe({"raw": audio, "sampling_rate": sampling_rate}))
 
 
 def _pipeline_text(result) -> str:
@@ -131,7 +186,7 @@ class StandardHuggingFaceASR(ASRModel):
 
     def transcribe(self, audio_path: str) -> Optional[str]:
         try:
-            return _pipeline_text(self.pipe(audio_path))
+            return _pipeline_transcribe(self.pipe, audio_path)
         except Exception as e:
             self._record_transcribe_failure(audio_path, e)
             return None
@@ -224,7 +279,7 @@ class KhushiDSBengaliModel(ASRModel):
 
     def transcribe(self, audio_path: str) -> Optional[str]:
         try:
-            return _pipeline_text(self.pipe(audio_path))
+            return _pipeline_transcribe(self.pipe, audio_path)
         except Exception as e:
             self._record_transcribe_failure(audio_path, e)
             return None
@@ -468,7 +523,7 @@ class CustomHuggingFaceModel(ASRModel):
                 return transcription.strip()
 
             else:
-                return _pipeline_text(self.pipe(audio_path))
+                return _pipeline_transcribe(self.pipe, audio_path)
 
         except Exception as e:
             self._record_transcribe_failure(audio_path, e)
