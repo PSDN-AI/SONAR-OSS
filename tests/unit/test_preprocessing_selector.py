@@ -1,12 +1,16 @@
 """Tests for preprocessing selection and the pyannote-independent helpers."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import soundfile as sf
 
+from psdn_sonar.preprocessing import preprocessing_selector, pyannote_utils
+from psdn_sonar.preprocessing.methods import run_pyannote_diarize
 from psdn_sonar.preprocessing.preprocessing_selector import (
+    _exc_reason,
     _first_valid,
     _score_preprocessed,
     _select_best_oracle,
@@ -116,7 +120,10 @@ class TestRunSingleMethod:
         assert best_a["original_duration_s"] == pytest.approx(1.0, abs=0.05)
 
     def test_per_clip_without_combined_audio_errors(self, tmp_path):
-        (all_results, best_a, best_b), calls = self._call(tmp_path, method_name="scribe_diarize")
+        # A model that *can* run the method, so the missing combined audio is
+        # the reason reported rather than the capability precheck (issue #189).
+        capable = SimpleNamespace(supports_diarization=True, transcribe_diarized=lambda path, num_speakers: {})
+        (all_results, best_a, best_b), calls = self._call(tmp_path, method_name="scribe_diarize", asr_model=capable)
         assert calls == []
         assert best_a["error"] == "combined audio not found"
         assert best_b["error"] == "combined audio not found"
@@ -213,9 +220,25 @@ class TestAssignWordsToSpeakers:
         words = [{"text": "late", "start": 3.5, "end": 5.5}]
         assert assign_words_to_speakers(words, self.SEGMENTS) == {"S1": "late"}
 
-    def test_unknown_when_no_overlap(self):
+    def test_orphan_word_goes_to_the_nearest_speaker(self):
+        # Was bucketed under "unknown", inventing a speaker that then competed
+        # with the real ones for a reference (issue #189).
         words = [{"text": "orphan", "start": 10.0, "end": 11.0}]
-        assert assign_words_to_speakers(words, self.SEGMENTS) == {"unknown": "orphan"}
+        assert assign_words_to_speakers(words, self.SEGMENTS) == {"S1": "orphan"}
+
+    def test_word_in_the_gap_between_turns_picks_the_closer_turn(self):
+        segments = [
+            {"speaker": "S0", "start": 0.0, "end": 2.0},
+            {"speaker": "S1", "start": 6.0, "end": 8.0},
+        ]
+        words = [{"text": "early", "start": 2.4, "end": 2.6}, {"text": "late", "start": 5.4, "end": 5.6}]
+        assert assign_words_to_speakers(words, segments) == {"S0": "early", "S1": "late"}
+
+    def test_no_segments_yields_nothing_rather_than_one_speaker(self):
+        # The whole transcript under a single phantom speaker is what dropped
+        # speaker B from the evaluation in issue #189.
+        words = [{"text": "hi", "start": 0.5, "end": 1.0}]
+        assert assign_words_to_speakers(words, []) == {}
 
     def test_concatenates_in_order(self):
         words = [
@@ -223,6 +246,234 @@ class TestAssignWordsToSpeakers:
             {"text": "b", "start": 1.0, "end": 1.1},
         ]
         assert assign_words_to_speakers(words, self.SEGMENTS) == {"S0": "a b"}
+
+
+class _FakeTurn:
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+
+
+class _FakeAnnotation:
+    """Stand-in for ``pyannote.core.Annotation``."""
+
+    def __init__(self, turns):
+        self._turns = turns
+
+    def itertracks(self, yield_label=False):
+        for start, end, speaker in self._turns:
+            yield _FakeTurn(start, end), "_", speaker
+
+
+# The two non-overlapping turns of the issue's fixture: A 0–10.56, B 10.81–19.57.
+_FIXTURE_TURNS = [(0.0, 10.56, "SPEAKER_00"), (10.81, 19.57, "SPEAKER_01")]
+
+
+def _fake_pipeline(result, recorded=None):
+    """A diarization pipeline returning *result*, recording its kwargs."""
+
+    def pipeline(path, **kwargs):
+        if recorded is not None:
+            recorded.append(kwargs)
+        return result
+
+    return pipeline
+
+
+class TestDiarizationOutputShapes:
+    """Issue #189: pyannote.audio 4.x returns a ``DiarizeOutput`` dataclass, not
+    an ``Annotation``. Reading only the 3.x shape silently produced zero speech
+    turns, collapsing every word onto one speaker."""
+
+    def test_pyannote_4x_diarize_output_is_read(self, monkeypatch):
+        # DiarizeOutput has no itertracks of its own — only .speaker_diarization does.
+        output = SimpleNamespace(
+            speaker_diarization=_FakeAnnotation(_FIXTURE_TURNS),
+            exclusive_speaker_diarization=_FakeAnnotation(_FIXTURE_TURNS),
+            speaker_embeddings=None,
+        )
+        assert not hasattr(output, "itertracks")
+        monkeypatch.setattr(pyannote_utils, "get_diarization_pipeline", lambda: _fake_pipeline(output))
+
+        segments = pyannote_utils.run_diarization(Path("combined.wav"))
+
+        assert [s["speaker"] for s in segments] == ["SPEAKER_00", "SPEAKER_01"]
+        assert segments[1]["start"] == pytest.approx(10.81)
+
+    def test_legacy_3x_annotation_still_works(self, monkeypatch):
+        annotation = _FakeAnnotation(_FIXTURE_TURNS)
+        monkeypatch.setattr(pyannote_utils, "get_diarization_pipeline", lambda: _fake_pipeline(annotation))
+
+        segments = pyannote_utils.run_diarization(Path("combined.wav"))
+
+        assert len({s["speaker"] for s in segments}) == 2
+
+    def test_num_speakers_is_passed_through(self, monkeypatch):
+        recorded = []
+        annotation = _FakeAnnotation(_FIXTURE_TURNS)
+        monkeypatch.setattr(pyannote_utils, "get_diarization_pipeline", lambda: _fake_pipeline(annotation, recorded))
+
+        pyannote_utils.run_diarization(Path("combined.wav"), num_speakers=2)
+
+        assert recorded == [{"num_speakers": 2}]
+
+    def test_unreadable_shape_raises_instead_of_reporting_no_speakers(self, monkeypatch):
+        monkeypatch.setattr(pyannote_utils, "get_diarization_pipeline", lambda: _fake_pipeline(object()))
+
+        with pytest.raises(RuntimeError) as excinfo:
+            pyannote_utils.run_diarization(Path("combined.wav"))
+
+        text = str(excinfo.value)
+        assert "version mismatch" in text
+        assert "not a problem with the audio" in text
+
+
+class TestPyannoteDiarizeFailsLoudly:
+    """Issue #189 expected behavior: two speakers in, two scored speakers out —
+    or a failure that says so. Never one speaker holding both references'
+    words while the other is dropped without an error."""
+
+    WORDS = [
+        {"text": "however", "start": 0.5, "end": 1.0},
+        {"text": "sentence", "start": 12.0, "end": 12.5},
+    ]
+
+    def _model(self, words):
+        return SimpleNamespace(
+            supports_word_timestamps=True,
+            transcribe_with_word_timestamps=lambda path: words,
+        )
+
+    def test_two_speakers_in_two_speakers_out(self, monkeypatch):
+        output = SimpleNamespace(speaker_diarization=_FakeAnnotation(_FIXTURE_TURNS))
+        monkeypatch.setattr(pyannote_utils, "get_diarization_pipeline", lambda: _fake_pipeline(output))
+
+        speaker_texts = run_pyannote_diarize("combined.wav", self._model(self.WORDS))
+
+        assert speaker_texts == {"SPEAKER_00": "however", "SPEAKER_01": "sentence"}
+
+    def test_diarization_finding_one_speaker_is_an_error_not_a_score(self, monkeypatch):
+        one_speaker = SimpleNamespace(speaker_diarization=_FakeAnnotation([(0.0, 19.57, "SPEAKER_00")]))
+        monkeypatch.setattr(pyannote_utils, "get_diarization_pipeline", lambda: _fake_pipeline(one_speaker))
+
+        with pytest.raises(RuntimeError) as excinfo:
+            run_pyannote_diarize("combined.wav", self._model(self.WORDS))
+
+        text = str(excinfo.value)
+        assert "only 1 speaker(s)" in text
+        assert "2 were requested" in text
+
+    def test_no_speech_turns_is_an_error(self, monkeypatch):
+        empty = SimpleNamespace(speaker_diarization=_FakeAnnotation([]))
+        monkeypatch.setattr(pyannote_utils, "get_diarization_pipeline", lambda: _fake_pipeline(empty))
+
+        with pytest.raises(RuntimeError, match="no speech turns"):
+            run_pyannote_diarize("combined.wav", self._model(self.WORDS))
+
+    def test_missing_word_timestamps_names_the_recorded_cause(self):
+        model = SimpleNamespace(
+            supports_word_timestamps=True,
+            transcribe_with_word_timestamps=lambda path: [],
+            last_transcribe_error="401 invalid api key",
+        )
+
+        with pytest.raises(RuntimeError) as excinfo:
+            run_pyannote_diarize("combined.wav", model)
+
+        assert "401 invalid api key" in str(excinfo.value)
+
+
+class TestPerClipCapabilityPrecheck:
+    """Issue #189: ``supports_word_timestamps`` had no reader, so a model
+    without it reached the strategy and failed on a bare NotImplementedError —
+    whose str() is "", producing a warning with no reason at all."""
+
+    @pytest.fixture(autouse=True)
+    def _pyannote_installed(self, monkeypatch):
+        # The capability precheck is about the ASR model, not the extra: these
+        # must exercise it whether or not [pyannote] is installed (CI is not).
+        monkeypatch.setattr(preprocessing_selector, "PYANNOTE_AVAILABLE", True)
+
+    def _run(self, tmp_path, model, method_name):
+        wav = _write_wav(tmp_path / "combined.wav", [("tone", 1.0)])
+        return run_single_method(
+            entry=_ENTRY,
+            asr_model=model,
+            ref_a="ref a",
+            ref_b="ref b",
+            segments=[],
+            audio_a=None,
+            audio_b=None,
+            combined_audio=wav,
+            metric_fn=_metric_exact,
+            transcribe_fn=lambda path: "hello",
+            active_methods=["energy_trim", "no_trim"],
+            method_name=method_name,
+        )
+
+    def test_model_without_word_timestamps_is_skipped_with_a_reason(self, tmp_path):
+        # whisper_base_en's adapter family: inherits the base NotImplementedError.
+        model = SimpleNamespace(supports_diarization=False, supports_word_timestamps=False)
+
+        all_results, best_a, best_b = self._run(tmp_path, model, "pyannote_diarize")
+
+        for result in (best_a, best_b):
+            assert "does not support pyannote_diarize" in result["error"]
+            assert "supports_word_timestamps" in result["error"]
+            assert "elevenlabs_api" in result["error"]
+
+    def test_scribe_diarize_still_checks_its_own_capability(self, tmp_path):
+        model = SimpleNamespace(supports_diarization=False, supports_word_timestamps=True)
+
+        _, best_a, _ = self._run(tmp_path, model, "scribe_diarize")
+
+        assert "does not support scribe_diarize" in best_a["error"]
+        assert "supports_diarization" in best_a["error"]
+
+    def test_capable_model_is_not_skipped(self, tmp_path, monkeypatch):
+        output = SimpleNamespace(speaker_diarization=_FakeAnnotation(_FIXTURE_TURNS))
+        monkeypatch.setattr(pyannote_utils, "get_diarization_pipeline", lambda: _fake_pipeline(output))
+        model = SimpleNamespace(
+            supports_word_timestamps=True,
+            transcribe_with_word_timestamps=lambda path: [
+                {"text": "ref a", "start": 1.0, "end": 2.0},
+                {"text": "ref b", "start": 12.0, "end": 13.0},
+            ],
+        )
+
+        _, best_a, best_b = self._run(tmp_path, model, "pyannote_diarize")
+
+        assert best_a.get("error") is None
+        assert best_b.get("error") is None
+        assert {best_a["text"], best_b["text"]} == {"ref a", "ref b"}
+
+    def test_sweep_checks_word_timestamps_too(self, tmp_path, caplog):
+        # Checking only supports_diarization let this model through to a bare
+        # NotImplementedError from the word-timestamp call (issue #189).
+        model = SimpleNamespace(supports_diarization=True, supports_word_timestamps=False)
+        wav = _write_wav(tmp_path / "combined.wav", [("tone", 1.0)])
+
+        with caplog.at_level("WARNING"):
+            all_results, _, _ = run_sweep(
+                entry=_ENTRY,
+                asr_model=model,
+                ref_a="hello",
+                ref_b="hello",
+                segments=[],
+                audio_a=_write_wav(tmp_path / "a.wav", [("tone", 1.0)]),
+                audio_b=_write_wav(tmp_path / "b.wav", [("tone", 1.0)]),
+                combined_audio=wav,
+                metric_fn=_metric_exact,
+                transcribe_fn=lambda path: "hello",
+                methods=["no_trim", "pyannote_diarize"],
+            )
+
+        assert "pyannote_diarize" not in {r["method"] for r in all_results["A"]}
+        assert "supports_word_timestamps" in caplog.text
+
+    def test_empty_exception_message_still_names_a_reason(self):
+        assert _exc_reason(NotImplementedError()) == "NotImplementedError"
+        assert _exc_reason(RuntimeError("boom")) == "boom"
 
 
 class TestExtractAndConcatSegments:

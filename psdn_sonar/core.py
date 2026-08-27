@@ -52,13 +52,28 @@ _EMPTY_AUDIO_QUALITY = {
 }
 
 
-def _mean_std(values: list) -> tuple[float, float]:
-    """Mean and sample standard deviation; (0.0, 0.0) for empty input."""
+def _mean_std(values: list) -> tuple[float, Optional[float]]:
+    """Mean and sample standard deviation, ``(0.0, None)`` for empty input.
+
+    The standard deviation is ``None`` below two samples because it is
+    undefined there. It used to be reported as ``0.0000``, which asserts no
+    spread from a single sample and disagreed with the CLI summary printing
+    ``nan`` for the same quantity (issue #189).
+    """
     if not values:
-        return 0.0, 0.0
+        return 0.0, None
     m = sum(values) / len(values)
-    s = math.sqrt(sum((x - m) ** 2 for x in values) / (len(values) - 1)) if len(values) > 1 else 0.0
+    if len(values) < 2:
+        return m, None
+    s = math.sqrt(sum((x - m) ** 2 for x in values) / (len(values) - 1))
     return m, s
+
+
+def _fmt_std(value: Optional[float]) -> str:
+    """Format a standard deviation, naming an undefined one instead of faking it."""
+    if value is None or not math.isfinite(value):
+        return "n/a (n<2)"
+    return f"{value:.4f}"
 
 
 def _scored_metric_values(scored) -> tuple:
@@ -86,9 +101,9 @@ def _stats_lines(acc: Dict[str, list], suffix: str) -> List[str]:
     lines = []
     for label, key in (("CER", f"cer_{suffix}"), ("WER", f"wer_{suffix}"), ("Sem", f"sem_{suffix}")):
         m, s = _mean_std(acc[key])
-        lines.append(f"{label}: Mean {m:.4f}, Std {s:.4f}")
+        lines.append(f"{label}: Mean {m:.4f}, Std {_fmt_std(s)}")
     m, s = _mean_std(acc[f"poseidon_{suffix}"])
-    lines.append(f"POSEIDON: Mean {m:.4f}, Std {s:.4f}")
+    lines.append(f"POSEIDON: Mean {m:.4f}, Std {_fmt_std(s)}")
     return lines
 
 

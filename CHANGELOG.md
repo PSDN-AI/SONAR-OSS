@@ -78,6 +78,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `pyannote_diarize` no longer assigns every word to one speaker and drops the
+  other (#189). pyannote.audio 4.x returns a `DiarizeOutput` dataclass whose
+  `speaker_diarization` attribute holds the `Annotation`; only 3.x returned the
+  `Annotation` directly, and the reader was guarded on `hasattr(..., "itertracks")`,
+  so under 4.x every speech turn was silently discarded. With no segments, each
+  word fell into an `"unknown"` bucket, one speaker held both references' words,
+  and the other left the evaluation with no error — on a clean non-overlapping
+  two-channel input, which is why the reporter's level-matched control
+  reproduced it exactly: the audio never entered into it. Both output shapes are
+  now read, an unrecognised one raises instead of reporting "no speakers", and
+  words that fall between turns go to the nearest turn rather than inventing a
+  speaker that competes for a reference. A clip whose diarization yields no
+  turns, fewer than the two speakers requested, or no word timestamps now fails
+  with that reason instead of scoring one speaker against both references.
+  Per-clip methods also gained the capability precheck they never had:
+  `supports_word_timestamps` previously had no reader anywhere, so a model
+  without it (any `whisper_*` adapter) reached the strategy and failed on a bare
+  `NotImplementedError`, whose `str()` is empty — the run reported
+  `pyannote_diarize failed:` with no reason and recorded that method as the best
+  one. Relatedly, an undefined standard deviation (fewer than two samples) is
+  now reported as `n/a (n<2)` in both the summary file and the CLI table, which
+  previously disagreed (`Std 0.0000` versus `nan`) about the same quantity.
 - A run without the `[ml]` extra no longer reports clean success while
   semantic similarity and POSEIDON are silently null (#191). The
   `ModuleNotFoundError` for sentence-transformers was swallowed by the

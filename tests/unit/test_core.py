@@ -8,7 +8,7 @@ import pytest
 import soundfile as sf
 
 from psdn_sonar import core
-from psdn_sonar.core import _mean_std, process_dataset_with_asr, process_manifest_with_asr
+from psdn_sonar.core import _fmt_std, _mean_std, process_dataset_with_asr, process_manifest_with_asr
 
 SR = 16_000
 
@@ -82,15 +82,22 @@ class _StubLoader:
 
 class TestMeanStd:
     def test_empty(self):
-        assert _mean_std([]) == (0.0, 0.0)
+        assert _mean_std([]) == (0.0, None)
 
-    def test_single_value_has_zero_std(self):
-        assert _mean_std([0.4]) == (0.4, 0.0)
+    def test_single_value_has_undefined_std(self):
+        # Not 0.0: a single sample says nothing about spread, and reporting
+        # 0.0000 contradicted the CLI's nan for the same quantity (issue #189).
+        assert _mean_std([0.4]) == (0.4, None)
 
     def test_mean_and_std(self):
         m, s = _mean_std([0.0, 1.0])
         assert m == pytest.approx(0.5)
         assert s == pytest.approx(0.7071, abs=1e-4)
+
+    def test_undefined_std_is_named_not_faked(self):
+        assert _fmt_std(None) == "n/a (n<2)"
+        assert _fmt_std(float("nan")) == "n/a (n<2)"
+        assert _fmt_std(0.25) == "0.2500"
 
 
 class TestProcessDatasetWithASR:

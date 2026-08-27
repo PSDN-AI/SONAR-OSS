@@ -239,27 +239,77 @@ def extract_and_concat_segments(
     return output_path, original_duration, trimmed_duration
 
 
+def _diarization_annotation(result):
+    """The ``Annotation`` carrying speech turns, across pyannote output shapes.
+
+    pyannote.audio 4.x returns a ``DiarizeOutput`` dataclass whose
+    ``speaker_diarization`` attribute holds the ``Annotation``; only 3.x (and
+    4.x with ``legacy=True``) returns the ``Annotation`` directly. Reading only
+    the 3.x shape silently produced zero speech turns under 4.x, which
+    collapsed every word onto one speaker and dropped the other from the
+    evaluation (issue #189) — so an unrecognised shape raises here instead of
+    being reported as "no speakers".
+    """
+    if hasattr(result, "itertracks"):
+        return result
+    annotation = getattr(result, "speaker_diarization", None)
+    if annotation is not None and hasattr(annotation, "itertracks"):
+        return annotation
+    raise RuntimeError(
+        f"pyannote diarization returned {type(result).__name__}, which carries no speech "
+        "turns this version of SONAR can read (expected a pyannote.core.Annotation, or a "
+        "pyannote.audio 4.x DiarizeOutput with a .speaker_diarization Annotation). This is "
+        "a SONAR/pyannote version mismatch, not a problem with the audio."
+    )
+
+
 def run_diarization(audio_path: Path, num_speakers: int = 2) -> list:
     """Run speaker diarization; returns dicts with ``speaker``/``start``/``end`` keys."""
     pipeline = get_diarization_pipeline()
     diarization = pipeline(str(audio_path), num_speakers=num_speakers)
+    annotation = _diarization_annotation(diarization)
     segments = []
-    if hasattr(diarization, "itertracks"):
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
-            segments.append(
-                {
-                    "speaker": speaker,
-                    "start": float(turn.start),
-                    "end": float(turn.end),
-                }
-            )
+    for turn, _, speaker in annotation.itertracks(yield_label=True):
+        segments.append(
+            {
+                "speaker": speaker,
+                "start": float(turn.start),
+                "end": float(turn.end),
+            }
+        )
     return segments
+
+
+def _nearest_speaker(word: dict, diar_segments: list) -> Optional[str]:
+    """The speaker of the segment closest in time to *word*.
+
+    Diarization boundaries never line up exactly with ASR word boundaries, so
+    a word in the silence between two turns can overlap no segment at all.
+    Bucketing those under ``"unknown"`` invented a speaker that then competed
+    with the real ones for a reference (issue #189); the nearest turn in time
+    is the honest attribution.
+    """
+    best_speaker = None
+    best_distance = None
+    for seg in diar_segments:
+        distance = max(seg["start"] - word["end"], word["start"] - seg["end"], 0.0)
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_speaker = seg["speaker"]
+    return best_speaker
 
 
 def assign_words_to_speakers(words: list, diar_segments: list) -> dict:
     """Assign each word to the speaker segment containing its midpoint, falling
-    back to max time overlap, then ``"unknown"``. Returns ``{speaker_id: text}``.
+    back to max time overlap, then to the nearest segment in time.
+
+    Returns ``{speaker_id: text}``, empty when there are no segments to assign
+    to — callers treat that as a failure rather than as a single speaker
+    holding every word (issue #189).
     """
+    if not diar_segments:
+        return {}
+
     speaker_texts: dict = {}
     for word in words:
         w_mid = (word["start"] + word["end"]) / 2.0
@@ -276,6 +326,8 @@ def assign_words_to_speakers(words: list, diar_segments: list) -> dict:
                 best_overlap = overlap
                 best_speaker = seg["speaker"]
         if best_speaker is None:
-            best_speaker = "unknown"
+            best_speaker = _nearest_speaker(word, diar_segments)
+        if best_speaker is None:
+            continue
         speaker_texts.setdefault(best_speaker, []).append(word["text"])
     return {sid: " ".join(texts) for sid, texts in speaker_texts.items()}

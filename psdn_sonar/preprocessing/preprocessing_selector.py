@@ -16,6 +16,7 @@ from .methods import (
     PER_CHANNEL_METHODS,
     PER_CHANNEL_STRATEGIES,
     PER_CLIP_METHODS,
+    PER_CLIP_REQUIRED_CAPABILITY,
     PER_CLIP_STRATEGIES,
     PYANNOTE_METHODS,
     dual_assignment_score,
@@ -25,6 +26,34 @@ from .pyannote_utils import PYANNOTE_AVAILABLE
 logger = logging.getLogger(__name__)
 
 _MAX_TRIM_RATIO = 0.85
+
+
+def _exc_reason(exc: Exception) -> str:
+    """Readable reason for *exc*, never the empty string.
+
+    ``str(NotImplementedError())`` is ``""``, so a failure on an unimplemented
+    adapter method used to be reported as "<method> failed:" with nothing after
+    the colon (issue #189).
+    """
+    return str(exc) or type(exc).__name__
+
+
+def _unsupported_capability_error(method_name: str, asr_model) -> Optional[str]:
+    """Why *asr_model* cannot run *method_name*, or ``None`` when it can.
+
+    The capability properties existed but nothing read them, so an
+    unsupported model reached the strategy and failed on a bare
+    ``NotImplementedError`` (issue #189).
+    """
+    capability = PER_CLIP_REQUIRED_CAPABILITY.get(method_name)
+    if capability is None or getattr(asr_model, capability, False):
+        return None
+    return (
+        f"{type(asr_model).__name__} does not support {method_name}: it requires "
+        f"{capability}, which this adapter does not implement. Use a model that does "
+        "(elevenlabs_api is the only registered adapter with word timestamps), or pick "
+        "a per-channel method such as --method timestamp_trim."
+    )
 
 
 def _preprocess_only(
@@ -202,7 +231,12 @@ def run_single_method(
 
     if method_name in PER_CLIP_METHODS or (not per_channel and per_clip):
         clip_method = method_name if method_name in PER_CLIP_METHODS else per_clip[0]
-        if combined_audio is None:
+        capability_error = _unsupported_capability_error(clip_method, asr_model)
+        if capability_error is not None:
+            logger.warning(f"Skipping {clip_method} for {entry.audio_id}: {capability_error}")
+            for speaker in ("A", "B"):
+                all_results[speaker].append(_error_result(clip_method, capability_error))
+        elif combined_audio is None:
             err = "combined audio not found"
             logger.warning(f"Skipping {clip_method} for {entry.audio_id}: {err}")
             for speaker in ("A", "B"):
@@ -217,9 +251,10 @@ def run_single_method(
                 all_results["A"].append(result_a)
                 all_results["B"].append(result_b)
             except Exception as e:
-                logger.warning(f"{entry.audio_id} {clip_method} failed: {e}")
+                reason = _exc_reason(e)
+                logger.warning(f"{entry.audio_id} {clip_method} failed: {reason}")
                 for speaker in ("A", "B"):
-                    all_results[speaker].append(_error_result(clip_method, str(e)))
+                    all_results[speaker].append(_error_result(clip_method, reason))
 
         best_a = _first_valid(all_results["A"])
         best_b = _first_valid(all_results["B"])
@@ -270,8 +305,9 @@ def run_single_method(
             _remove_temp_file(processed_path, audio_path)
 
         except Exception as e:
-            logger.warning(f"{entry.audio_id}/{speaker}: failed: {e}")
-            all_results[speaker].append(_error_result(method_name or "auto", str(e)))
+            reason = _exc_reason(e)
+            logger.warning(f"{entry.audio_id}/{speaker}: failed: {reason}")
+            all_results[speaker].append(_error_result(method_name or "auto", reason))
 
     best_a = _first_valid(all_results["A"])
     best_b = _first_valid(all_results["B"])
@@ -346,12 +382,18 @@ def run_sweep(
                     all_results[speaker].append(result)
                     _remove_temp_file(processed_path, audio_path)
                 except Exception as e:
-                    logger.warning(f"{entry.audio_id}/{speaker} {method_name} failed: {e}")
-                    all_results[speaker].append(_error_result(method_name, str(e)))
+                    reason = _exc_reason(e)
+                    logger.warning(f"{entry.audio_id}/{speaker} {method_name} failed: {reason}")
+                    all_results[speaker].append(_error_result(method_name, reason))
 
         elif method_name in PER_CLIP_METHODS:
-            if not getattr(asr_model, "supports_diarization", False):
-                logger.warning(f"Skipping {method_name}: {type(asr_model).__name__} does not support diarization")
+            # Each per-clip method needs its own capability: scribe_diarize
+            # needs the model's diarization, pyannote_diarize needs word
+            # timestamps. Checking only the former let a model without word
+            # timestamps through to a bare NotImplementedError (issue #189).
+            capability_error = _unsupported_capability_error(method_name, asr_model)
+            if capability_error is not None:
+                logger.warning(f"Skipping {method_name}: {capability_error}")
                 continue
             if combined_audio is None:
                 logger.warning(f"Skipping {method_name} for {entry.audio_id}: combined audio not found")
@@ -365,9 +407,10 @@ def run_sweep(
                 all_results["A"].append(result_a)
                 all_results["B"].append(result_b)
             except Exception as e:
-                logger.warning(f"{entry.audio_id} {method_name} failed: {e}")
+                reason = _exc_reason(e)
+                logger.warning(f"{entry.audio_id} {method_name} failed: {reason}")
                 for speaker in ("A", "B"):
-                    all_results[speaker].append(_error_result(method_name, str(e)))
+                    all_results[speaker].append(_error_result(method_name, reason))
 
     best_a = _select_best_oracle(all_results["A"])
     best_b = _select_best_oracle(all_results["B"])
