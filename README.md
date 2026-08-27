@@ -1,20 +1,71 @@
+<div align="center">
+
 # SONAR-OSS
+
+**Multi-language ASR evaluation — built for the languages most benchmarks forget.**
 
 [![CI](https://github.com/PSDN-AI/SONAR-OSS/actions/workflows/ci.yml/badge.svg)](https://github.com/PSDN-AI/SONAR-OSS/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/psdn-sonar.svg)](https://pypi.org/project/psdn-sonar/)
 [![Python versions](https://img.shields.io/pypi/pyversions/psdn-sonar.svg)](https://pypi.org/project/psdn-sonar/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/PSDN-AI/SONAR-OSS?style=social)](https://github.com/PSDN-AI/SONAR-OSS/stargazers)
+[![Follow on X](https://img.shields.io/twitter/follow/psdnai?style=social)](https://x.com/psdnai)
 
-Multi-language ASR (automatic speech recognition) evaluation toolkit — metrics,
-reporting, and benchmarks. Distributed as the `psdn-sonar` Python package.
+[**Website**](https://psdn.ai) · [**X / Twitter**](https://x.com/psdnai) · [**LinkedIn**](https://www.linkedin.com/company/psdnai) · [**Package (TestPyPI)**](https://test.pypi.org/project/psdn-sonar/) · [**Usage guide**](docs/USAGE.md) · [**FAQ**](docs/FAQ.md)
 
-![Architecture](docs/architecture.png)
+</div>
+
+SONAR-OSS is [Poseidon](https://psdn.ai)'s open-source toolkit for evaluating
+automatic speech recognition (ASR) models — metrics, reporting, and
+benchmarks, distributed as the `psdn-sonar` Python package. Point it at your
+audio and reference transcripts, pick models (local HuggingFace checkpoints or
+hosted APIs like OpenAI Whisper, ElevenLabs, and AssemblyAI), and it produces
+per-sample and aggregate scores you can actually compare: WER/CER under
+language-specific normalization contracts, semantic similarity, the composite
+POSEIDON score, audio-quality diagnostics, and latency — with every run's
+model revision, device, and normalization recorded in the artifact so the
+numbers stay reproducible.
+
+Where SONAR-OSS earns its keep is off the beaten benchmark path:
+
+- **Low-resource languages first.** Bengali, Hindi, and Korean ship with
+  curated model defaults and dedicated normalizers alongside English; any
+  other language runs through a YAML recipe (`psdn-sonar custom`) — adding a
+  language means writing config, not code.
+- **Single- and multi-speaker evaluation.** The multi-speaker pipeline
+  handles VAD, diarization, and channel-split preprocessing (pyannote), and
+  scores the pipeline end to end.
+- **Scores you can defend.** Artifacts carry lineage (checkpoint SHA,
+  normalization contract, device) and machine-readable warnings; nothing is
+  back-solved or invented. `psdn-sonar leaderboard` renders a comparison
+  table from measured runs only.
+- **One CLI for the whole loop.** `discover` prepares datasets, `single` /
+  `multi` / `custom` evaluate, `leaderboard` compares — CSV, JSON, Markdown,
+  and plots out.
+
+![SONAR pipeline: input data flows through ASR models and processing into evaluation and results](docs/assets/sonar-pipeline.png)
+
+If SONAR-OSS is useful to you, **please
+[⭐ star the repo](https://github.com/PSDN-AI/SONAR-OSS/stargazers)** — it
+helps other voice-AI teams find it and tells us where to invest.
 
 > **Status: pre-release.** The library (metrics, language processors, dataset
 > loaders, evaluators, reporting, CLI) is in place and heading toward a first
 > `0.1.0` release; see [`CHANGELOG.md`](CHANGELOG.md). Content imported from
 > the upstream codebase passes the checklist in
 > [`docs/import-gate.md`](docs/import-gate.md).
+
+## Table of contents
+
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Install the pre-release from TestPyPI](#install-the-pre-release-from-testpypi-for-testing)
+  - [Contributor install (from source)](#contributor-install-from-source)
+  - [API keys and gated models](#api-keys-and-gated-models)
+- [Usage](#usage)
+- [Development](#development)
+- [Community and links](#community-and-links)
+- [License](#license)
 
 ## Requirements
 
@@ -163,6 +214,8 @@ not byte-for-byte reproducible the way `uv sync --frozen` is. This is the
 normal contract for downstream package installs; use `uv` when you need the
 locked contributor environment.
 
+### API keys and gated models
+
 Copy `.env.example` to `.env` and fill in only the values you need (API keys
 are required only for optional hosted-model backends). For pyannote
 VAD/diarization, setting `HF_TOKEN` is not enough on its own: the pyannote
@@ -207,6 +260,13 @@ make check-internal-refs
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contributor guide,
 including PR title conventions and the import gate.
+
+## Community and links
+
+- Website: [psdn.ai](https://psdn.ai)
+- X / Twitter: [@psdnai](https://x.com/psdnai)
+- LinkedIn: [Poseidon](https://www.linkedin.com/company/psdnai)
+- Issues and feature requests: [GitHub issues](https://github.com/PSDN-AI/SONAR-OSS/issues)
 
 ## License
 
