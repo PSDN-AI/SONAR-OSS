@@ -10,6 +10,7 @@ They are hermetic: no model weights are downloaded — instances are built via
 ``__new__`` with mocked internals.
 """
 
+import shutil
 import subprocess
 import sys
 from unittest.mock import MagicMock, patch
@@ -47,16 +48,25 @@ class TestCreateModelCustomHF:
             mock_cls.assert_called_once_with(model_id="my-org/my-model", language="bn")
 
 
+def _mock_pipe(**kwargs):
+    """A pipeline mock whose feature extractor reports a real sampling rate."""
+    pipe = MagicMock(**kwargs)
+    pipe.feature_extractor.sampling_rate = 16000
+    return pipe
+
+
 @requires_ml
 class TestTranscribeErrorHandling:
     """Every adapter's ``transcribe`` returns None on failure instead of raising."""
 
     def test_standard_pipeline_adapter_returns_none(self):
+        import psdn_sonar.models.huggingface as hf
         from psdn_sonar.models.huggingface import StandardHuggingFaceASR
 
         model = StandardHuggingFaceASR.__new__(StandardHuggingFaceASR)
-        model.pipe = MagicMock(side_effect=RuntimeError("decode failed"))
-        assert model.transcribe("missing.wav") is None
+        model.pipe = _mock_pipe(side_effect=RuntimeError("decode failed"))
+        with patch.object(hf, "_decode_audio", return_value="raw-audio"):
+            assert model.transcribe("missing.wav") is None
 
     def test_whisper_adapter_returns_none(self):
         from psdn_sonar.models.huggingface import WhisperASRModel
@@ -67,11 +77,13 @@ class TestTranscribeErrorHandling:
         assert model.transcribe("corrupt.wav") is None
 
     def test_standard_pipeline_adapter_strips_text(self):
+        import psdn_sonar.models.huggingface as hf
         from psdn_sonar.models.huggingface import StandardHuggingFaceASR
 
         model = StandardHuggingFaceASR.__new__(StandardHuggingFaceASR)
-        model.pipe = MagicMock(return_value={"text": "  hello world  "})
-        assert model.transcribe("clip.wav") == "hello world"
+        model.pipe = _mock_pipe(return_value={"text": "  hello world  "})
+        with patch.object(hf, "_decode_audio", return_value="raw-audio"):
+            assert model.transcribe("clip.wav") == "hello world"
 
 
 @requires_ml
@@ -313,16 +325,22 @@ class TestCustomHuggingFaceModelDispatch:
         return model
 
     def test_pipeline_type_uses_pipe(self):
+        import psdn_sonar.models.huggingface as hf
+
         model = self._bare_instance()
         model.model_type = "pipeline"
-        model.pipe = MagicMock(return_value={"text": " out "})
-        assert model.transcribe("clip.wav") == "out"
+        model.pipe = _mock_pipe(return_value={"text": " out "})
+        with patch.object(hf, "_decode_audio", return_value="raw-audio"):
+            assert model.transcribe("clip.wav") == "out"
 
     def test_unknown_failure_returns_none(self):
+        import psdn_sonar.models.huggingface as hf
+
         model = self._bare_instance()
         model.model_type = "pipeline"
-        model.pipe = MagicMock(side_effect=RuntimeError("boom"))
-        assert model.transcribe("clip.wav") is None
+        model.pipe = _mock_pipe(side_effect=RuntimeError("boom"))
+        with patch.object(hf, "_decode_audio", return_value="raw-audio"):
+            assert model.transcribe("clip.wav") is None
 
     def test_whisper_type_uses_processor_and_generate(self):
         model = self._bare_instance()
@@ -339,6 +357,108 @@ class TestCustomHuggingFaceModelDispatch:
 
         assert model.transcribe("clip.wav") == "decoded text"
         model.model.generate.assert_called_once_with("features", return_timestamps=False)
+
+
+requires_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="decode tests require the ffmpeg binary")
+
+
+@requires_ml
+class TestPipelineDecodesByPath:
+    """Issue #182: the pipeline adapters must decode audio by handing ffmpeg
+    the file *path*, not let transformers pipe the bytes to ffmpeg stdin —
+    an MP4-family container cannot be demuxed from a non-seekable pipe, so an
+    intact M4A file was reported as "malformed"."""
+
+    def test_pipe_receives_raw_waveform_not_the_path(self):
+        import psdn_sonar.models.huggingface as hf
+        from psdn_sonar.models.huggingface import StandardHuggingFaceASR
+
+        model = StandardHuggingFaceASR.__new__(StandardHuggingFaceASR)
+        model.pipe = _mock_pipe(return_value={"text": "ok"})
+        with patch.object(hf, "_decode_audio", return_value="raw-audio") as mock_decode:
+            assert model.transcribe("clip.m4a") == "ok"
+
+        # Decoded at the pipeline's own sampling rate, so transformers never
+        # re-decodes (the stdin route) nor resamples.
+        mock_decode.assert_called_once_with("clip.m4a", 16000)
+        model.pipe.assert_called_once_with({"raw": "raw-audio", "sampling_rate": 16000})
+
+    def test_khushids_adapter_also_decodes_by_path(self):
+        import psdn_sonar.models.huggingface as hf
+        from psdn_sonar.models.huggingface import KhushiDSBengaliModel
+
+        model = KhushiDSBengaliModel.__new__(KhushiDSBengaliModel)
+        model.pipe = _mock_pipe(return_value={"text": "ok"})
+        with patch.object(hf, "_decode_audio", return_value="raw-audio") as mock_decode:
+            assert model.transcribe("clip.m4a") == "ok"
+        mock_decode.assert_called_once_with("clip.m4a", 16000)
+        model.pipe.assert_called_once_with({"raw": "raw-audio", "sampling_rate": 16000})
+
+    @requires_ffmpeg
+    def test_decode_audio_reads_an_mp4_container(self, tmp_path):
+        """The exact failure from the issue: an intact M4A decodes fully when
+        ffmpeg gets the path (it yielded 0 bytes over stdin)."""
+        import subprocess
+
+        import numpy as np
+        import soundfile as sf
+
+        from psdn_sonar.models.huggingface import _decode_audio
+
+        sr = 16000
+        seconds = 1.0
+        t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+        wav = tmp_path / "tone.wav"
+        sf.write(str(wav), (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32), sr)
+
+        m4a = tmp_path / "tone.m4a"
+        encode = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(wav), "-c:a", "aac", str(m4a)],
+            capture_output=True,
+        )
+        if encode.returncode != 0:  # pragma: no cover — ffmpeg without an AAC encoder
+            pytest.skip(f"local ffmpeg cannot encode AAC: {encode.stderr.decode(errors='replace')}")
+
+        audio = _decode_audio(str(m4a), sr)
+        assert audio.dtype == np.float32
+        # AAC padding changes the length slightly; the content must be there.
+        assert audio.size == pytest.approx(sr * seconds, rel=0.15)
+        assert float(np.abs(audio).max()) > 0.1  # actual signal, not silence
+
+    @requires_ffmpeg
+    def test_decode_audio_wav_roundtrip(self, tmp_path):
+        import numpy as np
+        import soundfile as sf
+
+        from psdn_sonar.models.huggingface import _decode_audio
+
+        sr = 16000
+        samples = np.zeros(sr, dtype=np.float32)
+        samples[::100] = 0.25
+        wav = tmp_path / "clip.wav"
+        sf.write(str(wav), samples, sr)
+
+        audio = _decode_audio(str(wav), sr)
+        assert audio.size == sr
+
+    @requires_ffmpeg
+    def test_decode_failure_names_ffmpeg_not_malformed(self, tmp_path):
+        """A genuinely undecodable file must produce an honest error: ffmpeg,
+        the path, and ffmpeg's own stderr — no claim that the file is
+        malformed, no advice to check the extension."""
+        from psdn_sonar.models.huggingface import _decode_audio
+
+        not_audio = tmp_path / "notes.m4a"
+        not_audio.write_text("this is not audio")
+
+        with pytest.raises(RuntimeError) as excinfo:
+            _decode_audio(str(not_audio), 16000)
+
+        message = str(excinfo.value)
+        assert "ffmpeg" in message
+        assert str(not_audio) in message
+        assert "malformed" not in message.lower()
+        assert "extension" not in message.lower()
 
 
 @requires_ml
