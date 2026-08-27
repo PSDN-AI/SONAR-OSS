@@ -74,6 +74,8 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+from psdn_sonar.config import load_env
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-2.5-pro"
@@ -243,6 +245,14 @@ def make_cache_key(audio_path: str, model_name: str, judge_model: str, repeat_in
 def get_client():
     """Return a Gemini client built from ``GEMINI_API_KEY`` (or ``GOOGLE_API_KEY``).
 
+    Loads the repository ``.env`` first, so a key configured there works
+    exactly like an exported one — the same credential contract as every
+    other adapter in the package (#188). This matters here more than
+    anywhere else: the LLM-judged metrics have no CLI entry point, so the
+    direct library call is the ONLY path to them, and the CLI's own
+    ``load_env()`` never runs on it (the same gap #167 closed for the
+    ``multi`` subcommand).
+
     Raises ``RuntimeError`` if neither env var is set, so a missing
     credential fails fast at client-construction time instead of
     surfacing as a generic SDK error mid-call (which would otherwise
@@ -254,11 +264,13 @@ def get_client():
     with an ``ImportError``). The SDK import is only attempted when
     we actually have a key to use.
     """
+    load_env()
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "Gemini API key not found. Set GEMINI_API_KEY or GOOGLE_API_KEY "
-            "in the environment to use LLM-judged metrics."
+            "Gemini API key not found. Set GEMINI_API_KEY (or GOOGLE_API_KEY) "
+            "in the repository .env (see .env.example) or export it as an "
+            "environment variable to use LLM-judged metrics."
         )
     try:
         from google import genai
