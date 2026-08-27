@@ -78,6 +78,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The gated-model instructions now name all three pyannote repos diarization
+  actually needs, and the 403 headline names the repo that was refused
+  (#190). The guidance added for #171 listed `pyannote/segmentation-3.0` and
+  `pyannote/speaker-diarization-3.1`, but under the `pyannote.audio >= 4.0.7`
+  pin from #129 the diarization pipeline also downloads
+  `pyannote/speaker-diarization-community-1` — a gated dependency no command
+  names — so following the instructions to the letter still ended in a 403.
+  The README, FAQ pre-run checklist, `.env.example`, and the runtime
+  `GATED_MODEL_HINT` all list it now (with a note that VAD alone needs only
+  `segmentation-3.0`). And when the refusal belongs to a dependency rather
+  than the requested pipeline, the error's headline no longer repeats the
+  already-authorized model id: it reads `access was refused for '<repo>', a
+  gated repo this pipeline depends on`, extracting the repo from the 403's
+  own URL or prose while ignoring the documentation/settings links
+  HuggingFace errors also carry.
 - The `multi` path now distinguishes a failed transcription from an empty
   one, the same way `single` does (#181). Adapters return `None` after
   recording the cause, but the manifest loop coerced that to `""` and scored

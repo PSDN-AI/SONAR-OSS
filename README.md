@@ -168,11 +168,13 @@ are required only for optional hosted-model backends). For pyannote
 VAD/diarization, setting `HF_TOKEN` is not enough on its own: the pyannote
 models are gated on HuggingFace, so the token's account must also accept the
 user conditions on each model page —
-[`pyannote/segmentation-3.0`](https://huggingface.co/pyannote/segmentation-3.0)
+[`pyannote/segmentation-3.0`](https://huggingface.co/pyannote/segmentation-3.0),
+[`pyannote/speaker-diarization-3.1`](https://huggingface.co/pyannote/speaker-diarization-3.1),
 and
-[`pyannote/speaker-diarization-3.1`](https://huggingface.co/pyannote/speaker-diarization-3.1)
-— otherwise runs fail with `403 ... not in the authorized list` even though
-the token is valid.
+[`pyannote/speaker-diarization-community-1`](https://huggingface.co/pyannote/speaker-diarization-community-1)
+(the diarization pipeline downloads the third as a gated dependency under
+pyannote.audio 4.x, even though no command names it) — otherwise runs fail
+with `403 ... not in the authorized list` even though the token is valid.
 
 ## Usage
 
