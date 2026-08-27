@@ -429,16 +429,80 @@ class TestPromptVersion:
 
 
 # ---------------------------------------------------------------------------
-# get_client — #17 fail-fast on missing API key
+# get_client — #17 fail-fast on missing API key, #188 .env credential contract
 # ---------------------------------------------------------------------------
 
 
 class TestGetClient:
-    def test_missing_api_key_raises(self, monkeypatch):
+    @pytest.fixture(autouse=True)
+    def _no_ambient_keys(self, monkeypatch):
+        """Strip ambient credentials so each test controls its own world.
+
+        ``load_env`` is stubbed to a no-op by default: a developer's real
+        repository ``.env`` (which may well contain a Gemini key — that's
+        the whole point of #188) must not leak into these tests. Tests
+        that exercise the .env path replace the stub with a fake loader.
+        """
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.setattr(llm_metrics, "load_env", lambda: None)
+
+    def test_missing_api_key_raises(self):
         with pytest.raises(RuntimeError, match="Gemini API key"):
             llm_metrics.get_client()
+
+    def test_missing_key_error_names_dotenv_mechanism(self):
+        """#188: the old message said only "in the environment", while the
+        ElevenLabs adapter in the same codebase said ".env or as env var" —
+        two adapters giving opposite instructions for the same contract.
+        The message must name both mechanisms and point at .env.example."""
+        with pytest.raises(RuntimeError) as exc_info:
+            llm_metrics.get_client()
+        message = str(exc_info.value)
+        assert ".env" in message
+        assert ".env.example" in message
+        assert "environment variable" in message
+
+    def test_dotenv_key_is_loaded_before_the_check(self, monkeypatch):
+        """#188 regression: a key that only exists in .env (nothing exported
+        in the shell) must be visible to get_client(). Simulated by a fake
+        load_env that injects the key the way python-dotenv would."""
+        monkeypatch.setattr(llm_metrics, "load_env", lambda: monkeypatch.setenv("GEMINI_API_KEY", "key-from-dotenv"))
+        client = llm_metrics.get_client()
+        assert client is not None
+
+    def test_google_api_key_fallback_also_loaded_from_dotenv(self, monkeypatch):
+        monkeypatch.setattr(
+            llm_metrics, "load_env", lambda: monkeypatch.setenv("GOOGLE_API_KEY", "fallback-from-dotenv")
+        )
+        client = llm_metrics.get_client()
+        assert client is not None
+
+
+class TestCredentialContractDocs:
+    """#188: the four descriptions of the Gemini credential contract used to
+    disagree — README silent, .env.example missing the key, the error message
+    saying "in the environment" only, and the TestLiveSmoke docstring claiming
+    the README documents the preferred env name. Pin the repo documents so
+    they can't silently drift apart again. (The error-message leg is pinned
+    by TestGetClient.test_missing_key_error_names_dotenv_mechanism.)"""
+
+    @staticmethod
+    def _repo_root():
+        from pathlib import Path
+
+        return Path(llm_metrics.__file__).resolve().parents[2]
+
+    def test_readme_documents_the_env_names(self):
+        readme = (self._repo_root() / "README.md").read_text(encoding="utf-8")
+        assert "GEMINI_API_KEY" in readme, "TestLiveSmoke's docstring promises the README documents this name"
+        assert "GOOGLE_API_KEY" in readme
+        assert "llm_metrics" in readme
+
+    def test_env_example_lists_the_gemini_keys(self):
+        env_example = (self._repo_root() / ".env.example").read_text(encoding="utf-8")
+        assert "GEMINI_API_KEY" in env_example
+        assert "GOOGLE_API_KEY" in env_example
 
 
 # ---------------------------------------------------------------------------

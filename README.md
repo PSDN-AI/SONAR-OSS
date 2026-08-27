@@ -176,6 +176,12 @@ and
 pyannote.audio 4.x, even though no command names it) — otherwise runs fail
 with `403 ... not in the authorized list` even though the token is valid.
 
+The LLM-judged metrics (entity preservation and intent pass rate, importable
+from `psdn_sonar.utils.llm_metrics` — a library-only surface with no CLI
+subcommand) read `GEMINI_API_KEY` (preferred) or `GOOGLE_API_KEY` as an
+alternative. A `.env` entry and an exported variable both work, same as the
+other API keys.
+
 ## Usage
 
 See [`docs/USAGE.md`](docs/USAGE.md) for a short quickstart with runnable

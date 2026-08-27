@@ -78,6 +78,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The LLM-judge path now reads `.env` (#188) — the same gap #167 closed for
+  the `multi` subcommand, on the one path that remained.
+  `llm_metrics.get_client()` read `os.getenv` directly without ever calling
+  `load_env()`, and since the LLM-judged metrics have no CLI entry point, the
+  direct library call was both the only way to reach them and the only path
+  in the package that never loaded `.env`: a `GEMINI_API_KEY` configured
+  there was present and loadable yet invisible, and only a shell-exported
+  key worked. `get_client()` now loads `.env` before the credential check.
+  The four places describing this contract also disagreed with each other —
+  the README and `.env.example` did not mention Gemini at all, the error
+  message said "in the environment" while the ElevenLabs adapter in the same
+  codebase instructed ".env or as env var" for the identical contract, and a
+  test docstring promised the preferred env name was "documented in README".
+  All four now agree: `.env.example` lists `GEMINI_API_KEY` (preferred) and
+  `GOOGLE_API_KEY` (alternative), the README documents them next to the
+  other API keys, the error message names both mechanisms and points at
+  `.env.example`, and a doc-contract test pins the agreement so the four
+  cannot silently drift apart again.
 - `pyannote_diarize` no longer assigns every word to one speaker and drops the
   other (#189). pyannote.audio 4.x returns a `DiarizeOutput` dataclass whose
   `speaker_diarization` attribute holds the `Annotation`; only 3.x returned the
