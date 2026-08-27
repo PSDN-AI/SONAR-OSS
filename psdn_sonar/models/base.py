@@ -78,6 +78,20 @@ class ASRModel:
 
     supports_latency_metrics: bool = False
 
+    #: Id of the service that serves this adapter's inference, recorded in the
+    #: ``scores.json`` submission block. Hosted-API adapters override this
+    #: ("openai", "elevenlabs", "assemblyai"); everything that runs in-process
+    #: keeps "local". Exists because the submission block used to fill the
+    #: field from an undocumented env var with a "local" default, so a
+    #: hosted-API run recorded ``provider: local`` (issue #184).
+    provider: str = "local"
+
+    #: The provider-side model identifier actually requested (e.g. "whisper-1",
+    #: "scribe_v2"), or ``None`` when the adapter pins no provider model id.
+    #: Recorded as ``model_snapshot`` so an API result is pinned to the model
+    #: string sent to the provider rather than to this package's registry alias.
+    provider_model_id: Optional[str] = None
+
     #: Cause of the most recent ``transcribe`` failure, or ``None``. Set by
     #: :meth:`_record_transcribe_failure`; cleared by the evaluator before each
     #: call. Exists because ``transcribe`` returns ``None`` on failure by design

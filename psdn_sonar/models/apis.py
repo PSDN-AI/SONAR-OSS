@@ -63,6 +63,8 @@ class WhisperAPIModel(ASRModel):
     otherwise the API auto-detects it.
     """
 
+    provider = "openai"
+
     def __init__(self, api_key=None, model="whisper-1", language=None):
         try:
             from openai import OpenAI
@@ -73,6 +75,7 @@ class WhisperAPIModel(ASRModel):
 
         self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
         self.model = model
+        self.provider_model_id = model
         self.language = language
 
     @_retry()
@@ -91,6 +94,8 @@ class WhisperAPIModel(ASRModel):
 class ElevenLabsAPIModel(ASRModel):
     """ElevenLabs Speech-to-Text via REST API (xi-api-key header). Uses requests to avoid SDK auth issues."""
 
+    provider = "elevenlabs"
+
     def __init__(self, api_key=None, model_id="scribe_v2", language_code="ben"):
         key = (api_key or os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY") or "").strip()
         if not key:
@@ -100,6 +105,7 @@ class ElevenLabsAPIModel(ASRModel):
             )
         self._api_key = key
         self._model_id = model_id
+        self.provider_model_id = model_id
         self._language_code = language_code
         self._session = requests.Session()
         self._session.headers["xi-api-key"] = self._api_key
@@ -221,6 +227,7 @@ class AssemblyAIAPIModel(ASRModel):
     """
 
     supports_latency_metrics = True
+    provider = "assemblyai"
 
     def __init__(self, api_key=None, language_code="bn", streaming: bool = False, sample_rate: int = 16000):
         try:
@@ -232,6 +239,10 @@ class AssemblyAIAPIModel(ASRModel):
 
         aai.settings.api_key = api_key or os.getenv("ASSEMBLYAI_API_KEY")
         self.config = aai.TranscriptionConfig(punctuate=True, format_text=True, language_code=language_code)
+        # This adapter pins no speech model — the SDK's server-side default
+        # serves the request — but record it if the config carries one.
+        speech_model = getattr(self.config, "speech_model", None)
+        self.provider_model_id = str(speech_model) if speech_model else None
         self.transcriber = aai.Transcriber(config=self.config)
         self.streaming = streaming
         self._sample_rate = sample_rate

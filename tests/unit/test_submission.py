@@ -98,6 +98,31 @@ def test_from_env_resolves_metadata(monkeypatch):
     assert cfg.seed == 99
 
 
+def test_region_defaults_to_null_when_unknown():
+    """Issue #184: region used to be a required field that callers filled with
+    the meaningless 'local'. Hosted providers disclose no region, so the
+    schema now records null instead of inventing one."""
+    cfg = SubmissionConfig.from_env(provider="openai", model_snapshot="whisper-1")
+    assert cfg.region is None
+
+
+def test_legacy_artifact_with_region_string_still_validates():
+    """Artifacts written before #184 carry region='local'; they must keep
+    validating."""
+    cfg = SubmissionConfig(
+        provider="local",
+        model_snapshot="demo_model",
+        region="local",
+        protocol="batch",
+        inference_params={},
+        seed=42,
+        git_sha="abc",
+        package_version="0.1.0",
+        timestamp_utc="2026-05-22T12:00:00Z",
+    )
+    assert cfg.region == "local"
+
+
 def test_write_scores_json_under_expected_path(tmp_path: Path):
     submission = SubmissionConfig(
         provider="local",

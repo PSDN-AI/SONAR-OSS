@@ -100,15 +100,13 @@ def _resolve_language(args) -> str:
         )
         sys.exit(1)
 
-    if language not in _NORMALIZER_LANGUAGES:
-        logger.warning(
-            "Language '%s' (%s) has no dedicated normalizer; WER/CER will use the generic "
-            "fallback normalization, which can shift metrics. Dedicated normalizers exist for: %s. "
-            "For other languages, prefer `psdn-sonar custom` with a YAML config.",
-            language,
-            LANG_CODE_TO_NAME[language],
-            ", ".join(_NORMALIZER_LANGUAGES),
-        )
+    # Shared helper so this log line and the copy recorded in the scores.json
+    # warnings array (issue #184) cannot drift apart.
+    from psdn_sonar.utils.text_processing import fallback_normalizer_warning
+
+    fallback = fallback_normalizer_warning(language)
+    if fallback:
+        logger.warning(fallback)
 
     return language
 
