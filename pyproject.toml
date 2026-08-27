@@ -120,8 +120,11 @@ cloud = [
 # dependency trees. Code paths that need them raise an explicit
 # "install [apis]" error when the import is missing.
 apis = [
+    # Only the SDKs the package actually imports. The ElevenLabs adapter
+    # deliberately has no SDK dependency: it speaks the REST API via
+    # requests (a core dependency), so elevenlabs_api works without this
+    # extra (issue #186 discussion).
     "openai>=1.0.0",
-    "elevenlabs",
     "assemblyai",
     "google-genai>=1.0.0",
 ]

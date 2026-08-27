@@ -198,6 +198,7 @@ def run_single_speaker(args):
             language=args.language,
             allow_absolute_audio_paths=not args.strict_audio_paths,
             significant_wer_threshold=significant_wer_threshold,
+            streaming=args.streaming,
         )
         logger.info("Evaluation complete. Results: %s/", args.output)
 
@@ -794,6 +795,16 @@ Examples:
     )
     single_parser.add_argument(
         "--report", action="store_true", help="Generate comprehensive report with benchmark comparisons"
+    )
+    single_parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help=(
+            "Use the streaming protocol for adapters that support it (assemblyai_api): "
+            "records ttft_s (wall-clock to the first partial transcript) per utterance "
+            "and TTFT percentiles in the summary. Models without a streaming mode run "
+            "batch as usual with a warning; scores.json records the protocol actually used."
+        ),
     )
     single_parser.set_defaults(func=run_single_speaker)
 

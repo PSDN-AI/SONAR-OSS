@@ -92,11 +92,26 @@ class WhisperAPIModel(ASRModel):
 
 
 class ElevenLabsAPIModel(ASRModel):
-    """ElevenLabs Speech-to-Text via REST API (xi-api-key header). Uses requests to avoid SDK auth issues."""
+    """ElevenLabs Speech-to-Text via REST API (xi-api-key header). Uses requests to avoid SDK auth issues.
+
+    ``language`` is the toolkit's ISO 639-1 code (what ``--language``
+    carries); it is converted to the vendor's ISO 639-3 form via
+    ``LANG_CODE_TO_ELEVENLABS`` when a mapping exists, otherwise passed
+    through — the endpoint accepts both forms. An explicit
+    ``language_code`` (already in vendor format) wins over ``language``;
+    with neither, the historical Bengali default applies.
+    """
 
     provider = "elevenlabs"
 
-    def __init__(self, api_key=None, model_id="scribe_v2", language_code="ben"):
+    def __init__(self, api_key=None, model_id="scribe_v2", language_code=None, language=None):
+        if language_code is None:
+            if language:
+                from psdn_sonar.language_codes import LANG_CODE_TO_ELEVENLABS
+
+                language_code = LANG_CODE_TO_ELEVENLABS.get(language.lower(), language)
+            else:
+                language_code = "ben"
         key = (api_key or os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY") or "").strip()
         if not key:
             raise ValueError(
@@ -229,7 +244,19 @@ class AssemblyAIAPIModel(ASRModel):
     supports_latency_metrics = True
     provider = "assemblyai"
 
-    def __init__(self, api_key=None, language_code="bn", streaming: bool = False, sample_rate: int = 16000):
+    def __init__(
+        self,
+        api_key=None,
+        language_code=None,
+        streaming: bool = False,
+        sample_rate: int = 16000,
+        language=None,
+    ):
+        # ``language`` is the toolkit's ISO 639-1 code, which is also what
+        # AssemblyAI's language_code expects; an explicit ``language_code``
+        # wins, and the historical Bengali default applies with neither.
+        if language_code is None:
+            language_code = language or "bn"
         try:
             import assemblyai as aai
         except ImportError:

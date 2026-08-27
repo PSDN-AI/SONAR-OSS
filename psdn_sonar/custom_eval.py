@@ -16,8 +16,6 @@ if TYPE_CHECKING:
 
 import yaml
 
-from psdn_sonar.language_codes import LANG_CODE_TO_ELEVENLABS
-
 logger = logging.getLogger(__name__)
 
 _API_KEY_MAP = {
@@ -155,10 +153,10 @@ def _create_api_model(api_name: str, language_code: str):
     if api_name == "whisper_api":
         return WhisperAPIModel(language=language_code)
     if api_name == "elevenlabs_api":
-        el_code = LANG_CODE_TO_ELEVENLABS.get(language_code, language_code)
-        return ElevenLabsAPIModel(language_code=el_code)
+        # The adapter owns the ISO 639-1 -> vendor-code conversion (#186).
+        return ElevenLabsAPIModel(language=language_code)
     if api_name == "assemblyai_api":
-        return AssemblyAIAPIModel(language_code=language_code)
+        return AssemblyAIAPIModel(language=language_code)
     return None
 
 

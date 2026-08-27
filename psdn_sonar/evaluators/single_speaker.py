@@ -10,7 +10,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, cast
 
 from psdn_sonar.audio_quality import compute_audio_quality_metrics
 from psdn_sonar.config import load_env
@@ -101,7 +101,14 @@ def _default_submission_for_model(
     """
     from psdn_sonar.benchmark.submission import SubmissionConfig
 
-    protocol = "streaming" if os.getenv("SONAR_PROTOCOL", "batch") == "streaming" else "batch"
+    # Protocol comes from the model that ran (an adapter in streaming mode
+    # measures ttft_s); SONAR_PROTOCOL remains as an explicit override.
+    env_protocol = os.getenv("SONAR_PROTOCOL")
+    protocol: Literal["batch", "streaming"]
+    if env_protocol in ("batch", "streaming"):
+        protocol = cast('Literal["batch", "streaming"]', env_protocol)
+    else:
+        protocol = "streaming" if getattr(model, "streaming", False) else "batch"
     return SubmissionConfig.from_env(
         provider=os.getenv("SONAR_PROVIDER") or getattr(model, "provider", None) or "local",
         model_snapshot=getattr(model, "provider_model_id", None) or model_name,
@@ -143,6 +150,7 @@ def _model_factory(
     kwargs: Optional[dict] = None,
     custom_hf_model: Optional[str] = None,
     language: Optional[str] = None,
+    streaming: Optional[bool] = None,
 ):
     """Create an ASR model by name. Delegates to the centralized ModelRegistry.
 
@@ -152,7 +160,9 @@ def _model_factory(
     actionable message instead of "not found in the registry" (issue #168).
     """
     try:
-        return create_model(name, custom_hf_model=custom_hf_model, language=language, **(kwargs or {}))
+        return create_model(
+            name, custom_hf_model=custom_hf_model, language=language, streaming=streaming, **(kwargs or {})
+        )
     except UnknownModelError:
         return None
 
@@ -672,12 +682,17 @@ class SingleSpeakerEvaluator:
         submission: Optional["SubmissionConfig"] = None,
         write_scores: bool = True,
         significant_wer_threshold: float = DEFAULT_SIGNIFICANT_WER_THRESHOLD,
+        streaming: bool = False,
     ) -> Dict:
         """Run evaluation for specified models.
 
         ``significant_wer_threshold`` is propagated into each row's
         ``significant_wer`` flag and into the run-level
         ``significant_wer_rate`` aggregate written to ``scores.json``.
+
+        ``streaming`` requests the streaming protocol from adapters that have
+        one (``assemblyai_api``, which then records ``ttft_s``); models
+        without a streaming mode log a warning and run batch as usual.
         """
         load_env()
 
@@ -751,7 +766,12 @@ class SingleSpeakerEvaluator:
             logger.info(f"{'=' * 60}")
 
             try:
-                model = _model_factory(model_name, custom_hf_model=_custom_hf_model, language=language)
+                model = _model_factory(
+                    model_name,
+                    custom_hf_model=_custom_hf_model,
+                    language=language,
+                    streaming=streaming or None,
+                )
             except Exception as e:
                 # One unconstructible model must not end the multi-model run
                 # (issue #108: the bn defaults died at khushids_bengali's

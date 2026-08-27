@@ -214,6 +214,22 @@ class TestSingleSpeakerDispatch:
             run_cli("single", "--input", tsv, "--models", "wav2vec2_bengali", "--language", "Bengali")
         assert mock_eval.call_args[1]["language"] == "bn"
 
+    def test_streaming_flag_reaches_the_evaluator(self, tsv):
+        # Issue #186: AssemblyAI's streaming mode (the only way to measure
+        # ttft_s) previously had no entry point anywhere in the CLI.
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        with patch(target) as mock_eval:
+            mock_eval.return_value = {"results": []}
+            run_cli("single", "--input", tsv, "--models", "assemblyai_api", "--language", "en", "--streaming")
+        assert mock_eval.call_args[1]["streaming"] is True
+
+    def test_streaming_defaults_off(self, tsv):
+        target = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator.run_evaluation"
+        with patch(target) as mock_eval:
+            mock_eval.return_value = {"results": []}
+            run_cli("single", "--input", tsv, "--models", "whisper_base_en", "--language", "en")
+        assert mock_eval.call_args[1]["streaming"] is False
+
 
 class TestDiscoverDispatch:
     @staticmethod

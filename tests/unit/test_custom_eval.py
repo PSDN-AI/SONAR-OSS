@@ -131,15 +131,17 @@ class TestCreateApiModel:
         model = _create_api_model("whisper_api", "pt")
         assert model.kwargs == {"language": "pt"}
 
-    def test_elevenlabs_maps_language_code(self, monkeypatch):
+    def test_elevenlabs_gets_language(self, monkeypatch):
+        # The adapter owns the ISO 639-1 -> vendor-code conversion (#186);
+        # _create_api_model no longer duplicates the mapping.
         monkeypatch.setattr("psdn_sonar.models.apis.ElevenLabsAPIModel", _StubModel)
         model = _create_api_model("elevenlabs_api", "pt")
-        assert model.kwargs == {"language_code": "por"}
+        assert model.kwargs == {"language": "pt"}
 
-    def test_assemblyai_gets_language_code(self, monkeypatch):
+    def test_assemblyai_gets_language(self, monkeypatch):
         monkeypatch.setattr("psdn_sonar.models.apis.AssemblyAIAPIModel", _StubModel)
         model = _create_api_model("assemblyai_api", "pt")
-        assert model.kwargs == {"language_code": "pt"}
+        assert model.kwargs == {"language": "pt"}
 
     def test_unknown_api_returns_none(self):
         assert _create_api_model("unknown_api", "pt") is None
