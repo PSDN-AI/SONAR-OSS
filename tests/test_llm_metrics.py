@@ -23,6 +23,7 @@ import os
 import sys
 import types as _types
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -569,7 +570,13 @@ class TestCoerceIntentValue:
 class TestDefaultModelIsStable:
     """The published numbers must be reproducible long after preview-tier
     model aliases get retired or renamed. This guards against an
-    accidental flip back to a ``-preview`` / ``-exp-`` default."""
+    accidental flip back to a ``-preview`` / ``-exp-`` default.
+
+    Issue #187 showed the tier heuristic is only half the story — Google
+    retired the *stable* 2.5 generation for new users while the previews
+    stayed up — so these static checks are necessary but not sufficient;
+    the live check is ``TestLiveSmoke``, run by the scheduled
+    ``live-gemini`` workflow (see ``TestLiveSmokeIsWired``)."""
 
     def test_default_model_is_not_preview(self):
         m = llm_metrics.DEFAULT_MODEL
@@ -577,6 +584,49 @@ class TestDefaultModelIsStable:
         assert "preview" not in lowered, f"DEFAULT_MODEL must be a stable alias, got {m!r}"
         assert "-exp-" not in lowered, f"DEFAULT_MODEL must not be an experimental alias, got {m!r}"
         assert lowered.startswith("gemini-"), f"DEFAULT_MODEL must be a Gemini family model, got {m!r}"
+
+    def test_default_model_is_not_in_the_retired_25_generation(self):
+        """#187: the whole stable Gemini 2.5 generation is retired for new
+        users (both ``gemini-2.5-pro`` and ``gemini-2.5-flash`` 404 with
+        "no longer available to new users"), and both names the module
+        hardcoded were in it. Pin that no name from that generation comes
+        back as the default."""
+        lowered = llm_metrics.DEFAULT_MODEL.lower()
+        assert not lowered.startswith("gemini-2."), (
+            f"DEFAULT_MODEL {llm_metrics.DEFAULT_MODEL!r} is in the Gemini 2.x generation, "
+            "which Google retired for new users (issue #187) — the judge would 404 on its own default"
+        )
+
+
+class TestLiveSmokeIsWired:
+    """#187, second half: ``TestLiveSmoke`` was written to catch a retired
+    ``DEFAULT_MODEL`` — the exact failure that then happened — but nothing
+    triggered it: zero occurrences of ``RUN_LIVE_GEMINI_TESTS`` anywhere
+    under ``.github/workflows/``. Pin the wiring so the workflow can't be
+    deleted or defanged without this suite noticing."""
+
+    @staticmethod
+    def _workflow_text() -> str:
+        repo_root = Path(llm_metrics.__file__).resolve().parents[2]
+        workflow = repo_root / ".github" / "workflows" / "live-gemini.yml"
+        assert workflow.is_file(), (
+            "The scheduled live-gemini workflow is gone; without it the live "
+            "DEFAULT_MODEL check runs nowhere (issue #187)"
+        )
+        return workflow.read_text(encoding="utf-8")
+
+    def test_workflow_runs_on_a_schedule(self):
+        text = self._workflow_text()
+        assert "schedule:" in text and "cron:" in text, (
+            "live-gemini.yml must run on a schedule — a manual-only trigger "
+            "recreates the 'wired to nothing' state issue #187 reported"
+        )
+
+    def test_workflow_sets_the_opt_in_and_selects_the_marker(self):
+        text = self._workflow_text()
+        assert "RUN_LIVE_GEMINI_TESTS" in text
+        assert "-m live_gemini" in text
+        assert "secrets.GEMINI_API_KEY" in text
 
 
 # ---------------------------------------------------------------------------
@@ -605,9 +655,12 @@ class TestLiveSmoke:
     out from under us. This test fires exactly one tiny request and
     asserts we get a parseable JSON intent answer back.
 
-    **Never runs in default CI**: requires ``RUN_LIVE_GEMINI_TESTS=1``
+    **Not part of PR CI**: requires ``RUN_LIVE_GEMINI_TESTS=1``
     *and* ``GEMINI_API_KEY`` or ``GOOGLE_API_KEY`` — same credential
     contract as ``get_client()`` (preferred env name documented in README).
+    The scheduled ``live-gemini`` workflow runs it weekly (issue #187:
+    every hardcoded judge model name had been retired for new users and
+    this test, the one thing written to notice, was wired to nothing).
     """
 
     def test_default_model_string_is_live(self):

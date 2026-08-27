@@ -1,0 +1,61 @@
+name: Live Gemini smoke
+
+# Issue #187: every Gemini model name the LLM judge hardcoded had been retired
+# for new users, and the one test written to catch exactly that
+# (tests/test_llm_metrics.py::TestLiveSmoke) was opt-in and wired to nothing —
+# zero occurrences of RUN_LIVE_GEMINI_TESTS anywhere under .github/workflows.
+# This schedule is the wiring. It is deliberately not part of PR CI: the test
+# makes a paid, networked API call and needs a repository secret, and a model
+# retirement is an external event no PR causes — a weekly probe surfaces it
+# without putting a flaky network dependency on every merge.
+on:
+  schedule:
+    - cron: "17 4 * * 1" # weekly, Monday 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    name: DEFAULT_MODEL resolves against the live Gemini API
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Forks inherit scheduled workflows but not secrets; don't run a paid
+    # probe (or a guaranteed warning) outside the canonical repository.
+    if: github.repository == 'PSDN-AI/SONAR-OSS'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install frozen environment with [apis]
+        run: uv sync --frozen --extra dev --extra apis --python 3.12
+
+      # The live test skips when google-genai is missing. Guard the guard,
+      # same as the [ml] check in ci.yml: a green run whose only selected
+      # test silently skipped would defeat the point of this workflow.
+      - name: Verify the [apis] import surface (the live test must not skip)
+        run: uv run --no-sync python -c "from google import genai; print(genai.__version__)"
+
+      - name: Run the live smoke test
+        env:
+          RUN_LIVE_GEMINI_TESTS: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::warning title=Live Gemini smoke did not run::The GEMINI_API_KEY repository secret is not configured, so DEFAULT_MODEL was not validated against the live API. Add the secret (Settings > Secrets and variables > Actions) to enable the weekly check issue #187 asked for."
+            exit 0
+          fi
+          uv run --no-sync pytest tests/test_llm_metrics.py -m live_gemini -v

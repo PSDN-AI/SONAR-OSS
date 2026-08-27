@@ -14,16 +14,16 @@ returns malformed output, so callers can distinguish "model said the
 score is X" from "we don't know" — never silently default to a passing
 or failing score.
 
-Default judge model: stable ``gemini-2.5-pro`` (see ``DEFAULT_MODEL``
-below for the reproducibility and calibration-parity rationale).
-``gemini-3.1-pro-preview`` (released Feb 2026, preview status) is the
-recommended opt-in for stronger Indic reasoning via ``--judge-model``;
-being preview-tier, Google may renumber, alias, or deprecate it without
-notice, and the analysis script's cache key includes the judge-model
-string verbatim, so switching models auto-invalidates cached judgments.
-The combined entity+intent prompt (see ``evaluate_sample``) returns both
-metrics in a single round-trip, halving cost and latency relative to
-running the two prompts separately.
+Default judge model: ``gemini-3.6-flash`` (see ``DEFAULT_MODEL`` below
+for how the previous default was retired out from under us and what that
+did to the selection rationale). ``gemini-3.1-pro-preview`` is the opt-in
+for stronger Indic reasoning via ``--judge-model``; note it has no
+free-tier quota (a fresh key gets 429 RESOURCE_EXHAUSTED with limit 0),
+so it needs a paid tier. The analysis script's cache key includes the
+judge-model string verbatim, so switching models auto-invalidates cached
+judgments. The combined entity+intent prompt (see ``evaluate_sample``)
+returns both metrics in a single round-trip, halving cost and latency
+relative to running the two prompts separately.
 
 Calibration & known biases
 --------------------------
@@ -78,34 +78,32 @@ from psdn_sonar.config import load_env
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.5-pro"
+DEFAULT_MODEL = "gemini-3.6-flash"
 """The judge model.
 
-We default to **stable** Gemini 2.5 Pro for two reasons:
+``gemini-3.6-flash`` is the name verified to resolve for a newly created
+API key (issue #187). The previous default preferred **stable** tier over
+recency — "preview models can be renamed or retired without notice" — and
+events inverted that rationale: Google retired the entire stable Gemini
+2.5 generation for new users while the previews stayed up, so
+``gemini-2.5-pro`` (the old default) and ``gemini-2.5-flash`` (the old
+cheap alternative) both 404 with "no longer available to new users".
+Version recency is a better availability signal than tier, and what now
+guards this string against the next rotation is not a tier heuristic but
+the scheduled live smoke test (``.github/workflows/live-gemini.yml``,
+running ``TestLiveSmoke``), which fails when the literal name stops
+resolving.
 
-  1. Reproducibility. This is a benchmarking toolkit — the published
-     numbers must be reproducible six months from now. Preview-tier
-     models (``-preview``, ``-exp-``, dated suffixes) can be renamed,
-     re-aliased, retuned, or retired by Google without notice, which
-     would silently 404 the script for downstream users.
-  2. Calibration parity. The headline numbers in the original
-     analysis were judged by 2.5 Pro; defaulting to a different judge
-     would silently break apples-to-apples continuity with prior
-     runs.
+Judge continuity notes:
 
-To opt in to a stronger / newer judge — e.g. for ad-hoc analysis,
-or to run an inter-judge agreement study — pass the model string via
-``--judge-model`` on the analysis script:
-
-    --judge-model gemini-3.1-pro-preview    # stronger Indic reasoning, preview
-    --judge-model gemini-2.5-flash          # cheaper / faster, lower quality
-
-The cache key includes the model string verbatim
-(``_make_cache_key`` in the analysis script), so swapping models
-auto-invalidates any cached judgments — no manual cache flush
-needed. When ``gemini-3.1-pro`` lands as a stable alias (no
-``-preview`` suffix), promoting it to ``DEFAULT_MODEL`` is a
-one-line change.
+  1. Judgments are not comparable across judge models. The cache key
+     includes the model string verbatim (``make_cache_key``), so changing
+     ``DEFAULT_MODEL`` auto-invalidates cached judgments — no manual
+     cache flush needed, and no stale cross-judge comparisons.
+  2. For a stronger judge — e.g. an inter-judge agreement study — opt in
+     via ``--judge-model gemini-3.1-pro-preview`` on the analysis script.
+     That model has no free-tier quota (429 RESOURCE_EXHAUSTED with
+     ``limit: 0`` on a fresh key), so it requires a paid tier.
 """
 
 DEFAULT_MAX_RETRIES = 4
