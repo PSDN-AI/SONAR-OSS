@@ -82,12 +82,40 @@ def run_pyannote_diarize(combined_audio, asr_model) -> dict:
 
     Requires ``asr_model.transcribe_with_word_timestamps()``.
     Returns ``{speaker_id: text}``.
+
+    Raises when either half produces nothing: a run that cannot attribute
+    words must fail with the reason rather than hand every word to one
+    speaker and drop the other from the evaluation (issue #189).
     """
     from .pyannote_utils import assign_words_to_speakers, run_diarization
 
     words = asr_model.transcribe_with_word_timestamps(str(combined_audio))
+    if not words:
+        cause = getattr(asr_model, "last_transcribe_error", None)
+        raise RuntimeError(
+            "pyannote_diarize needs word timestamps to attribute words to speakers, but "
+            f"{type(asr_model).__name__} returned none for {Path(combined_audio).name}"
+            + (f": {cause}" if cause else " (no error was recorded by the adapter)")
+        )
+
     diar_segments = run_diarization(Path(combined_audio), num_speakers=2)
-    return assign_words_to_speakers(words, diar_segments)
+    if not diar_segments:
+        raise RuntimeError(
+            f"pyannote diarization found no speech turns in {Path(combined_audio).name}, so the "
+            f"{len(words)} transcribed word(s) cannot be attributed to speakers. Check that the "
+            "combined audio actually contains speech."
+        )
+
+    speaker_texts = assign_words_to_speakers(words, diar_segments)
+    speakers_found = len({seg["speaker"] for seg in diar_segments})
+    if speakers_found < 2:
+        raise RuntimeError(
+            f"pyannote diarization separated only {speakers_found} speaker(s) in "
+            f"{Path(combined_audio).name} where 2 were requested, so one speaker's reference "
+            "would be scored against the other's words. Not scoring this clip rather than "
+            "charging the whole transcript to one speaker."
+        )
+    return speaker_texts
 
 
 def dual_assignment_score(
@@ -234,6 +262,15 @@ PER_CHANNEL_STRATEGIES = {
 PER_CLIP_STRATEGIES = {
     "scribe_diarize": run_scribe_diarize,
     "pyannote_diarize": run_pyannote_diarize,
+}
+
+# Model capability each per-clip method needs, checked before the method runs.
+# Without this, an adapter that does not implement the required method failed
+# on the bare NotImplementedError, whose str() is "" — so the run reported
+# `pyannote_diarize failed:` with no reason at all (issue #189).
+PER_CLIP_REQUIRED_CAPABILITY = {
+    "scribe_diarize": "supports_diarization",
+    "pyannote_diarize": "supports_word_timestamps",
 }
 
 # Methods that operate on per-channel audio (one API call per speaker)

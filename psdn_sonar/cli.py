@@ -381,11 +381,15 @@ def display_aggregate_stats(results_csv, model_name):
         logger.info(f"{'Metric':<20} {'Mean':<12} {'Std Dev':<12} {'Min':<12} {'Max':<12} {'Samples':<10}")
         logger.info("-" * 70)
 
+        from psdn_sonar.core import _fmt_std
+
         for metric_name, metric_stats in stats.items():
+            # pandas' sample std is NaN for a single row; name that instead of
+            # printing a bare "nan" the .txt summary contradicted (issue #189).
             logger.info(
                 f"{metric_name:<20} "
                 f"{metric_stats['mean']:<12.4f} "
-                f"{metric_stats['std']:<12.4f} "
+                f"{_fmt_std(metric_stats['std']):<12} "
                 f"{metric_stats['min']:<12.4f} "
                 f"{metric_stats['max']:<12.4f} "
                 f"{metric_stats['count']:<10}"
