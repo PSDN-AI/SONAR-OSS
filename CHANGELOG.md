@@ -78,6 +78,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `--language` now reaches a registered model's constructor (#186).
+  `create_model` used its `language` argument only on the `custom_hf_model`
+  branch; registered models were built from registry kwargs alone, and the
+  three hosted-API adapters are registered with empty kwargs — so their
+  constructor defaults always won. Every AssemblyAI request said Bengali
+  (`--language en` runs included: Bengali audio came back phonetically right
+  but in Devanagari, WER 1.0), and every ElevenLabs request sent `ben`.
+  `create_model` now forwards `language` to any constructor that declares
+  the parameter — unless the registry entry pins one (`whisper_small_hi`
+  stays Hindi whatever `--language` says) — and the ElevenLabs adapter owns
+  the ISO 639-1 → vendor-code conversion, so the `custom` subcommand's
+  duplicate mapping is gone. The same dropped-kwargs line made
+  `AssemblyAIAPIModel`'s documented streaming mode unreachable, and with it
+  `ttft_s`: `psdn-sonar single` now has `--streaming`, which requests the
+  streaming protocol from adapters that have one and records `ttft_s` plus
+  the TTFT percentiles; a model without a streaming mode logs a warning and
+  runs batch, and `scores.json` records the protocol actually used rather
+  than reading only the `SONAR_PROTOCOL` env var. Relatedly (from the issue
+  discussion): the unused `elevenlabs` SDK is out of the `[apis]` extra —
+  the ElevenLabs adapter deliberately speaks the REST API via `requests` (a
+  core dependency), so `elevenlabs_api` works without the extra; the
+  pyproject now says so.
 - `scores.json` no longer misdescribes the run it records (#184) — three
   instances of the same defect class, the artifact asserting things the run
   didn't do. A hosted-API run recorded `provider: local` / `region: local`

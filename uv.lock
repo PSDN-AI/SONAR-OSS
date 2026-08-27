@@ -1391,23 +1391,6 @@ wheels = [
 ]
 
 [[package]]
-name = "elevenlabs"
-version = "2.58.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "pydantic-core" },
-    { name = "requests" },
-    { name = "typing-extensions" },
-    { name = "websockets" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/f1/ffb45244b83bd6a2df5c3903b9c045f77659c6a591ee88881770d10762a2/elevenlabs-2.58.0.tar.gz", hash = "sha256:3281f0f6271dd8a40466a2d7cdd4bc3721937109fc2917248e87dbde3b7832a7", size = 686610, upload-time = "2026-07-13T09:33:57.448Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/2e/761c8c625a8c67a1c027005f56ebd1b9f14e2f974aec0558e94c3e5bca5e/elevenlabs-2.58.0-py3-none-any.whl", hash = "sha256:e64417e585b8f88ff5ca95bb41e2723c1634cf0424b971b6b7283960de633808", size = 1849831, upload-time = "2026-07-13T09:33:55.62Z" },
-]
-
-[[package]]
 name = "emoji"
 version = "2.15.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4430,7 +4413,6 @@ all = [
     { name = "banglaspeech2text" },
     { name = "bnlp-toolkit" },
     { name = "boto3" },
-    { name = "elevenlabs" },
     { name = "g2pk" },
     { name = "google-genai" },
     { name = "hgtk" },
@@ -4452,7 +4434,6 @@ all = [
 ]
 apis = [
     { name = "assemblyai" },
-    { name = "elevenlabs" },
     { name = "google-genai" },
     { name = "openai" },
 ]
@@ -4513,7 +4494,6 @@ requires-dist = [
     { name = "bnlp-toolkit", marker = "extra == 'bengali'" },
     { name = "boto3", marker = "extra == 'cloud'", specifier = ">=1.28.0" },
     { name = "datasets", specifier = ">=2.14.0,<4.0.0" },
-    { name = "elevenlabs", marker = "extra == 'apis'" },
     { name = "g2pk", marker = "extra == 'korean'", specifier = ">=0.1.0" },
     { name = "google-genai", marker = "extra == 'apis'", specifier = ">=1.0.0" },
     { name = "hgtk", marker = "extra == 'korean'", specifier = ">=0.1.3" },

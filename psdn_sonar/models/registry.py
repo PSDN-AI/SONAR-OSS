@@ -4,6 +4,7 @@ All model name -> class mappings live here. Both single-speaker and
 multi-speaker pipelines resolve models through this registry.
 """
 
+import inspect
 import logging
 from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
@@ -25,7 +26,6 @@ _EXTRA_FOR_MODULE = {
     "peft": "bengali",
     "pyannote": "pyannote",
     "openai": "apis",
-    "elevenlabs": "apis",
     "assemblyai": "apis",
 }
 
@@ -165,13 +165,31 @@ def _import_class(class_path: str):
     return getattr(module, class_name)
 
 
-def create_model(name: str, *, custom_hf_model: Optional[str] = None, language: Optional[str] = None, **kwargs) -> Any:
+def create_model(
+    name: str,
+    *,
+    custom_hf_model: Optional[str] = None,
+    language: Optional[str] = None,
+    streaming: Optional[bool] = None,
+    **kwargs,
+) -> Any:
     """Create an ASR model by name.
 
     Args:
         name: Registered model name (e.g. 'wav2vec2_bengali', 'elevenlabs_api')
         custom_hf_model: If set, creates a CustomHuggingFaceModel with this model ID
-        language: Language code for language-aware models
+        language: Language code (ISO 639-1) forwarded to any constructor that
+            declares a ``language`` parameter, unless the registry entry pins
+            one (e.g. ``whisper_small_hi``). Before issue #186 this argument
+            was used only on the ``custom_hf_model`` branch, so registered
+            models — the hosted API adapters above all — were always built
+            with their constructor defaults and every AssemblyAI/ElevenLabs
+            request went out saying Bengali regardless of ``--language``.
+        streaming: Forwarded to constructors that declare a ``streaming``
+            parameter (``assemblyai_api``, which records ``ttft_s`` in that
+            mode). Requesting it for a model without a streaming mode logs a
+            warning and runs batch — one incapable model must not abort a
+            multi-model run. ``None`` means "not requested".
         **kwargs: Override default kwargs for the model class
 
     Returns:
@@ -184,6 +202,12 @@ def create_model(name: str, *, custom_hf_model: Optional[str] = None, language: 
             with an install extra which is not installed (e.g. torch / ``[ml]``)
     """
     if custom_hf_model:
+        if streaming:
+            logger.warning(
+                "Custom HuggingFace model '%s' has no streaming mode; running in the "
+                "batch protocol (ttft_s stays null).",
+                custom_hf_model,
+            )
         try:
             from psdn_sonar.models.huggingface import CustomHuggingFaceModel
         except ModuleNotFoundError as exc:
@@ -202,6 +226,21 @@ def create_model(name: str, *, custom_hf_model: Optional[str] = None, language: 
         cls = _import_class(class_path)
     except ModuleNotFoundError as exc:
         _raise_adapter_import_error(exc)
+
+    try:
+        init_params = inspect.signature(cls.__init__).parameters
+    except (TypeError, ValueError):  # pragma: no cover — C-implemented __init__
+        init_params = {}
+    if language is not None and "language" in init_params and "language" not in merged_kwargs:
+        merged_kwargs["language"] = language
+    if streaming is not None and "streaming" not in merged_kwargs:
+        if "streaming" in init_params:
+            merged_kwargs["streaming"] = streaming
+        elif streaming:
+            logger.warning(
+                "Model '%s' has no streaming mode; running in the batch protocol (ttft_s stays null).",
+                name,
+            )
     return cls(**merged_kwargs)
 
 
