@@ -124,7 +124,7 @@ your run first.
 
 ### Install the pre-release from TestPyPI (for testing)
 
-This repository is version **`0.1.0.dev4`**, and that is the pre-release
+This repository is version **`0.1.0.dev5`**, and that is the pre-release
 published on [TestPyPI](https://test.pypi.org/project/psdn-sonar/) — the
 commands below name it exactly. The package is not yet on PyPI. To install
 the TestPyPI wheel exactly as released:
@@ -152,13 +152,13 @@ the TestPyPI wheel exactly as released:
    dependencies:
 
    ```text
-   python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --no-cache-dir --dest testpypi-dist "psdn-sonar==0.1.0.dev4"
+   python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --no-cache-dir --dest testpypi-dist "psdn-sonar==0.1.0.dev5"
    ```
 
 3. Install that wheel, resolving dependencies from PyPI only:
 
    ```text
-   python -m pip install --index-url https://pypi.org/simple/ --no-cache-dir "testpypi-dist/psdn_sonar-0.1.0.dev4-py3-none-any.whl"
+   python -m pip install --index-url https://pypi.org/simple/ --no-cache-dir "testpypi-dist/psdn_sonar-0.1.0.dev5-py3-none-any.whl"
    ```
 
 4. Verify the install:
@@ -170,7 +170,7 @@ the TestPyPI wheel exactly as released:
 
 Then follow [`docs/USAGE.md`](docs/USAGE.md) for runnable examples. To install
 an optional extra in step 3, append it to the wheel path, for example
-`"testpypi-dist/psdn_sonar-0.1.0.dev4-py3-none-any.whl[ml]"`. Once `0.1.0` is
+`"testpypi-dist/psdn_sonar-0.1.0.dev5-py3-none-any.whl[ml]"`. Once `0.1.0` is
 released, this section becomes a plain `pip install psdn-sonar`.
 
 ### Contributor install (from source)
