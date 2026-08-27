@@ -78,6 +78,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `scores.json` no longer misdescribes the run it records (#184) — three
+  instances of the same defect class, the artifact asserting things the run
+  didn't do. A hosted-API run recorded `provider: local` / `region: local`
+  because the submission block read undocumented `SONAR_PROVIDER`/
+  `SONAR_REGION` env vars with a `local` default, never the model that ran;
+  `provider` now comes from the adapter that actually served inference
+  (`openai`/`elevenlabs`/`assemblyai`, or `local` for in-process models),
+  `model_snapshot` records the provider-side model id actually requested
+  (e.g. `whisper-1`) instead of the registry alias the artifact already
+  carries as `model_name`, and `region` is null unless explicitly supplied —
+  hosted providers do not disclose one, so the toolkit no longer invents it.
+  The env overrides remain and are now documented in `.env.example`. The
+  fallback-normalizer caveat (a run scored with the generic normalization,
+  e.g. `--language sw`) is now recorded in the `warnings` array with the same
+  wording the terminal prints — it makes the same
+  these-numbers-carry-a-caveat claim as the script-mismatch warning (#148)
+  that was already recorded, and only one of the two was auditable from the
+  output files. And `prompt_version` is no longer stamped onto every
+  POSEIDON run: it was gated on `compute_sem`, which is local
+  sentence-transformers similarity and has nothing to do with the LLM judge,
+  so every ordinary run asserted an LLM-judge rubric hash for judgments that
+  never happened — alongside a `judge_model` field that echoed
+  `SONAR_JUDGE_MODEL`/`GEMINI_MODEL` env vars never wired to the judge. Both
+  fields now stay null on this path; a caller that actually runs the judge
+  supplies its own submission block.
 - The LLM-judge path now reads `.env` (#188) — the same gap #167 closed for
   the `multi` subcommand, on the one path that remained.
   `llm_metrics.get_client()` read `os.getenv` directly without ever calling

@@ -74,30 +74,40 @@ _EMPTY_AUDIO_QUALITY = {
 
 
 def _default_submission_for_model(
+    model,
     model_name: str,
     *,
     language: str,
-    compute_sem: bool,
 ) -> SubmissionConfig:
+    """Build the submission block from the model that actually ran (issue #184).
+
+    - ``provider`` comes from the adapter (``openai``/``elevenlabs``/
+      ``assemblyai`` for hosted APIs, ``local`` for in-process inference); it
+      used to come from the undocumented ``SONAR_PROVIDER`` env var with a
+      ``local`` default, so a hosted-API run recorded ``provider: local``.
+      The env var remains as an explicit override (documented in .env.example).
+    - ``region`` is null unless ``SONAR_REGION`` is set — hosted providers do
+      not disclose one and a local run has none, so the old ``local`` default
+      asserted a region nobody measured.
+    - ``model_snapshot`` records the provider-side model id actually requested
+      (e.g. ``whisper-1``) when the adapter pins one, falling back to the
+      registry alias; ``scores.json`` carries the alias separately as
+      ``model_name``.
+    - ``judge_model``/``prompt_version`` are never set here: this pipeline
+      computes semantic similarity locally and runs no LLM judge, and the old
+      ``compute_sem`` gate stamped the judge rubric hash onto every POSEIDON
+      run — asserting LLM-judged metrics that were never computed. A caller
+      that actually runs the judge passes its own ``submission``.
+    """
     from psdn_sonar.benchmark.submission import SubmissionConfig
-
-    judge_model = None
-    prompt_version = None
-    if compute_sem:
-        from psdn_sonar.utils.llm_metrics import PROMPT_VERSION
-
-        prompt_version = PROMPT_VERSION
-        judge_model = os.getenv("SONAR_JUDGE_MODEL") or os.getenv("GEMINI_MODEL")
 
     protocol = "streaming" if os.getenv("SONAR_PROTOCOL", "batch") == "streaming" else "batch"
     return SubmissionConfig.from_env(
-        provider=os.getenv("SONAR_PROVIDER", "local"),
-        model_snapshot=model_name,
-        region=os.getenv("SONAR_REGION", "local"),
+        provider=os.getenv("SONAR_PROVIDER") or getattr(model, "provider", None) or "local",
+        model_snapshot=getattr(model, "provider_model_id", None) or model_name,
+        region=os.getenv("SONAR_REGION") or None,
         protocol=protocol,
         inference_params={"language_code": language},
-        judge_model=judge_model,
-        prompt_version=prompt_version,
     )
 
 
@@ -695,6 +705,19 @@ class SingleSpeakerEvaluator:
             logger.warning(mismatch)
             run_warnings.append(mismatch)
 
+        # A language scored with the generic fallback normalizer carries the
+        # same claim as the script-mismatch warning above — these WER/CER are
+        # not comparable to a dedicated-normalizer run's — but was only ever
+        # printed at CLI load time, never recorded in the artifact (issue
+        # #184). Record it in every scores.json; the shared helper keeps the
+        # wording identical to the CLI's log line.
+        from psdn_sonar.utils.text_processing import fallback_normalizer_warning
+
+        fallback = fallback_normalizer_warning(language)
+        if fallback:
+            logger.warning(fallback)
+            run_warnings.append(fallback)
+
         # A core install without [ml] cannot compute the headline metrics.
         # Say so up front — before any transcription time or API spend — in
         # the same one-actionable-line style as the other dependency paths
@@ -784,9 +807,9 @@ class SingleSpeakerEvaluator:
                 from psdn_sonar.benchmark.scores import build_run_scores, scores_json_path, write_scores_json
 
                 run_submission = submission or _default_submission_for_model(
+                    model,
                     model_name,
                     language=language,
-                    compute_sem=compute_sem,
                 )
 
                 # A semantics failure during this model's evaluation (e.g. a

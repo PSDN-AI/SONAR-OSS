@@ -469,6 +469,30 @@ def wer_normalization_contract(language: str) -> str:
     return contract
 
 
+def fallback_normalizer_warning(language: str) -> "str | None":
+    """One-line caveat when *language* has no dedicated normalizer, else ``None``.
+
+    Single source of the warning text so the CLI's load-time log line and the
+    ``warnings`` array in ``scores.json`` cannot drift apart (issue #184: the
+    caveat was printed at load and appeared nowhere in the artifact, while the
+    script-mismatch warning on the same subcommand was recorded — the same
+    claim about metric comparability, auditable in one case and not the other).
+    Keyed on :data:`WER_NORMALIZATION_CONTRACTS`, the map that actually
+    versions the dedicated rule sets.
+    """
+    lang = (language or "").lower()
+    if lang in WER_NORMALIZATION_CONTRACTS:
+        return None
+    from psdn_sonar.language_codes import LANG_CODE_TO_NAME
+
+    return (
+        f"Language '{lang}' ({LANG_CODE_TO_NAME.get(lang, lang)}) has no dedicated normalizer; "
+        "WER/CER will use the generic fallback normalization, which can shift metrics. "
+        f"Dedicated normalizers exist for: {', '.join(WER_NORMALIZATION_CONTRACTS)}. "
+        "For other languages, prefer `psdn-sonar custom` with a YAML config."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Canonical Bengali normalization (for WER)
 # ---------------------------------------------------------------------------

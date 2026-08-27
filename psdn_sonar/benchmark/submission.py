@@ -100,13 +100,28 @@ def _utc_now_iso() -> str:
 class SubmissionConfig(BaseModel):
     """Machine-readable metadata describing the conditions of one ASR eval run."""
 
-    provider: str = Field(..., min_length=1, description="Provider id (e.g. openai, assemblyai, huggingface).")
+    provider: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Id of the service that actually served inference (e.g. openai, "
+            "elevenlabs, assemblyai); 'local' for in-process inference."
+        ),
+    )
     model_snapshot: str = Field(
         ...,
         min_length=1,
         description="Pinned model id or snapshot string (e.g. whisper-1@2024-06-01).",
     )
-    region: str = Field(..., min_length=1, description="Inference region (e.g. us-east-1, ap-south-1).")
+    region: Optional[str] = Field(
+        default=None,
+        description=(
+            "Inference region (e.g. us-east-1, ap-south-1) when known. Null "
+            "otherwise: hosted providers do not disclose one and local runs "
+            "have none, so a value only appears when the caller supplies it "
+            "(issue #184: this used to default to the meaningless 'local')."
+        ),
+    )
     protocol: Protocol
     inference_params: dict[str, Any] = Field(default_factory=dict)
     sample_rate_hz: Optional[int] = Field(default=None, ge=1)
@@ -153,7 +168,7 @@ class SubmissionConfig(BaseModel):
         *,
         provider: str,
         model_snapshot: str,
-        region: str,
+        region: Optional[str] = None,
         protocol: Protocol = "batch",
         inference_params: Optional[dict[str, Any]] = None,
         sample_rate_hz: Optional[int] = None,

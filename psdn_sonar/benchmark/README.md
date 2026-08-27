@@ -150,3 +150,14 @@ cfg = SubmissionConfig.from_env(
 ```
 
 `protocol` must be `"batch"` or `"streaming"`. Unknown keys in `inference_params` are rejected.
+
+When the single-speaker evaluator builds this block itself (no `submission`
+passed), `provider` is derived from the adapter that actually served
+inference (`openai`/`elevenlabs`/`assemblyai` for hosted APIs, `local` for
+in-process models), `model_snapshot` records the provider-side model id the
+adapter requested (falling back to the registry alias, which is separately
+recorded as `model_name`), and `region` is `null` unless the `SONAR_REGION`
+environment variable supplies one — hosted providers do not disclose a
+region, so the toolkit never invents one (issue #184). `judge_model` and
+`prompt_version` stay `null` on this path because it never runs the LLM
+judge; callers that do run it supply their own `SubmissionConfig`.
