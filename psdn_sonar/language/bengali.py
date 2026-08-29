@@ -73,7 +73,14 @@ class BengaliProcessor(LanguageProcessor):
     @staticmethod
     def _clean_with_bnlp(text: str, norm_form: str) -> str:
         try:
-            from bnlp import CleanText
+            # Through the guard, not `from bnlp import ...`: importing bnlp
+            # directly runs its unbounded import-time NLTK download (#204).
+            from psdn_sonar.utils.bnlp_compat import import_bnlp
+
+            bnlp = import_bnlp()
+            if bnlp is None:
+                return text
+            CleanText = bnlp.CleanText
 
             cleaner = CleanText(
                 fix_unicode=True,
@@ -98,6 +105,12 @@ class BengaliProcessor(LanguageProcessor):
 
         if tokenizer_type == "bnlp":
             try:
+                from psdn_sonar.utils.bnlp_compat import import_bnlp
+
+                if import_bnlp() is None:
+                    raise ImportError("bnlp is not installed")
+                # Safe now: the guarded import above already executed the
+                # package body, so this submodule import has no side effects.
                 from bnlp.tokenize import Tokenizer
 
                 return Tokenizer().word_tokenize(text)

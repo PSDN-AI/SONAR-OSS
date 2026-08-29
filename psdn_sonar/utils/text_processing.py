@@ -393,20 +393,48 @@ def _get_protected_tokens() -> set[str] | None:
 # Bengali tokenizer (bnlp BasicTokenizer, optional)
 # ---------------------------------------------------------------------------
 
-try:
-    from bnlp import BasicTokenizer as _BnlpBasicTokenizer
+# Loaded lazily on first Bengali use, not at module scope: importing bnlp
+# runs an import-time NLTK check that reaches the network on every import
+# with no timeout (issue #204), and this module sits on every evaluation
+# path — English/Hindi/Korean runs were paying the round trip too. The
+# sentinel distinguishes "not attempted yet" from "attempted, unavailable".
+_BNLP_UNSET = object()
+_bengali_tokenizer = _BNLP_UNSET
 
-    _BNLP_TOKENIZER_AVAILABLE = True
-    _bengali_tokenizer = _BnlpBasicTokenizer()
-except ImportError:
-    _BNLP_TOKENIZER_AVAILABLE = False
-    _bengali_tokenizer = None
+
+def _load_bengali_tokenizer():
+    """The bnlp ``BasicTokenizer``, or ``None`` when bnlp is unavailable.
+
+    Imports bnlp through :mod:`psdn_sonar.utils.bnlp_compat`, which keeps
+    the import offline when NLTK's ``punkt_tab`` is already local and bounds
+    the download when it genuinely has to run. The result (including
+    ``None``) is cached for the life of the process.
+    """
+    global _bengali_tokenizer
+    if _bengali_tokenizer is not _BNLP_UNSET:
+        return _bengali_tokenizer
+
+    from psdn_sonar.utils.bnlp_compat import import_bnlp
+
+    try:
+        bnlp = import_bnlp()
+        _bengali_tokenizer = bnlp.BasicTokenizer() if bnlp is not None else None
+    except Exception:
+        logger.warning(
+            "bnlp is installed but failed to load; Bengali tokenization falls "
+            "back to whitespace splitting (the normalization contract records "
+            "this as -bnlp)",
+            exc_info=True,
+        )
+        _bengali_tokenizer = None
+    return _bengali_tokenizer
 
 
 def _tokenize_bengali(text: str) -> list[str]:
-    if _BNLP_TOKENIZER_AVAILABLE and _bengali_tokenizer is not None:
+    tokenizer = _load_bengali_tokenizer()
+    if tokenizer is not None:
         try:
-            return _bengali_tokenizer.tokenize(text)
+            return tokenizer.tokenize(text)
         except Exception:
             return text.split()
     return text.split()
@@ -465,7 +493,10 @@ def wer_normalization_contract(language: str) -> str:
         return f"{lang}:unversioned"
     contract = f"{lang}:v{version}"
     if lang == "bn":
-        contract += "+bnlp" if _BNLP_TOKENIZER_AVAILABLE else "-bnlp"
+        # Triggers the lazy load: the contract must describe the tokenizer
+        # the run will actually use, not merely whether bnlp is installed
+        # (a bnlp that fails to load also falls back to whitespace).
+        contract += "+bnlp" if _load_bengali_tokenizer() is not None else "-bnlp"
     return contract
 
 
