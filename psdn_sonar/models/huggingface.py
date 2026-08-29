@@ -102,6 +102,39 @@ def _pipeline_transcribe(pipe, audio_path: str) -> str:
     return _pipeline_text(pipe({"raw": audio, "sampling_rate": sampling_rate}))
 
 
+def _supports_language_arg(model) -> bool:
+    """True when the checkpoint's generation config can resolve a ``language``
+    argument to a decoder prompt token.
+
+    ``WhisperForConditionalGeneration.generate`` turns ``language=`` /
+    ``task=`` into decoder tokens through the ``lang_to_id`` / ``task_to_id``
+    maps in ``generation_config.json``, and raises "The generation config is
+    outdated..." when the map for a passed argument is absent — it checks
+    ``hasattr`` on exactly these two attributes, which this mirrors.
+    Multilingual OpenAI checkpoints carry both maps; many community
+    fine-tunes ship a generation config with neither, because they are
+    single-language models with the language baked into the weights. Those
+    checkpoints transcribe correctly *without* a language argument and fail
+    on every utterance *with* one (issue #203) — and since #186 forwards
+    ``--language`` to any constructor that declares it, three registered
+    default models were unreachable through the CLI.
+    """
+    gen_config = getattr(model, "generation_config", None)
+    return hasattr(gen_config, "lang_to_id") and hasattr(gen_config, "task_to_id")
+
+
+def _warn_language_unsupported(model_id: str, language: str) -> None:
+    logger.warning(
+        "Model '%s' has no language map in its generation config (a "
+        "single-language fine-tune); the requested language '%s' is not "
+        "passed to generate — the checkpoint transcribes in the language "
+        "it was fine-tuned for, as it did before --language forwarding "
+        "(issues #186/#203).",
+        model_id,
+        language,
+    )
+
+
 def _pipeline_text(result) -> str:
     """Extract stripped text from an ASR pipeline result.
 
@@ -171,8 +204,11 @@ class StandardHuggingFaceASR(ASRModel):
 
         generate_kwargs = {}
         if language:
-            generate_kwargs["language"] = language
-            generate_kwargs["task"] = "transcribe"
+            if _supports_language_arg(model):
+                generate_kwargs["language"] = language
+                generate_kwargs["task"] = "transcribe"
+            else:
+                _warn_language_unsupported(model_id, language)
 
         self.pipe = pipeline(
             "automatic-speech-recognition",
@@ -463,6 +499,12 @@ class CustomHuggingFaceModel(ASRModel):
                     self.device
                 )
                 self.model_type = "whisper"
+                # Decided once at load, not per utterance: a mapless
+                # fine-tune fails every generate(language=...) call with
+                # "generation config is outdated" (issue #203).
+                if self.language and not _supports_language_arg(self.model):
+                    _warn_language_unsupported(model_id, self.language)
+                    self.language = None
 
             elif "wav2vec2" in model_type:
                 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor

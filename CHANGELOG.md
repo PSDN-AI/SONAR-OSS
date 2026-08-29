@@ -78,6 +78,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Three registered Whisper fine-tunes transcribe again when a language is
+  requested (#203) — a regression from #186's `--language` forwarding.
+  `tugstugi_bengali`, `tugstugi_bengali_regional`, and
+  `whisper_hindi_large_v2` ship a `generation_config.json` with no
+  `lang_to_id`/`task_to_id` maps (single-language fine-tunes, the language
+  baked into the weights), so `generate(language=...)` raised "The
+  generation config is outdated" on every utterance — and since the CLI
+  substitutes `bn` when `--language` is omitted, no CLI path avoided it for
+  the two Bengali defaults. The pipeline adapter now passes
+  `language`/`task` only to checkpoints whose generation config can resolve
+  them — mirroring the exact `hasattr` check transformers performs — and
+  otherwise logs one load-time warning naming the model and the dropped
+  language; the checkpoint transcribes in its fine-tuned language, as it
+  did before forwarding existed. `whisper_small_hi` (a multilingual base
+  pinned to `hi` in the registry) keeps receiving its language. The same
+  guard covers `--hf-model` custom Whisper checkpoints, which take the same
+  per-utterance failure through `CustomHuggingFaceModel`.
 - The LLM judge's default model resolves again, and the test that guards it
   finally runs somewhere (#187). Google retired the entire stable Gemini 2.5
   generation for new users, taking both names the module hardcoded with it:
