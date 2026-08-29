@@ -213,6 +213,10 @@ def run_single_method(
     silence_settings = silence_settings or {}
     timestamp_settings = timestamp_settings or {}
     pyannote_settings = pyannote_settings or {}
+    # timestamp_trim's offsets are combined-timeline; give the strategy the
+    # combined recording to cut from when the channel file cannot hold them
+    # (issue #205).
+    timestamp_settings = {**timestamp_settings, "combined_audio_path": combined_audio}
 
     all_results = {"A": [], "B": []}
 
@@ -349,6 +353,8 @@ def run_sweep(
     silence_settings = silence_settings or {}
     timestamp_settings = timestamp_settings or {}
     pyannote_settings = pyannote_settings or {}
+    # Same combined-recording injection as run_single_method (issue #205).
+    timestamp_settings = {**timestamp_settings, "combined_audio_path": combined_audio}
 
     all_results = {"A": [], "B": []}
 

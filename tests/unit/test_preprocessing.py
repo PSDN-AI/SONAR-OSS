@@ -92,6 +92,95 @@ class TestAudioDurationAndTrimming:
         assert original_s == trimmed_s
 
 
+def _write_freq_wav(path, pieces):
+    """Write a wav from ``(freq_hz_or_0_for_silence, seconds)`` pieces."""
+    chunks = []
+    for freq, seconds in pieces:
+        n = int(SR * seconds)
+        if freq:
+            t = np.linspace(0, seconds, n, endpoint=False)
+            chunks.append((0.5 * np.sin(2 * np.pi * freq * t)).astype(np.float32))
+        else:
+            chunks.append(np.zeros(n, dtype=np.float32))
+    sf.write(str(path), np.concatenate(chunks), SR)
+    return path
+
+
+def _dominant_freq(path) -> float:
+    audio, sr = sf.read(str(path))
+    spectrum = np.abs(np.fft.rfft(audio))
+    return float(np.fft.rfftfreq(audio.size, 1 / sr)[int(np.argmax(spectrum))])
+
+
+class TestTimestampTrimCombinedTimeline:
+    """Issue #205: segment offsets are combined-timeline, but they were
+    clamped against each speaker's own channel file. For the speaker who
+    talks second, the start lay past the end of their file, every segment
+    was dropped, and 100 ms of padding was exported and scored as their turn
+    — silently, with exit 0. Speakers A and B carry different tone
+    frequencies here so the tests can assert whose audio actually ends up in
+    the trimmed output."""
+
+    def _fixture(self, tmp_path):
+        # The conversation: A speaks (440 Hz) for 2.0 s, a 0.3 s gap, then B
+        # speaks (880 Hz) for 1.5 s. Channel files hold only each speaker's
+        # own turn — the shipped fixtures' layout.
+        combined = _write_freq_wav(tmp_path / "combined.wav", [(440, 2.0), (0, 0.3), (880, 1.5)])
+        channel_a = _write_freq_wav(tmp_path / "speaker_a.wav", [(440, 2.0)])
+        channel_b = _write_freq_wav(tmp_path / "speaker_b.wav", [(880, 1.5)])
+        segments = [
+            {"speaker": "speaker_a", "start": 0.0, "end": 2.0},
+            {"speaker": "speaker_b", "start": 2.3, "end": 3.8},
+        ]
+        return combined, channel_a, channel_b, segments
+
+    def test_second_speaker_is_cut_from_the_combined_recording(self, tmp_path):
+        combined, _, channel_b, segments = self._fixture(tmp_path)
+        out, orig_s, trim_s = trim_by_timestamps(
+            channel_b, segments, "B", output_path=tmp_path / "out.wav", combined_audio_path=combined
+        )
+        assert orig_s == pytest.approx(3.8, abs=0.05)  # cut from the combined file
+        assert 1.4 < trim_s < 2.1  # B's 1.5 s turn plus padding — not 0.1 s
+        assert _dominant_freq(out) == pytest.approx(880, abs=5)  # B's audio, not A's
+
+    def test_first_speaker_keeps_the_channel_source(self, tmp_path):
+        """Offsets that fit the channel file keep trimming it — channel
+        isolation is strictly better audio when the timeline allows it."""
+        combined, channel_a, _, segments = self._fixture(tmp_path)
+        out, orig_s, trim_s = trim_by_timestamps(
+            channel_a, segments, "A", output_path=tmp_path / "out.wav", combined_audio_path=combined
+        )
+        assert orig_s == pytest.approx(2.0, abs=0.05)  # the channel file itself
+        assert _dominant_freq(out) == pytest.approx(440, abs=5)
+
+    def test_full_timeline_channel_file_is_trimmed_in_place(self, tmp_path):
+        """A channel file spanning the combined timeline (true stereo split)
+        holds the offsets, so the channel — not the combined mix — is cut."""
+        combined, _, _, segments = self._fixture(tmp_path)
+        channel_b_full = _write_freq_wav(tmp_path / "speaker_b_full.wav", [(0, 2.3), (880, 1.5)])
+        out, orig_s, trim_s = trim_by_timestamps(
+            channel_b_full, segments, "B", output_path=tmp_path / "out.wav", combined_audio_path=combined
+        )
+        assert orig_s == pytest.approx(3.8, abs=0.05)
+        assert 1.4 < trim_s < 2.1
+        assert _dominant_freq(out) == pytest.approx(880, abs=5)
+
+    def test_mismatch_without_combined_raises_instead_of_scoring_padding(self, tmp_path):
+        _, _, channel_b, segments = self._fixture(tmp_path)
+        with pytest.raises(RuntimeError) as excinfo:
+            trim_by_timestamps(channel_b, segments, "B", output_path=tmp_path / "out.wav")
+        message = str(excinfo.value)
+        assert "speaker_b.wav" in message
+        assert "2.30 s" in message  # the offending segment start
+        assert "combined-recording timeline" in message
+
+    def test_no_overlap_anywhere_raises(self, tmp_path):
+        combined, _, channel_b, _ = self._fixture(tmp_path)
+        segments = [{"speaker": "speaker_b", "start": 50.0, "end": 60.0}]
+        with pytest.raises(RuntimeError, match="nothing to score"):
+            trim_by_timestamps(channel_b, segments, "B", output_path=tmp_path / "out.wav", combined_audio_path=combined)
+
+
 class TestGetCombinedAudioPath:
     def _entry(self, tmp_path, audio_filepaths):
         return ManifestEntry(

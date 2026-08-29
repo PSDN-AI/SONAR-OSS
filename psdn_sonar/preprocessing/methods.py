@@ -39,8 +39,14 @@ def preprocess_timestamp_trim(
     segments: list,
     speaker: str,
     padding_ms: int = 100,
+    combined_audio_path=None,
 ) -> tuple:
     """Extract audio segments by transcript timestamps for speaker "A" or "B".
+
+    Segment offsets are on the combined-recording timeline; when they lie
+    beyond the speaker's channel file, the segments are cut from
+    *combined_audio_path* instead (issue #205 — see
+    :func:`~psdn_sonar.preprocessing.audio_utils.trim_by_timestamps`).
 
     Returns ``(processed_path, original_duration_s, trimmed_duration_s)``.
     """
@@ -49,6 +55,7 @@ def preprocess_timestamp_trim(
         segments,
         speaker,
         padding_ms=padding_ms,
+        combined_audio_path=combined_audio_path,
     )
 
 
@@ -238,6 +245,10 @@ def _timestamp_trim_strategy(audio_path, speaker, segments, silence_settings, ti
         segments,
         speaker,
         padding_ms=timestamp_settings.get("padding_ms", 100),
+        # Injected by run_single_method/run_sweep; the strategy signature is
+        # per-channel, but combined-timeline offsets may need the combined
+        # recording as the cut source (issue #205).
+        combined_audio_path=timestamp_settings.get("combined_audio_path"),
     )
 
 

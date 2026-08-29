@@ -147,6 +147,64 @@ class TestRunSingleMethod:
         assert best_a["method"] == "scribe_diarize"
 
 
+class TestTimestampTrimGetsTheCombinedRecording:
+    """Issue #205 plumbing: run_single_method and run_sweep must hand the
+    combined recording to timestamp_trim, whose segment offsets are on the
+    combined timeline. Without it, the second speaker's offsets missed their
+    own channel file and 100 ms of padding was transcribed and scored."""
+
+    def _fixture(self, tmp_path):
+        combined = _write_wav(tmp_path / "combined.wav", [("tone", 2.0), ("silence", 0.3), ("tone", 1.5)])
+        wav_a = _write_wav(tmp_path / "a.wav", [("tone", 2.0)])
+        wav_b = _write_wav(tmp_path / "b.wav", [("tone", 1.5)])
+        segments = [
+            {"speaker": "speaker_a", "start": 0.0, "end": 2.0},
+            {"speaker": "speaker_b", "start": 2.3, "end": 3.8},
+        ]
+        return combined, wav_a, wav_b, segments
+
+    def _kwargs(self, tmp_path, **overrides):
+        combined, wav_a, wav_b, segments = self._fixture(tmp_path)
+        kwargs = dict(
+            entry=_ENTRY,
+            asr_model=_NO_DIARIZE_MODEL,
+            ref_a="hello",
+            ref_b="hello",
+            segments=segments,
+            audio_a=wav_a,
+            audio_b=wav_b,
+            combined_audio=combined,
+            metric_fn=_metric_exact,
+            transcribe_fn=lambda path: "hello",
+            active_methods=["timestamp_trim", "no_trim"],
+        )
+        kwargs.update(overrides)
+        return kwargs
+
+    def test_single_method_scores_the_second_speaker_on_their_turn(self, tmp_path):
+        all_results, best_a, best_b = run_single_method(**self._kwargs(tmp_path, method_name="timestamp_trim"))
+        assert best_b.get("error") is None
+        assert best_b["original_duration_s"] == pytest.approx(3.8, abs=0.05)  # the combined file
+        assert 1.4 < best_b["trimmed_duration_s"] < 2.1  # B's turn, not 0.1 s of padding
+
+    def test_single_method_without_combined_records_the_error(self, tmp_path):
+        all_results, best_a, best_b = run_single_method(
+            **self._kwargs(tmp_path, method_name="timestamp_trim", combined_audio=None)
+        )
+        assert best_b["error"] is not None
+        assert "combined-recording timeline" in best_b["error"]
+        # Speaker A's offsets fit their own file, so A still scores.
+        assert best_a.get("error") is None
+
+    def test_sweep_scores_the_second_speaker_on_their_turn(self, tmp_path):
+        kwargs = self._kwargs(tmp_path)
+        kwargs.pop("active_methods")
+        all_results, best_a, best_b = run_sweep(methods=["timestamp_trim"], **kwargs)
+        ts_b = next(r for r in all_results["B"] if r["method"] == "timestamp_trim")
+        assert ts_b.get("error") is None
+        assert 1.4 < ts_b["trimmed_duration_s"] < 2.1
+
+
 class TestRunSweep:
     def test_oracle_selects_best_and_skips_unsupported(self, tmp_path):
         wav_a = _write_wav(tmp_path / "a.wav", [("tone", 1.0), ("silence", 1.5), ("tone", 0.5)])
