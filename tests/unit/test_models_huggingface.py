@@ -462,6 +462,143 @@ class TestPipelineDecodesByPath:
 
 
 @requires_ml
+class TestLanguageArgCapability:
+    """Issue #203: three registered Whisper fine-tunes (tugstugi_bengali,
+    tugstugi_bengali_regional, whisper_hindi_large_v2) ship a generation
+    config with no ``lang_to_id``/``task_to_id`` maps, so passing
+    ``language`` to ``generate`` raises "generation config is outdated" on
+    every utterance — and since #186 forwards ``--language`` to any
+    constructor that declares it (with the CLI defaulting to ``bn``), no CLI
+    path avoided it. The adapters must pass the language only to checkpoints
+    whose config can resolve it, and say so once when they cannot."""
+
+    def test_supports_language_arg_mirrors_the_transformers_check(self):
+        from types import SimpleNamespace
+
+        from psdn_sonar.models.huggingface import _supports_language_arg
+
+        # transformers gates on hasattr of exactly these two attributes
+        # (generation_whisper.py, _retrieve_init_tokens) — mirror hasattr,
+        # not truthiness.
+        both = SimpleNamespace(
+            generation_config=SimpleNamespace(lang_to_id={"<|hi|>": 1}, task_to_id={"transcribe": 2})
+        )
+        assert _supports_language_arg(both)
+        assert not _supports_language_arg(SimpleNamespace(generation_config=SimpleNamespace()))
+        assert not _supports_language_arg(SimpleNamespace(generation_config=SimpleNamespace(lang_to_id={"<|hi|>": 1})))
+        assert not _supports_language_arg(
+            SimpleNamespace(generation_config=SimpleNamespace(task_to_id={"transcribe": 2}))
+        )
+        assert not _supports_language_arg(SimpleNamespace())
+
+    def _build_standard(self, monkeypatch, *, gen_config, language):
+        from types import SimpleNamespace
+
+        import psdn_sonar.models.huggingface as hf
+        from psdn_sonar.models.huggingface import StandardHuggingFaceASR
+
+        monkeypatch.setattr(hf.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        with (
+            patch("transformers.AutoModelForSpeechSeq2Seq") as mock_model,
+            patch("transformers.AutoProcessor") as mock_proc,
+            patch("transformers.pipeline") as mock_pipeline,
+        ):
+            loaded = SimpleNamespace(generation_config=gen_config)
+            mock_model.from_pretrained.return_value = loaded
+            mock_proc.from_pretrained.return_value = MagicMock()
+            StandardHuggingFaceASR("bengaliAI/tugstugi_bengaliai-asr_whisper-medium", language=language)
+        return mock_pipeline.call_args.kwargs["generate_kwargs"]
+
+    def test_mapless_checkpoint_does_not_receive_the_language(self, monkeypatch, caplog):
+        from types import SimpleNamespace
+
+        with caplog.at_level("WARNING"):
+            generate_kwargs = self._build_standard(monkeypatch, gen_config=SimpleNamespace(), language="bn")
+        assert generate_kwargs == {}
+        warning = "\n".join(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
+        assert "bengaliAI/tugstugi_bengaliai-asr_whisper-medium" in warning
+        assert "'bn'" in warning
+        assert "language map" in warning
+
+    def test_checkpoint_with_maps_still_receives_language_and_task(self, monkeypatch, caplog):
+        """whisper_small_hi (openai/whisper-small pinned to 'hi') passed on
+        this exact code path before the fix and must keep doing so."""
+        from types import SimpleNamespace
+
+        gen_config = SimpleNamespace(lang_to_id={"<|hi|>": 1}, task_to_id={"transcribe": 2})
+        with caplog.at_level("WARNING"):
+            generate_kwargs = self._build_standard(monkeypatch, gen_config=gen_config, language="hi")
+        assert generate_kwargs == {"language": "hi", "task": "transcribe"}
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_no_language_requested_stays_silent(self, monkeypatch, caplog):
+        from types import SimpleNamespace
+
+        with caplog.at_level("WARNING"):
+            generate_kwargs = self._build_standard(monkeypatch, gen_config=SimpleNamespace(), language=None)
+        assert generate_kwargs == {}
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_create_model_path_for_a_registered_default_survives_language(self, monkeypatch):
+        """The exact route the issue reproduces: create_model forwards
+        --language to tugstugi_bengali; construction must succeed with the
+        language dropped instead of arming generate to fail per-utterance."""
+        from types import SimpleNamespace
+
+        import psdn_sonar.models.huggingface as hf
+        from psdn_sonar.models.registry import create_model
+
+        monkeypatch.setattr(hf.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        with (
+            patch("transformers.AutoModelForSpeechSeq2Seq") as mock_model,
+            patch("transformers.AutoProcessor") as mock_proc,
+            patch("transformers.pipeline") as mock_pipeline,
+        ):
+            mock_model.from_pretrained.return_value = SimpleNamespace(generation_config=SimpleNamespace())
+            mock_proc.from_pretrained.return_value = MagicMock()
+            create_model("tugstugi_bengali", language="bn")
+        assert mock_pipeline.call_args.kwargs["generate_kwargs"] == {}
+
+    def _build_custom_whisper(self, *, gen_config, language):
+        from types import SimpleNamespace
+
+        from psdn_sonar.models.huggingface import CustomHuggingFaceModel
+
+        with (
+            patch("transformers.AutoConfig") as mock_config,
+            patch("transformers.WhisperProcessor") as mock_proc,
+            patch("transformers.WhisperForConditionalGeneration") as mock_model,
+        ):
+            mock_config.from_pretrained.return_value = SimpleNamespace(model_type="whisper")
+            mock_proc.from_pretrained.return_value = MagicMock()
+            loaded = MagicMock()
+            loaded.generation_config = gen_config
+            loaded.to.return_value = loaded
+            mock_model.from_pretrained.return_value = loaded
+            return CustomHuggingFaceModel("org/whisper-fine-tune", language=language)
+
+    def test_custom_whisper_drops_language_at_load_when_mapless(self, caplog):
+        """--hf-model with a mapless fine-tune hits the same defect (the CLI
+        defaults --language to bn); decided once at load, not per utterance."""
+        from types import SimpleNamespace
+
+        with caplog.at_level("WARNING"):
+            model = self._build_custom_whisper(gen_config=SimpleNamespace(), language="bn")
+        assert model.language is None
+        warning = "\n".join(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
+        assert "language map" in warning
+
+    def test_custom_whisper_keeps_language_when_maps_present(self, caplog):
+        from types import SimpleNamespace
+
+        gen_config = SimpleNamespace(lang_to_id={"<|bn|>": 1}, task_to_id={"transcribe": 2})
+        with caplog.at_level("WARNING"):
+            model = self._build_custom_whisper(gen_config=gen_config, language="bn")
+        assert model.language == "bn"
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+@requires_ml
 class TestRegistryHuggingFacePaths:
     def test_all_hf_class_paths_resolve(self):
         """Every registry entry pointing at this module must name a real class."""
