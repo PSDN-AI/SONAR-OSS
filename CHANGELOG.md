@@ -78,6 +78,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Evaluations no longer make an unbounded network call to the NLTK data host
+  at import time (#204). With the `[bengali]` extra installed,
+  `text_processing` imported `bnlp` at module scope, and `bnlp`'s module
+  body checks NLTK for `tokenizers/punkt` but downloads `punkt_tab` —
+  mismatched names, so on an environment holding `punkt_tab` (what the
+  tokenizer actually uses) the check failed forever and `nltk.download` ran
+  on every import: a timeout-less round trip that landed on English, Hindi
+  and Korean runs too, and was observed hanging a run indefinitely when the
+  remote closed the connection mid-transfer. The bnlp import is now lazy
+  (non-Bengali runs never touch it) and every bnlp import in the package
+  goes through a guard: when `punkt_tab` is already local the stale `punkt`
+  probe is answered with it, so the import is fully offline — no download,
+  no misleading "punkt not found. downloading..." line; when the resource is
+  genuinely missing the download runs under a 60-second socket timeout, so
+  a dead connection fails the run instead of hanging it. The Bengali
+  normalization contract's `+bnlp`/`-bnlp` marker now reflects the tokenizer
+  that actually loaded, not merely whether the package is importable.
 - Three registered Whisper fine-tunes transcribe again when a language is
   requested (#203) — a regression from #186's `--language` forwarding.
   `tugstugi_bengali`, `tugstugi_bengali_regional`, and

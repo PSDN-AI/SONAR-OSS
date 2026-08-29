@@ -72,10 +72,11 @@ class TestWerNormalizationContract:
 
     def test_bengali_marks_bnlp_availability(self, monkeypatch):
         # bn is at v4: symbols (#136), suffix guards (#142), invisible-character
-        # folding (#140).
-        monkeypatch.setattr(text_processing, "_BNLP_TOKENIZER_AVAILABLE", True)
+        # folding (#140). Since #204 the tokenizer loads lazily; the contract
+        # marks whether a tokenizer actually loaded, so pin the cache slot.
+        monkeypatch.setattr(text_processing, "_bengali_tokenizer", object())
         assert wer_normalization_contract("bn") == "bn:v4+bnlp"
-        monkeypatch.setattr(text_processing, "_BNLP_TOKENIZER_AVAILABLE", False)
+        monkeypatch.setattr(text_processing, "_bengali_tokenizer", None)
         assert wer_normalization_contract("bn") == "bn:v4-bnlp"
 
 
