@@ -78,6 +78,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `--sweep` can now reach a method set other than the packaged config's, and
+  its caution matches what the run actually did (#210). The `multi` subcommand
+  had no option for either the method list or the config file, so a sweep
+  always covered whatever `psdn_sonar/multi_speaker_config.yaml` listed — one
+  method, `no_trim` — while the help described "all methods" and the run
+  printed the oracle-bias warning regardless; editing the file inside the
+  installed package was the only way to change it. `multi` now takes
+  `--methods` (an explicit list) and `--preprocessing-config` (a path to
+  another YAML, whose silence/timestamp/pyannote settings are honoured too).
+  `run_multispeaker_evaluation` already accepted `methods`; the CLI simply
+  never passed it. The oracle-bias caution now fires only when the sweep has
+  more than one active method, and names the methods actually swept rather than
+  the ones requested — with a single method it says the run is equivalent to
+  `--method <name>` and how to widen the set. Runs without `--sweep` log the
+  active set. The fallback method list is no longer declared in two places:
+  `core` uses `config_loader.DEFAULT_METHODS` instead of its own copy, so which
+  set a caller got no longer depends on which declaration it reached. And
+  `--method`'s help names all six values it accepts, not four. The packaged
+  config is unchanged: its method list is also the candidate set for per-clip
+  auto-selection on ordinary runs, so widening it would re-baseline every
+  `multi` run and is a separate decision.
+
+  Making the method set reachable exposed four ways it could go wrong quietly,
+  all closed here. A config file the caller *names* is now used or the run
+  stops — a missing path, an unreadable file or a config with no known methods
+  used to warn and silently evaluate with the default methods instead, and a
+  malformed one (`methods: 5`, `silence: oops`) escaped as a bare `TypeError`;
+  the no-argument path stays lenient so a damaged install still runs.
+  `--method` and `--methods` are mutually exclusive, and a pinned `--method` is
+  now the active set: it previously lost to a configured per-clip method that
+  ran in its place, or aborted the run with "No valid preprocessing methods"
+  while the pinned method was perfectly usable. Repeated methods are collapsed
+  with a warning — under `--sweep` a repeat doubled the ASR calls per clip and
+  counted itself twice in the caution while still producing one score.
+
+  Three more, from a second pass. The `.txt` summary marked every sweep
+  `[ORACLE BIAS]` off the bare flag, so the artifact — which outlives the log —
+  contradicted the log line that already declines to claim a bias a
+  single-method sweep cannot introduce; it now reads
+  `[no oracle selection: one method]` in that case, and `--sweep`'s help scopes
+  its inflation warning the same way. `yaml.safe_load(f) or {}` turned every
+  falsy document (`[]`, `false`, `0`, `""`) into an empty mapping that sailed
+  past the type check and produced the default configuration, so a named config
+  could still be ignored silently; only a genuinely empty document is now an
+  empty config. And a config whose method list holds nothing usable no longer
+  blocks a run that overrides that list: `--methods` and `--method` replace it,
+  so the file is not required to carry a usable one — its settings still apply,
+  and without an override it still refuses. Both overrides are now validated
+  against the known methods up front, since both replace the config's list and
+  so bypass the loader's own check: an unknown name passed to `--method` used
+  to become the sole active method, run the whole evaluation, and fail every
+  row with "No per-channel methods available" — naming the wrong problem —
+  before the generic no-clips-processed error at the end. The library entry
+  point rejects the two overrides together, as the CLI already did: it resolved
+  the override list-first while `process_manifest_with_asr` resolves a pin as
+  the active set, so a list passed beside a pin was dropped without a word and
+  an unknown pin passed validation because the list beside it was fine. Both
+  are now tested with `is not None` rather than truthiness, so `method=""` — an
+  explicit method downstream — no longer slips through, and an empty `methods`
+  list is refused rather than quietly meaning "no override".
+
+  Follow-up: the fallback set used when no config file can be read now
+  mirrors the packaged config (`no_trim`) instead of declaring three methods,
+  so the set a run sweeps — and the candidate pool auto-selection chooses
+  from — no longer depends on whether `multi_speaker_config.yaml` could be
+  read, which the issue called out as a second, disagreeing declaration. And
+  the FAQ documents how the method set is chosen: what `--sweep` actually
+  sweeps, widening the set with `--methods` or `--preprocessing-config`, and
+  which methods exist with their requirements.
 - The six dev5-pass findings from #212, none of which failed a run:
   - An exported shell variable now wins over the same name in `.env`
     (python-dotenv's own default; `load_env()` passed `override=True`), so a

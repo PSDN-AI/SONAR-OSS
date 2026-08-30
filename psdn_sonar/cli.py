@@ -277,6 +277,8 @@ def run_multi_speaker(args):
                 max_samples=args.max_samples,
                 sweep=getattr(args, "sweep", False),
                 method=getattr(args, "method", None),
+                methods=getattr(args, "methods", None),
+                config_path=getattr(args, "preprocessing_config", None),
                 language=args.language,
                 custom_hf_model=custom_hf_model,
             )
@@ -846,22 +848,57 @@ Examples:
             "Defaults to bn if omitted — always pass this so the correct normalizer is used."
         ),
     )
-    multi_parser.add_argument(
+    # --method pins one method for every clip; --methods sets the pool the run
+    # chooses from. Passing both states two different intents, and the pinned
+    # one used to lose silently or abort the run, so argparse rejects the pair.
+    method_selection = multi_parser.add_mutually_exclusive_group()
+    method_selection.add_argument(
         "--method",
         type=str,
         default=None,
         help=(
-            "Preprocessing method to use for all clips "
-            "(energy_trim, timestamp_trim, no_trim, pyannote_vad). "
-            "If omitted, method is auto-selected per clip based on available data."
+            "Preprocessing method to use for all clips, overriding the config's list. "
+            "Per-channel: energy_trim, timestamp_trim, no_trim, pyannote_vad. Per-clip "
+            "(need a model with the matching capability): scribe_diarize, "
+            "pyannote_diarize. If omitted, the method is auto-selected per clip from "
+            "the active set. Mutually exclusive with --methods."
+        ),
+    )
+    method_selection.add_argument(
+        "--methods",
+        nargs="+",
+        default=None,
+        help=(
+            "Active preprocessing methods, overriding the config's list. Mutually "
+            "exclusive with --method. With --sweep every one of them is scored. "
+            "Without --sweep the per-channel methods in the set are compared per clip "
+            "and the best is used; a per-clip method (scribe_diarize, pyannote_diarize) "
+            "runs only when the set holds no per-channel method, and then the first one "
+            "listed is used. Methods this run cannot use (pyannote without the "
+            "[pyannote] extra, per-clip methods on a model that lacks the capability) "
+            "are skipped with a warning."
+        ),
+    )
+    multi_parser.add_argument(
+        "--preprocessing-config",
+        type=str,
+        default=None,
+        help=(
+            "Path to a multi-speaker preprocessing YAML (its methods list plus the "
+            "silence/timestamp/pyannote settings). Defaults to the packaged "
+            "psdn_sonar/multi_speaker_config.yaml. --methods overrides its method list."
         ),
     )
     multi_parser.add_argument(
         "--sweep",
         action="store_true",
         help=(
-            "Run all methods and pick the best per clip using ground truth (oracle selection). "
-            "WARNING: inflates reported metrics. Use only for ablation studies."
+            "Score every active method against ground truth and keep the best per clip. "
+            "The active set is the config's method list unless --methods or --method "
+            "overrides it, so a run pinned with --method — or a config listing one "
+            "method — sweeps that one and selects nothing. WARNING: with more than one "
+            "active method this is oracle selection and inflates reported metrics — use "
+            "only for ablation studies."
         ),
     )
     multi_parser.add_argument("--demographics", action="store_true", help="Generate demographic analysis plots")

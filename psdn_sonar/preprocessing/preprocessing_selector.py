@@ -3,7 +3,9 @@
 - auto (default): all per-channel methods run in parallel, scored by audio-signal
   quality (no ASR, no ground truth); the best is sent to ASR once per speaker.
 - ``--method <name>``: use one explicit method for all clips (skips scoring).
-- ``--sweep``: oracle mode — ground-truth scoring; inflates metrics, ablation only.
+- ``--sweep``: every active method is scored against ground truth and the best
+  is kept. With more than one active method that is oracle selection and
+  inflates metrics — ablation only; with one there is nothing to select between.
 """
 
 import logging

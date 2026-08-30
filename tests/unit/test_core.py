@@ -331,6 +331,178 @@ class TestProcessManifestWithASR:
             scores = json.loads(row["all_method_scores"])
             assert scores["no_trim"] >= 0.6
 
+    def test_sweep_over_one_method_does_not_claim_oracle_bias(self, tmp_path, caplog):
+        """Issue #210: the caution fired before the active set was resolved, so
+        a sweep with nothing to select between still warned about a bias that
+        run could not introduce, and said nothing about why it was trivial."""
+        manifest = _write_manifest_dataset(tmp_path)
+
+        with caplog.at_level("WARNING"):
+            process_manifest_with_asr(
+                str(manifest),
+                _StubModel("hello world"),
+                str(tmp_path / "out.csv"),
+                language="en",
+                methods=["no_trim"],
+                sweep=True,
+            )
+
+        # The single-method message says "no oracle bias is introduced", so
+        # assert on the affirmative caution and its inflation claim.
+        assert "introduces oracle bias" not in caplog.text
+        assert "inflate reported metrics" not in caplog.text
+        assert "single active method (no_trim)" in caplog.text
+        assert "--methods" in caplog.text
+
+    def test_sweep_over_several_methods_names_them_in_the_caution(self, tmp_path, caplog):
+        manifest = _write_manifest_dataset(tmp_path)
+
+        with caplog.at_level("WARNING"):
+            process_manifest_with_asr(
+                str(manifest),
+                _StubModel("hello world"),
+                str(tmp_path / "out.csv"),
+                language="en",
+                methods=["energy_trim", "no_trim"],
+                sweep=True,
+            )
+
+        assert "introduces oracle bias" in caplog.text
+        assert "inflate reported metrics" in caplog.text
+        assert "all 2 active methods (energy_trim, no_trim)" in caplog.text
+
+    def test_default_method_set_comes_from_the_config_loader(self, tmp_path, caplog):
+        """Issue #210: core carried its own copy of the fallback list, so which
+        set a caller got depended on which of the two declarations it reached."""
+        from psdn_sonar.preprocessing.config_loader import DEFAULT_METHODS
+
+        manifest = _write_manifest_dataset(tmp_path)
+
+        with caplog.at_level("INFO"):
+            process_manifest_with_asr(
+                str(manifest),
+                _StubModel("hello world"),
+                str(tmp_path / "out.csv"),
+                language="en",
+            )
+
+        assert f"Active preprocessing methods: {', '.join(DEFAULT_METHODS)}" in caplog.text
+
+    @pytest.mark.parametrize(
+        "methods,expected",
+        [
+            (["no_trim"], "Mode: sweep (no_trim) [no oracle selection: one method]"),
+            (["energy_trim", "no_trim"], "Mode: sweep (energy_trim, no_trim) [ORACLE BIAS]"),
+        ],
+    )
+    def test_sweep_artifact_marks_oracle_bias_only_when_there_is_selection(self, tmp_path, methods, expected):
+        """The .txt summary marked every sweep [ORACLE BIAS] on the bare flag,
+        contradicting the log, which already declines to claim a bias a
+        single-method sweep cannot introduce. The artifact outlives the log."""
+        manifest = _write_manifest_dataset(tmp_path)
+        output = tmp_path / "out.csv"
+
+        process_manifest_with_asr(
+            str(manifest),
+            _StubModel("hello world"),
+            str(output),
+            language="en",
+            methods=methods,
+            sweep=True,
+        )
+
+        assert expected in output.with_suffix(".txt").read_text(encoding="utf-8")
+
+    def test_pinned_method_wins_over_the_configured_set(self, tmp_path):
+        """``--method`` pins one method for every clip, so it is the active set.
+
+        Leaving the configured list in play aborted the run with "No valid
+        preprocessing methods" while the pinned method was perfectly usable —
+        the configured per-clip method was filtered out for lacking model
+        support, and the pin was never consulted.
+        """
+        manifest = _write_manifest_dataset(tmp_path)
+        model = _StubModel("hello world")  # supports_diarization = False
+
+        process_manifest_with_asr(
+            str(manifest),
+            model,
+            str(tmp_path / "out.csv"),
+            language="en",
+            methods=["scribe_diarize"],
+            method="no_trim",
+        )
+
+        with open(tmp_path / "out.csv", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert [r["best_method"] for r in rows] == ["no_trim", "no_trim"]
+
+    def test_pinned_method_is_not_lost_to_a_per_clip_configured_method(self, tmp_path):
+        """The same pin, on a model that *can* run the configured method: the
+        per-clip branch used to win and the pinned per-channel method never ran.
+        """
+        manifest = _write_manifest_dataset(tmp_path)
+        calls = []
+
+        class _DiarizingStub:
+            supports_diarization = True
+
+            def transcribe(self, audio_path):
+                calls.append("transcribe")
+                return "hello world"
+
+            def transcribe_diarized(self, audio_path, num_speakers=2):
+                calls.append("diarized")
+                return {"speaker_0": "hello world", "speaker_1": "hello world"}
+
+        process_manifest_with_asr(
+            str(manifest),
+            _DiarizingStub(),
+            str(tmp_path / "out.csv"),
+            language="en",
+            methods=["scribe_diarize"],
+            method="no_trim",
+        )
+
+        assert "diarized" not in calls
+        with open(tmp_path / "out.csv", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert [r["best_method"] for r in rows] == ["no_trim", "no_trim"]
+
+    def test_duplicate_methods_run_once(self, tmp_path, caplog):
+        """A repeated method preprocessed and transcribed again for the same
+        result: under --sweep it doubled the ASR calls per clip and counted
+        itself twice in the caution, while still collapsing to one score."""
+        manifest = _write_manifest_dataset(tmp_path)
+
+        baseline = _StubModel("hello world")
+        process_manifest_with_asr(
+            str(manifest),
+            baseline,
+            str(tmp_path / "base.csv"),
+            language="en",
+            methods=["no_trim"],
+            sweep=True,
+        )
+
+        repeated = _StubModel("hello world")
+        with caplog.at_level("WARNING"):
+            process_manifest_with_asr(
+                str(manifest),
+                repeated,
+                str(tmp_path / "dup.csv"),
+                language="en",
+                methods=["no_trim", "no_trim"],
+                sweep=True,
+            )
+
+        assert len(repeated.calls) == len(baseline.calls)
+        assert "Ignoring duplicate preprocessing method(s): no_trim" in caplog.text
+        assert "all 2 active methods" not in caplog.text
+        with open(tmp_path / "dup.csv", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                assert list(json.loads(row["all_method_scores"])) == ["no_trim"]
+
     def test_missing_transcript_raises_when_nothing_processed(self, tmp_path):
         """A run that processed zero clips must raise (issue #102), not end
         looking like a completed evaluation. The CSV still gets its header."""

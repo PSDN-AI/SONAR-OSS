@@ -108,6 +108,33 @@ Optional combined / mixed audio, when used for VAD, diarization, or
 
 See `examples/test_manifest.jsonl` for a working sample.
 
+### Choosing the preprocessing method set (multi-speaker)
+
+The active method set comes from the packaged
+`psdn_sonar/multi_speaker_config.yaml`, which lists a single method:
+`no_trim`. On an ordinary run the per-channel methods in the set are compared
+per clip and the best is used; with `--sweep` every active method is scored
+against ground truth and the best is kept — which is oracle selection and
+inflates reported metrics whenever more than one method is active. A sweep
+over the packaged default therefore sweeps exactly one method and selects
+nothing; the run says so instead of printing the oracle-bias caution
+(issue #210).
+
+To widen the set:
+
+- `--methods energy_trim timestamp_trim no_trim pyannote_vad` — an explicit
+  list, overriding the config's. Mutually exclusive with `--method`, which
+  pins one method for every clip.
+- `--preprocessing-config path/to/config.yaml` — an alternate YAML; its
+  `methods:` list plus the `silence`/`timestamp`/`pyannote` settings apply.
+  A named file is used or the run stops — there is no silent fallback.
+
+Known methods: `energy_trim`, `timestamp_trim`, `no_trim`, `pyannote_vad`
+(per-channel), and `scribe_diarize`, `pyannote_diarize` (per-clip; these need
+a model with the matching capability and run only when the set holds no
+per-channel method). `pyannote_*` methods need the `[pyannote]` extra and an
+`HF_TOKEN` with the gated models accepted.
+
 ---
 
 ## Q2: Where would the output show up: the JSON & MD files?

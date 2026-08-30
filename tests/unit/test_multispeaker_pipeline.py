@@ -68,6 +68,121 @@ class TestRunMultispeakerEvaluation:
         assert captured["methods"] == ["energy_trim", "no_trim"]
         assert captured["config_settings"]["methods"] == ["energy_trim", "no_trim"]
 
+    def test_config_path_reaches_the_loader(self, manifest, tmp_path, monkeypatch):
+        """Issue #210: ``load_multi_speaker_config`` always took a path, but
+        nothing passed one, so editing the file inside the installed package
+        was the only way to change the method list or the trim settings."""
+        captured = {}
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        cfg = tmp_path / "preprocessing.yaml"
+        cfg.write_text("methods:\n  - energy_trim\n  - no_trim\ntimestamp:\n  padding_ms: 250\n")
+
+        run_multispeaker_evaluation(
+            str(manifest),
+            "whisper_api",
+            output_dir=str(tmp_path / "out"),
+            config_path=str(cfg),
+        )
+
+        assert captured["methods"] == ["energy_trim", "no_trim"]
+        assert captured["config_settings"]["timestamp"]["padding_ms"] == 250
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"methods": ["no_trim"], "method": "not_a_method"},
+            {"methods": ["energy_trim"], "method": "no_trim"},
+        ],
+    )
+    def test_method_and_methods_together_raise(self, manifest, tmp_path, monkeypatch, override):
+        """The entry point resolves the override; ``process_manifest_with_asr``
+        resolves a pin as the active set. Accepting both let the two layers
+        disagree — a list passed beside a pin was dropped without a word, and
+        an unknown pin passed validation because the list beside it was fine.
+        """
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        with pytest.raises(ValueError, match="not both"):
+            run_multispeaker_evaluation(str(manifest), "whisper_api", output_dir=str(tmp_path / "out"), **override)
+
+    def test_empty_methods_list_raises(self, manifest, tmp_path, monkeypatch):
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        with pytest.raises(ValueError, match="must not be empty"):
+            run_multispeaker_evaluation(str(manifest), "whisper_api", output_dir=str(tmp_path / "out"), methods=[])
+
+    @pytest.mark.parametrize("override", [{"methods": ["no_trim"]}, {"method": "no_trim"}])
+    def test_override_survives_a_config_whose_method_list_is_unusable(self, manifest, tmp_path, monkeypatch, override):
+        """The help says --methods/--method override the config's list, so the
+        list being unusable must not stop the run before the override applies.
+        The config's settings still take effect."""
+        captured = {}
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text("methods:\n  - bogus\nsilence:\n  silence_thresh: -35\n")
+
+        run_multispeaker_evaluation(
+            str(manifest),
+            "whisper_api",
+            output_dir=str(tmp_path / "out"),
+            config_path=str(cfg),
+            **override,
+        )
+
+        assert captured["config_settings"]["silence"]["silence_thresh"] == -35
+        if "methods" in override:
+            assert captured["methods"] == ["no_trim"]
+        else:
+            assert captured["method"] == "no_trim"
+
+    def test_unusable_config_method_list_without_an_override_still_raises(self, manifest, tmp_path, monkeypatch):
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text("methods:\n  - bogus\n")
+
+        with pytest.raises(ValueError, match="no known methods"):
+            run_multispeaker_evaluation(
+                str(manifest), "whisper_api", output_dir=str(tmp_path / "out"), config_path=str(cfg)
+            )
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"methods": ["not_a_method"]},
+            {"methods": ["no_trim", "nope"]},
+            {"method": "not_a_method"},
+            # "" is falsy but not None, so it used to skip validation here and
+            # still count as an explicit method downstream.
+            {"method": ""},
+        ],
+    )
+    def test_unknown_method_in_an_override_raises(self, manifest, tmp_path, monkeypatch, override):
+        """``--method`` and ``--methods`` both replace the config's list, so
+        both bypass the loader's ``KNOWN_METHODS`` check. Only the list was
+        validated: an unknown single name became the sole active method, ran
+        the whole evaluation, and failed every row with "No per-channel methods
+        available" — which names the wrong problem — before the generic "no
+        clips were successfully processed" at the end.
+        """
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        with pytest.raises(ValueError, match="Unknown preprocessing method"):
+            run_multispeaker_evaluation(
+                str(manifest),
+                "whisper_api",
+                output_dir=str(tmp_path / "out"),
+                **override,
+            )
+
     def test_loads_env_before_model_creation(self, manifest, tmp_path, monkeypatch):
         """load_env() must run before create_model so API adapters see .env keys (issue #167)."""
         calls = []

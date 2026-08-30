@@ -318,8 +318,9 @@ def process_manifest_with_asr(
         asr_model_name: Model name for reporting
         methods: List of preprocessing method names (candidate pool)
         config_settings: Dict with silence/timestamp/pyannote settings
-        sweep: If True, run all methods and pick the best using ground truth
-               (oracle bias — inflates metrics; use only for ablations).
+        sweep: If True, score every active method against ground truth and keep
+               the best per clip. With more than one active method this is
+               oracle selection and inflates metrics; use only for ablations.
         method: Explicit method name to use for all clips. If None and sweep
                 is False, method is auto-selected per clip based on available data.
     """
@@ -331,19 +332,29 @@ def process_manifest_with_asr(
         load_transcript_with_segments,
     )
     from .preprocessing.audio_utils import get_combined_audio_path
+    from .preprocessing.config_loader import DEFAULT_METHODS
     from .preprocessing.methods import PER_CLIP_METHODS, PYANNOTE_METHODS
     from .preprocessing.preprocessing_selector import run_single_method, run_sweep
     from .preprocessing.pyannote_utils import PYANNOTE_AVAILABLE
 
-    if sweep:
-        logger.warning(
-            "Running in sweep mode (--sweep): all methods are scored against ground truth to select "
-            "the best per clip. This introduces oracle bias and will inflate reported metrics. "
-            "Do not use sweep results as production benchmarks."
-        )
-
-    if methods is None:
-        methods = ["energy_trim", "timestamp_trim", "no_trim"]
+    if method is not None:
+        # Layering: ``methods`` is the *configured* set at this level, not a
+        # user override — ``run_multispeaker_evaluation`` resolves the override
+        # and always passes both — so a pin winning over it is correct here.
+        # Rejecting the pair belongs at that entry point, which does it.
+        #
+        # A pinned method *is* the active set. Leaving the configured list in
+        # play let the pin lose silently — a config holding only a per-clip
+        # method won the selection and ran instead of the pinned per-channel
+        # one — and could abort the run with "No valid preprocessing methods"
+        # while the pinned method was perfectly usable.
+        methods = [method]
+    elif methods is None:
+        # One source of truth for the fallback set (issue #210). This used to
+        # keep its own copy of the same list that ``config_loader`` already
+        # declares, so which set a caller got depended on which of the two
+        # code paths it happened to reach.
+        methods = list(DEFAULT_METHODS)
 
     config_settings = config_settings or {}
     silence_settings = config_settings.get("silence", {})
@@ -351,7 +362,17 @@ def process_manifest_with_asr(
     pyannote_settings = config_settings.get("pyannote", {})
 
     active_methods = []
+    seen: set[str] = set()
+    duplicates = []
     for m in methods:
+        if m in seen:
+            # A repeated method preprocesses and transcribes again for the same
+            # result: under --sweep it doubled the ASR calls per clip, counted
+            # itself twice in the oracle-bias caution, and still collapsed to a
+            # single entry in all_method_scores.
+            duplicates.append(m)
+            continue
+        seen.add(m)
         if m in PYANNOTE_METHODS and not PYANNOTE_AVAILABLE:
             logger.warning(
                 f"Skipping {m}: pyannote.audio not installed. Install with: pip install 'psdn-sonar[pyannote]'"
@@ -362,8 +383,40 @@ def process_manifest_with_asr(
             continue
         active_methods.append(m)
 
+    if duplicates:
+        logger.warning(
+            "Ignoring duplicate preprocessing method(s): %s. Each method runs once.",
+            ", ".join(dict.fromkeys(duplicates)),
+        )
+
     if not active_methods:
-        raise ValueError("No valid preprocessing methods available")
+        available = f" from: {', '.join(methods)}" if methods else ""
+        raise ValueError(f"No valid preprocessing methods available{available}")
+
+    # Report the set the run will actually use, and only caution about oracle
+    # bias when the sweep has something to select between (issue #210). The
+    # warning used to fire before the set was even resolved, so a sweep over a
+    # single method described a bias that run could not introduce while saying
+    # nothing about why the sweep was trivial.
+    if sweep and len(active_methods) > 1:
+        logger.warning(
+            "Running in sweep mode (--sweep): all %d active methods (%s) are scored against "
+            "ground truth to select the best per clip. This introduces oracle bias and will "
+            "inflate reported metrics. Do not use sweep results as production benchmarks.",
+            len(active_methods),
+            ", ".join(active_methods),
+        )
+    elif sweep:
+        logger.warning(
+            "--sweep has a single active method (%s), so there is nothing to select between "
+            "and no oracle bias is introduced — this run is equivalent to --method %s. Widen "
+            "the set with --methods, or point --preprocessing-config at a config that lists "
+            "more.",
+            active_methods[0],
+            active_methods[0],
+        )
+    else:
+        logger.info("Active preprocessing methods: %s", ", ".join(active_methods))
 
     entries = load_manifest(manifest_path)
     logger.info(f"Loaded {len(entries)} clips from manifest: {manifest_path}")
@@ -646,8 +699,13 @@ def process_manifest_with_asr(
         with open(stats_file, "w", encoding="utf-8") as f:
             f.write(f"Multi-Speaker ASR Evaluation Results\n{'=' * 40}\n")
             f.write(f"Model: {asr_model_name}\nManifest: {manifest_path}\n")
-            if sweep:
+            if sweep and len(active_methods) > 1:
                 mode_str = f"sweep ({', '.join(active_methods)}) [ORACLE BIAS]"
+            elif sweep:
+                # A sweep with one active method selects nothing, so the
+                # artifact must not carry the bias marker the log already
+                # declines to print — the .txt outlives the log.
+                mode_str = f"sweep ({active_methods[0]}) [no oracle selection: one method]"
             elif method:
                 mode_str = f"fixed:{method}"
             else:

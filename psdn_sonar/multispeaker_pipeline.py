@@ -24,6 +24,7 @@ def run_multispeaker_evaluation(
     method: Optional[str] = None,
     language: str = "bn",
     custom_hf_model: Optional[str] = None,
+    config_path: Optional[str] = None,
 ) -> Path:
     """Evaluate a manifest with one ASR model and return the results CSV path.
 
@@ -32,12 +33,19 @@ def run_multispeaker_evaluation(
         model_name: Registered model name (see :mod:`psdn_sonar.models.registry`).
         output_dir: Directory for output files.
         max_samples: Maximum samples to process (0 = all).
-        methods: Preprocessing methods; ``None`` uses config defaults.
-        sweep: Run all methods with oracle selection (inflates metrics).
-        method: Explicit method name to use for all clips.
+        methods: Preprocessing methods to choose from, replacing the config's
+            list. ``None`` uses the config's. Mutually exclusive with ``method``.
+        sweep: Score every active method against ground truth and keep the best
+            per clip. With more than one active method this is oracle selection
+            and inflates the reported metrics.
+        method: One method pinned for every clip, replacing the config's list.
+            Mutually exclusive with ``methods``.
         language: ISO 639-1 code used for WER/CER normalization.
         custom_hf_model: HuggingFace repo id; when set, ``model_name`` is only
             used as the results-file stem.
+        config_path: Multi-speaker preprocessing YAML; ``None`` uses the packaged
+            ``psdn_sonar/multi_speaker_config.yaml``. ``methods`` still wins over
+            whatever method list the file carries.
 
     Raises:
         FileNotFoundError: If the manifest does not exist.
@@ -52,13 +60,40 @@ def run_multispeaker_evaluation(
 
     from psdn_sonar.core import process_manifest_with_asr
     from psdn_sonar.models.registry import create_model
-    from psdn_sonar.preprocessing.config_loader import load_multi_speaker_config
+    from psdn_sonar.preprocessing.config_loader import KNOWN_METHODS, load_multi_speaker_config
     from psdn_sonar.preprocessing.methods import PYANNOTE_METHODS
     from psdn_sonar.preprocessing.pyannote_utils import PYANNOTE_AVAILABLE
 
     manifest_file = Path(manifest_path)
     if not manifest_file.exists():
         raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
+
+    # ``method`` pins one method for every clip; ``methods`` sets the pool to
+    # choose from. They state different intents, and this entry point rejects
+    # the pair like the CLI does. Without that the two layers disagreed about
+    # which one wins: the check below looked at the list first, while
+    # ``process_manifest_with_asr`` resolves a pin as the active set — so a
+    # list passed alongside a pin was dropped without a word, and an unknown
+    # pin sailed past validation because the list beside it was fine.
+    if methods is not None and method is not None:
+        raise ValueError(
+            "Pass either 'method' or 'methods', not both: 'method' pins one method for "
+            "every clip, 'methods' sets the pool to choose from."
+        )
+    if methods is not None and not methods:
+        raise ValueError("'methods' must not be empty; omit it to use the config's method list.")
+
+    # Either override replaces the config's list, so both bypass the loader's
+    # KNOWN_METHODS check. Membership is tested with ``is not None`` rather
+    # than truthiness: ``method=""`` is an explicit method as far as
+    # ``process_manifest_with_asr`` is concerned, so it has to be caught here.
+    override = list(methods) if methods is not None else ([method] if method is not None else [])
+    unknown = [m for m in override if m not in KNOWN_METHODS]
+    if unknown:
+        raise ValueError(
+            f"Unknown preprocessing method(s): {', '.join(repr(m) for m in unknown)}. "
+            f"Known methods: {', '.join(sorted(KNOWN_METHODS))}."
+        )
 
     if method in PYANNOTE_METHODS and not PYANNOTE_AVAILABLE:
         # Fail fast: the explicit method applies to every clip, so the whole
@@ -70,8 +105,10 @@ def run_multispeaker_evaluation(
             "(pyannote models are gated on HuggingFace — set HF_TOKEN after accepting the model terms)."
         )
 
-    config = load_multi_speaker_config()
-    if methods:
+    # An override replaces the file's method list, so the file is not required
+    # to carry a usable one — its settings still are.
+    config = load_multi_speaker_config(config_path, methods_required=not override)
+    if methods is not None:
         config["methods"] = methods
 
     logger.info(
