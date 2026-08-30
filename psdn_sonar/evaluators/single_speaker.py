@@ -810,6 +810,23 @@ class SingleSpeakerEvaluator:
                 language,
                 significant_wer_threshold=significant_wer_threshold,
             )
+
+            # Mirror of the reference-side script check above, on this
+            # model's own transcripts. A service that returns a different
+            # writing system (observed: Devanagari for --language bn) floors
+            # every row at WER 1.0 with nothing in the artifact to separate
+            # it from a model that transcribed badly (issue #207).
+            from psdn_sonar.language.script_check import hypothesis_script_mismatch_warning
+
+            hyp_mismatch = hypothesis_script_mismatch_warning(
+                (row.get("prediction") or "" for row in result["results"]),
+                language,
+                model_name,
+            )
+            if hyp_mismatch:
+                logger.warning(hyp_mismatch)
+            result["hypothesis_script_warning"] = hyp_mismatch
+
             all_results[model_name] = result
 
             output_file = Path(output_dir) / f"asr_detailed_{model_name}.csv"
@@ -832,14 +849,17 @@ class SingleSpeakerEvaluator:
                     language=language,
                 )
 
-                # A semantics failure during this model's evaluation (e.g. a
-                # runtime error in the batch encode) is recorded in this
-                # model's artifact; the missing-extra case is already in
-                # run_warnings from the preflight, so don't duplicate it.
-                model_warnings = run_warnings
-                semantics_warning = result.get("semantics_warning")
-                if semantics_warning and semantics_warning not in run_warnings:
-                    model_warnings = run_warnings + [semantics_warning]
+                # Warnings raised during this model's own evaluation (a
+                # semantics failure in the batch encode, or transcripts that
+                # came back in the wrong writing system — issue #207) are
+                # recorded in this model's artifact; anything already in
+                # run_warnings from the preflight is not duplicated.
+                per_model_warnings = [
+                    w
+                    for w in (result.get("semantics_warning"), result.get("hypothesis_script_warning"))
+                    if w and w not in run_warnings
+                ]
+                model_warnings = run_warnings + per_model_warnings if per_model_warnings else run_warnings
 
                 scores_path = scores_json_path(output_dir, model_name)
                 artifact = build_run_scores(
