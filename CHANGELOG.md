@@ -78,6 +78,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Audio-quality metrics now decode the same containers transcription does,
+  and say so when they can't (#206). The pipeline ASR adapters decode by
+  handing ffmpeg the file path, while the twelve quality columns (SNR,
+  clipping, silence, tiers, DNSMOS/UTMOS/SQUIM) decoded independently
+  through `librosa.load` — and libsndfile reads neither AAC nor ALAC, so an
+  M4A file (the default iOS recording format) transcribed successfully
+  while every quality column came back blank, with an empty
+  `quality_warnings` cell, an empty `error` column, and a debug-only log
+  line: the row read as a complete result. The quality path now falls back
+  to the same ffmpeg-by-path decoder the adapters use (factored into
+  `psdn_sonar.utils.audio_io`), so anything the run can transcribe it can
+  also measure. And when the metrics genuinely cannot be computed, the row
+  says so: `quality_warnings` carries `quality_metrics_unavailable:` /
+  `mos_metrics_unavailable:` with the reason naming both decoders' errors,
+  logged at warning level instead of debug.
 - `timestamp_trim` no longer scores the second speaker on 100 ms of padding
   (#205). Transcript `start`/`end` offsets are on the combined-recording
   timeline (the shipped fixtures' and FAQ schema's convention, now stated in

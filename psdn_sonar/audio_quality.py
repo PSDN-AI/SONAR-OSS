@@ -177,6 +177,33 @@ def assign_snr_tier(snr_db: float) -> str:
     return "High"
 
 
+def _load_audio(audio_path: str) -> np.ndarray:
+    """Load *audio_path* as mono float32 at ``SAMPLE_RATE``.
+
+    Tries ``librosa.load`` first, then falls back to decoding with the
+    ffmpeg binary by file path — the same decoder the pipeline ASR adapters
+    use. Without the fallback, transcription and quality metrics disagreed
+    on what is readable: libsndfile reads neither AAC nor ALAC, so an M4A
+    file transcribed successfully while every quality column came back
+    blank (issue #206).
+
+    Raises RuntimeError naming both failed decoders when neither can read
+    the file.
+    """
+    try:
+        audio, _ = librosa.load(audio_path, sr=SAMPLE_RATE)
+        return audio
+    except Exception as librosa_exc:
+        from psdn_sonar.utils.audio_io import decode_audio_ffmpeg
+
+        try:
+            return decode_audio_ffmpeg(audio_path, SAMPLE_RATE)
+        except Exception as ffmpeg_exc:
+            raise RuntimeError(
+                f"could not decode '{audio_path}' — librosa/libsndfile: {librosa_exc}; ffmpeg fallback: {ffmpeg_exc}"
+            ) from ffmpeg_exc
+
+
 def compute_audio_quality_metrics(audio_path: str, include_mos: bool = True) -> dict:
     """
     Load an audio file and return all audio-quality metrics as a dict.
@@ -184,7 +211,13 @@ def compute_audio_quality_metrics(audio_path: str, include_mos: bool = True) -> 
     Keys: snr_db, clipping_ratio, silence_ratio, snr_tier, quality_warnings.
     When *include_mos* is True (default), also includes DNSMOS, UTMOS, and
     SQUIM reference-free quality scores via :func:`quality_models.compute_mos_metrics`.
-    Returns safe defaults on any error so evaluation is never blocked.
+
+    Returns safe defaults on any error so evaluation is never blocked — but
+    never silently: when the metrics cannot be computed, the reason lands in
+    ``quality_warnings`` (``quality_metrics_unavailable: ...`` /
+    ``mos_metrics_unavailable: ...``) and is logged at warning level. Twelve
+    blank columns with an empty warnings cell used to read as a complete
+    result (issue #206).
     """
     from psdn_sonar.quality_models import _EMPTY_MOS, compute_mos_metrics
 
@@ -196,9 +229,17 @@ def compute_audio_quality_metrics(audio_path: str, include_mos: bool = True) -> 
         "quality_warnings": "",
     }
 
-    audio = None
     try:
-        audio, _ = librosa.load(audio_path, sr=SAMPLE_RATE)
+        audio = _load_audio(audio_path)
+    except Exception as exc:
+        logger.warning("Audio quality metrics unavailable for %s: %s", audio_path, exc)
+        result = dict(base_empty)
+        result["quality_warnings"] = f"quality_metrics_unavailable: {exc}"
+        if include_mos:
+            result.update(_EMPTY_MOS)
+        return result
+
+    try:
         snr = calculate_snr(audio)
         clipping = calculate_clipping_ratio(audio)
         silence = calculate_silence_ratio(audio)
@@ -212,13 +253,16 @@ def compute_audio_quality_metrics(audio_path: str, include_mos: bool = True) -> 
             "quality_warnings": "; ".join(get_quality_warnings(snr, silence, clipping)) or "",
         }
     except Exception as exc:
-        logger.debug("Audio quality extraction failed for %s: %s", audio_path, exc)
+        logger.warning("Audio quality extraction failed for %s: %s", audio_path, exc)
         result = dict(base_empty)
+        result["quality_warnings"] = f"quality_metrics_unavailable: {exc}"
 
     if include_mos:
         try:
-            result.update(compute_mos_metrics(audio if audio is not None else audio_path, sr=SAMPLE_RATE))
+            result.update(compute_mos_metrics(audio, sr=SAMPLE_RATE))
         except Exception as exc:
-            logger.debug("MOS metrics failed for %s: %s", audio_path, exc)
+            logger.warning("MOS metrics failed for %s: %s", audio_path, exc)
             result.update(_EMPTY_MOS)
+            marker = f"mos_metrics_unavailable: {exc}"
+            result["quality_warnings"] = "; ".join(x for x in (result.get("quality_warnings"), marker) if x)
     return result
