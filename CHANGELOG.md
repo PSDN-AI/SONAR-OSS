@@ -78,6 +78,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Number verbalization no longer half-converts a digit run glued to a Latin
+  letter (#209). `_DIGIT_RUN_RE` guarded both sides against a Latin letter but
+  not against another digit, so the engine matched a *proper sub-run* of a
+  glued run from either direction: a greedy `\d+` backtracked out of `"15m"`
+  to `"1"` and emitted `one5m` (`일5m`, `एक5m`; `"100MB"` -> `ten0mb`), and on
+  `"iPhone15"` it started the match at `"5"` and emitted `iphone1five`. Both
+  contradicted the module's stated contract, and since normalization runs on
+  the reference and the hypothesis before WER and CER, a unit written in
+  Latin on one side and in the target script on the other was driven further
+  apart by the normalizer than by the transcription. Every case the tests
+  covered used a single-digit run (`"v2"`, `"H2O"`, `"2nd"`), which has no
+  sub-run to fall back on, so none of them could catch it. Both lookarounds
+  now count a digit as token glue. English, Korean and Hindi were affected;
+  Bengali was not.
 - `timestamp_trim` no longer scores the second speaker on 100 ms of padding
   (#205). Transcript `start`/`end` offsets are on the combined-recording
   timeline (the shipped fixtures' and FAQ schema's convention, now stated in

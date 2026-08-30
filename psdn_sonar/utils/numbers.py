@@ -16,7 +16,9 @@ Behavior contract (kept identical to the per-language processors):
   - Only digit runs of length 1-4 are converted; longer runs
     (phone numbers, IDs) and leading-zero runs are preserved as-is.
   - Digit runs glued to a **Latin letter** on either side are NOT
-    matched (``"v2"``, ``"iPhone15"``, ``"H2O"`` stay intact). This
+    matched (``"v2"``, ``"iPhone15"``, ``"H2O"`` on the left,
+    ``"15m"``, ``"100MB"`` on the right, all stay intact — a *sub-run*
+    of a glued run is not matched either, see ``_DIGIT_RUN_RE``). This
     prevents the verbalizer from shredding mixed Latin alphanumerics
     that a speaker would read as a single token. Digits adjacent to
     non-Latin letters (Hangul ``원``, Devanagari ``रुपये``, CJK) ARE
@@ -72,8 +74,25 @@ def _warn_missing_once(library: str, language: str) -> None:
 # (÷, U+00F7) operators which sit in the same Latin-1 block but are
 # Sm category, not letters. This is the set we treat as "alphanumeric
 # token glue" — digits adjacent to one of these are left alone.
-_LATIN_LETTER = r"[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF]"
-_DIGIT_RUN_RE = re.compile(rf"(?<!{_LATIN_LETTER})\d+(?!{_LATIN_LETTER})")
+_LATIN_LETTER_SET = r"A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF"
+
+# A digit is glue too, and both guards need it (issue #209). Matching a *proper
+# sub-run* of a digit run is what half-verbalizes a mixed token, and a lookaround
+# that only names Latin letters cannot stop it from either side:
+#
+#   "15m"      the lookahead rejects "15" against "m", so the engine backtracks
+#              the greedy \d+ to "1" — next character "5", not a letter — and
+#              converts that alone:  "one5m" / "일5m" / "एक5m"
+#   "iPhone15" the lookbehind rejects a match starting at "1", so the engine
+#              advances the start to "5" — previous character "1", not a letter —
+#              and converts that alone:  "iphone1five" / "iphone1오"
+#
+# Forbidding an adjacent digit closes both: no sub-run of a digit run can pass,
+# so a run glued to a Latin letter fails outright and is left intact, on either
+# side, which is what the contract above promises. Every branch of both
+# lookarounds is one character wide, as Python's fixed-width lookbehind requires.
+_TOKEN_GLUE = rf"[\d{_LATIN_LETTER_SET}]"
+_DIGIT_RUN_RE = re.compile(rf"(?<!{_TOKEN_GLUE})\d+(?!{_TOKEN_GLUE})")
 
 # Thousands-separator handling (issue #135). A separator is presentation,
 # not content: "1,000" and "1000" denote the same number, but the digit-run
