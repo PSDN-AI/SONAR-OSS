@@ -34,7 +34,9 @@ def run_multispeaker_evaluation(
         output_dir: Directory for output files.
         max_samples: Maximum samples to process (0 = all).
         methods: Preprocessing methods; ``None`` uses config defaults.
-        sweep: Run all methods with oracle selection (inflates metrics).
+        sweep: Score every active method against ground truth and keep the best
+            per clip. With more than one active method this is oracle selection
+            and inflates the reported metrics.
         method: Explicit method name to use for all clips.
         language: ISO 639-1 code used for WER/CER normalization.
         custom_hf_model: HuggingFace repo id; when set, ``model_name`` is only
@@ -74,7 +76,9 @@ def run_multispeaker_evaluation(
             "(pyannote models are gated on HuggingFace — set HF_TOKEN after accepting the model terms)."
         )
 
-    config = load_multi_speaker_config(config_path)
+    # An override replaces the file's method list, so the file is not required
+    # to carry a usable one — its settings still are.
+    config = load_multi_speaker_config(config_path, methods_required=not (methods or method))
     if methods:
         # An explicit list bypasses the config file, and with it the file
         # loader's KNOWN_METHODS validation — so validate here rather than let

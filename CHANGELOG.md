@@ -113,6 +113,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while the pinned method was perfectly usable. Repeated methods are collapsed
   with a warning — under `--sweep` a repeat doubled the ASR calls per clip and
   counted itself twice in the caution while still producing one score.
+
+  Three more, from a second pass. The `.txt` summary marked every sweep
+  `[ORACLE BIAS]` off the bare flag, so the artifact — which outlives the log —
+  contradicted the log line that already declines to claim a bias a
+  single-method sweep cannot introduce; it now reads
+  `[no oracle selection: one method]` in that case, and `--sweep`'s help scopes
+  its inflation warning the same way. `yaml.safe_load(f) or {}` turned every
+  falsy document (`[]`, `false`, `0`, `""`) into an empty mapping that sailed
+  past the type check and produced the default configuration, so a named config
+  could still be ignored silently; only a genuinely empty document is now an
+  empty config. And a config whose method list holds nothing usable no longer
+  blocks a run that overrides that list: `--methods` and `--method` replace it,
+  so the file is not required to carry a usable one — its settings still apply,
+  and without an override it still refuses.
 - The judge-model guidance in the `llm_metrics` module docstring now names a
   mechanism that exists (#211). It told the reader to opt into a stronger
   judge "via `--judge-model gemini-3.1-pro-preview` on the analysis script";

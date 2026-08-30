@@ -268,8 +268,9 @@ def process_manifest_with_asr(
         asr_model_name: Model name for reporting
         methods: List of preprocessing method names (candidate pool)
         config_settings: Dict with silence/timestamp/pyannote settings
-        sweep: If True, run all methods and pick the best using ground truth
-               (oracle bias — inflates metrics; use only for ablations).
+        sweep: If True, score every active method against ground truth and keep
+               the best per clip. With more than one active method this is
+               oracle selection and inflates metrics; use only for ablations.
         method: Explicit method name to use for all clips. If None and sweep
                 is False, method is auto-selected per clip based on available data.
     """
@@ -639,8 +640,13 @@ def process_manifest_with_asr(
         with open(stats_file, "w", encoding="utf-8") as f:
             f.write(f"Multi-Speaker ASR Evaluation Results\n{'=' * 40}\n")
             f.write(f"Model: {asr_model_name}\nManifest: {manifest_path}\n")
-            if sweep:
+            if sweep and len(active_methods) > 1:
                 mode_str = f"sweep ({', '.join(active_methods)}) [ORACLE BIAS]"
+            elif sweep:
+                # A sweep with one active method selects nothing, so the
+                # artifact must not carry the bias marker the log already
+                # declines to print — the .txt outlives the log.
+                mode_str = f"sweep ({active_methods[0]}) [no oracle selection: one method]"
             elif method:
                 mode_str = f"fixed:{method}"
             else:

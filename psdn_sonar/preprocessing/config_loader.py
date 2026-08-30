@@ -29,7 +29,7 @@ DEFAULT_SETTINGS = {
 }
 
 
-def load_multi_speaker_config(config_path: Optional[str] = None) -> dict:
+def load_multi_speaker_config(config_path: Optional[str] = None, *, methods_required: bool = True) -> dict:
     """Load multi-speaker preprocessing config from a YAML file.
 
     ``config_path=None`` resolves to the packaged
@@ -42,6 +42,13 @@ def load_multi_speaker_config(config_path: Optional[str] = None) -> dict:
     Malformed structure is an error either way — ``methods: 5`` and
     ``silence: oops`` used to escape as a raw ``TypeError`` from the iteration
     and the merge. Unknown method *names* are still skipped with a warning.
+
+    ``methods_required=False`` says the caller is replacing the method list
+    anyway (``--methods`` / ``--method``), so a file whose own list holds
+    nothing usable returns ``methods: []`` — with its settings intact — rather
+    than failing. Blocking there would make an override unusable against a
+    config with a stale method list, which is one of the things an override is
+    for. Structural validation still applies.
 
     Returns a dict with ``methods`` plus per-method settings sections.
     """
@@ -71,12 +78,27 @@ def load_multi_speaker_config(config_path: Optional[str] = None) -> dict:
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+            data = yaml.safe_load(f)
     except Exception as e:
         return _defaults_or_raise(f"Error reading config {config_path}: {e}")
 
+    # Only an empty document is an empty config. A blanket ``or {}`` also
+    # swallowed ``[]``, ``false``, ``0`` and ``""``, which then sailed past the
+    # mapping check below and silently produced the default configuration —
+    # the same "named a file, evaluated with something else" failure this
+    # function exists to prevent.
+    if data is None:
+        data = {}
+
     if not isinstance(data, dict):
         raise ValueError(f"{config_path}: top level must be a mapping, got {type(data).__name__}")
+
+    sections = {}
+    for name in ("silence", "timestamp", "pyannote"):
+        section = data.get(name, {})
+        if not isinstance(section, dict):
+            raise ValueError(f"{config_path}: '{name}' must be a mapping, got {type(section).__name__}")
+        sections[name] = {**DEFAULT_SETTINGS[name], **section}
 
     methods = data.get("methods", DEFAULT_METHODS)
     if not isinstance(methods, list) or not all(isinstance(m, str) for m in methods):
@@ -89,14 +111,7 @@ def load_multi_speaker_config(config_path: Optional[str] = None) -> dict:
         else:
             logger.warning(f"Unknown method '{m}' in config, skipping")
 
-    if not validated_methods:
+    if not validated_methods and methods_required:
         return _defaults_or_raise(f"no known methods in {config_path}")
-
-    sections = {}
-    for name in ("silence", "timestamp", "pyannote"):
-        section = data.get(name, {})
-        if not isinstance(section, dict):
-            raise ValueError(f"{config_path}: '{name}' must be a mapping, got {type(section).__name__}")
-        sections[name] = {**DEFAULT_SETTINGS[name], **section}
 
     return {"methods": validated_methods, **sections}

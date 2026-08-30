@@ -89,6 +89,44 @@ class TestRunMultispeakerEvaluation:
         assert captured["methods"] == ["energy_trim", "no_trim"]
         assert captured["config_settings"]["timestamp"]["padding_ms"] == 250
 
+    @pytest.mark.parametrize("override", [{"methods": ["no_trim"]}, {"method": "no_trim"}])
+    def test_override_survives_a_config_whose_method_list_is_unusable(self, manifest, tmp_path, monkeypatch, override):
+        """The help says --methods/--method override the config's list, so the
+        list being unusable must not stop the run before the override applies.
+        The config's settings still take effect."""
+        captured = {}
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text("methods:\n  - bogus\nsilence:\n  silence_thresh: -35\n")
+
+        run_multispeaker_evaluation(
+            str(manifest),
+            "whisper_api",
+            output_dir=str(tmp_path / "out"),
+            config_path=str(cfg),
+            **override,
+        )
+
+        assert captured["config_settings"]["silence"]["silence_thresh"] == -35
+        if "methods" in override:
+            assert captured["methods"] == ["no_trim"]
+        else:
+            assert captured["method"] == "no_trim"
+
+    def test_unusable_config_method_list_without_an_override_still_raises(self, manifest, tmp_path, monkeypatch):
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text("methods:\n  - bogus\n")
+
+        with pytest.raises(ValueError, match="no known methods"):
+            run_multispeaker_evaluation(
+                str(manifest), "whisper_api", output_dir=str(tmp_path / "out"), config_path=str(cfg)
+            )
+
     @pytest.mark.parametrize("bad_methods", [["not_a_method"], ["no_trim", "nope"]])
     def test_unknown_method_in_explicit_list_raises(self, manifest, tmp_path, monkeypatch, bad_methods):
         """An explicit list replaces the config's, bypassing the loader's

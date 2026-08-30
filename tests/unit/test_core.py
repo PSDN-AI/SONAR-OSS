@@ -299,6 +299,31 @@ class TestProcessManifestWithASR:
 
         assert f"Active preprocessing methods: {', '.join(DEFAULT_METHODS)}" in caplog.text
 
+    @pytest.mark.parametrize(
+        "methods,expected",
+        [
+            (["no_trim"], "Mode: sweep (no_trim) [no oracle selection: one method]"),
+            (["energy_trim", "no_trim"], "Mode: sweep (energy_trim, no_trim) [ORACLE BIAS]"),
+        ],
+    )
+    def test_sweep_artifact_marks_oracle_bias_only_when_there_is_selection(self, tmp_path, methods, expected):
+        """The .txt summary marked every sweep [ORACLE BIAS] on the bare flag,
+        contradicting the log, which already declines to claim a bias a
+        single-method sweep cannot introduce. The artifact outlives the log."""
+        manifest = _write_manifest_dataset(tmp_path)
+        output = tmp_path / "out.csv"
+
+        process_manifest_with_asr(
+            str(manifest),
+            _StubModel("hello world"),
+            str(output),
+            language="en",
+            methods=methods,
+            sweep=True,
+        )
+
+        assert expected in output.with_suffix(".txt").read_text(encoding="utf-8")
+
     def test_pinned_method_wins_over_the_configured_set(self, tmp_path):
         """``--method`` pins one method for every clip, so it is the active set.
 

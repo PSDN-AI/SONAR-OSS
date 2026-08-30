@@ -337,6 +337,40 @@ class TestLoadMultiSpeakerConfig:
         with pytest.raises(ValueError, match=match):
             load_multi_speaker_config(str(p))
 
+    @pytest.mark.parametrize("body", ["[]\n", "false\n", "0\n", '""\n'])
+    def test_falsy_yaml_document_is_not_an_empty_config(self, tmp_path, body):
+        """``yaml.safe_load(f) or {}`` turned every falsy document into ``{}``,
+        which then passed the mapping check and silently produced the default
+        configuration — the failure the strict path exists to prevent."""
+        p = tmp_path / "c.yaml"
+        p.write_text(body)
+        with pytest.raises(ValueError, match="top level must be a mapping"):
+            load_multi_speaker_config(str(p))
+
+    @pytest.mark.parametrize("body", ["", "null\n"])
+    def test_empty_document_specifies_nothing_and_takes_the_defaults(self, tmp_path, body):
+        """Only a genuinely empty document is an empty config."""
+        p = tmp_path / "c.yaml"
+        p.write_text(body)
+        cfg = load_multi_speaker_config(str(p))
+        assert cfg["methods"] == DEFAULT_METHODS
+        assert cfg["silence"] == DEFAULT_SETTINGS["silence"]
+
+    def test_methods_not_required_lets_an_override_past_a_stale_method_list(self, tmp_path):
+        """A caller replacing the list does not need the file to carry a usable
+        one — blocking there made ``--methods``/``--method`` unusable against a
+        config with a stale method list, which is one of the things an override
+        is for. The file's settings still apply."""
+        p = tmp_path / "c.yaml"
+        p.write_text("methods:\n  - bogus\nsilence:\n  silence_thresh: -35\n")
+
+        cfg = load_multi_speaker_config(str(p), methods_required=False)
+        assert cfg["methods"] == []
+        assert cfg["silence"]["silence_thresh"] == -35
+
+        with pytest.raises(ValueError, match="no known methods"):
+            load_multi_speaker_config(str(p))
+
     def test_settings_merge_with_defaults(self, tmp_path):
         p = tmp_path / "c.yaml"
         p.write_text("methods:\n  - energy_trim\nsilence:\n  silence_thresh: -35\n")
