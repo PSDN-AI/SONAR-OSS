@@ -138,6 +138,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are now tested with `is not None` rather than truthiness, so `method=""` — an
   explicit method downstream — no longer slips through, and an empty `methods`
   list is refused rather than quietly meaning "no override".
+
+  Follow-up: the fallback set used when no config file can be read now
+  mirrors the packaged config (`no_trim`) instead of declaring three methods,
+  so the set a run sweeps — and the candidate pool auto-selection chooses
+  from — no longer depends on whether `multi_speaker_config.yaml` could be
+  read, which the issue called out as a second, disagreeing declaration. And
+  the FAQ documents how the method set is chosen: what `--sweep` actually
+  sweeps, widening the set with `--methods` or `--preprocessing-config`, and
+  which methods exist with their requirements.
 - The six dev5-pass findings from #212, none of which failed a run:
   - An exported shell variable now wins over the same name in `.env`
     (python-dotenv's own default; `load_env()` passed `override=True`), so a

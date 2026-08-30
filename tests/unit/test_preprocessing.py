@@ -301,6 +301,13 @@ class TestLoadMultiSpeakerConfig:
         assert cfg["methods"] == DEFAULT_METHODS
         assert cfg["pyannote"] == DEFAULT_SETTINGS["pyannote"]
 
+    def test_fallback_method_set_matches_the_packaged_config(self):
+        """Issue #210: the missing-file fallback declared three methods while
+        the packaged config lists one, so the set a run swept depended on
+        whether the file could be read. A run that cannot read its config
+        must behave like a run that can."""
+        assert load_multi_speaker_config()["methods"] == list(DEFAULT_METHODS)
+
     def test_named_file_that_is_missing_raises(self, tmp_path):
         """A caller that names a file gets that file or an error. Falling back
         would evaluate with a configuration nobody asked for and report the

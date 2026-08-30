@@ -20,7 +20,13 @@ KNOWN_METHODS = {
     "pyannote_diarize",
 }
 
-DEFAULT_METHODS = ["energy_trim", "timestamp_trim", "no_trim"]
+# Mirrors the packaged multi_speaker_config.yaml. The fallback used to
+# declare three methods while the packaged file lists one, so the set a run
+# swept (and the candidate pool auto-selection chose from) depended on
+# whether that file could be read (issue #210). A run that cannot read its
+# config must behave like a run that can — callers widen the set explicitly
+# with --methods or --preprocessing-config.
+DEFAULT_METHODS = ["no_trim"]
 
 DEFAULT_SETTINGS = {
     "silence": {"max_silence_ms": 400, "min_silence_len": 500, "silence_thresh": -40},
