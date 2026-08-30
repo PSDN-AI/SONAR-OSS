@@ -746,6 +746,13 @@ class TestMixedAlphanumericPreservation:
     letter are left alone. Digits adjacent to non-Latin letters
     (Hangul ``원``, Devanagari ``रुपये``, CJK) are still matched —
     that's the ``"100원" -> "백원"`` behavior we want to preserve.
+
+    Issue #209: that pattern still matched a **proper sub-run** of a
+    glued digit run, from either side, so a run of two or more digits
+    was half-verbalized (``"15m" -> "one5m"``, ``"iPhone15" ->
+    "iphone1five"``). Every case the class shipped with used a
+    single-digit run, which has no sub-run to fall back on, so none of
+    them could catch it. The guards now name a digit as glue too.
     """
 
     @pytest.mark.parametrize(
@@ -756,6 +763,8 @@ class TestMixedAlphanumericPreservation:
             ("MP3", "mp3"),
             ("2nd", "2nd"),
             ("iPhone", "iphone"),
+            ("iPhone15", "iphone15"),
+            ("10GB", "10gb"),
         ],
     )
     def test_english_mixed_alphanumeric_preserved(self, input_text, expected_substring):
@@ -781,6 +790,57 @@ class TestMixedAlphanumericPreservation:
 
         result = normalize_text_unified("100रुपये", language="hi")
         assert "100" not in result, f"100 was not verbalized: {result!r}"
+
+    @pytest.mark.parametrize("language", ["en", "ko", "hi", "bn"])
+    @pytest.mark.parametrize("input_text", ["15m", "30km", "100MB", "abc123def"])
+    def test_multi_digit_run_glued_to_a_latin_letter_left_intact(self, language, input_text):
+        """Issue #209: a run of two or more digits glued to a Latin letter.
+
+        Normalization runs on the reference and the hypothesis before WER
+        and CER, so a token the normalizer half-verbalizes on one side only
+        widens the distance it exists to close. Each input here was matched
+        by the pre-fix pattern (``"15m" -> "one5m"`` / ``"일5m"`` /
+        ``"एक5m"``); Bengali was unaffected and is the control.
+        """
+        from psdn_sonar.utils.text_processing import normalize_text_unified
+
+        result = normalize_text_unified(input_text, language=language)
+        assert result.strip() == input_text.lower(), f"{input_text!r} ({language}) -> {result!r}"
+
+    @pytest.mark.parametrize(
+        "text,expected_runs",
+        [
+            # Glued on the right — the engine used to backtrack into a sub-run.
+            ("15m", []),
+            ("30km", []),
+            ("100MB", []),
+            ("10GB", []),
+            # Glued on the left — the engine used to start inside the run.
+            ("iPhone15", []),
+            ("abc123def", []),
+            # Single-digit runs: correct before the fix, must stay correct.
+            ("v2", []),
+            ("2nd", []),
+            ("H2O", []),
+            # Not glued at all — these must still be verbalized.
+            ("15", ["15"]),
+            ("1000", ["1000"]),
+            ("15미터", ["15"]),
+            ("100원", ["100"]),
+            ("2020 100", ["2020", "100"]),
+            ("3.14", ["3", "14"]),
+        ],
+    )
+    def test_digit_run_regex_matches_no_sub_run_of_a_glued_run(self, text, expected_runs):
+        """Pin the mechanism at the pattern, not just its visible output.
+
+        Both lookarounds have to reject an adjacent digit: the lookahead
+        stops a greedy ``\\d+`` backtracking to a shorter run, the lookbehind
+        stops the match starting further into one.
+        """
+        from psdn_sonar.utils.numbers import _DIGIT_RUN_RE
+
+        assert [m.group() for m in _DIGIT_RUN_RE.finditer(text)] == expected_runs
 
 
 class TestLoanwordReplacementFallbackParity:
