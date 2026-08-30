@@ -89,6 +89,32 @@ class TestRunMultispeakerEvaluation:
         assert captured["methods"] == ["energy_trim", "no_trim"]
         assert captured["config_settings"]["timestamp"]["padding_ms"] == 250
 
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"methods": ["no_trim"], "method": "not_a_method"},
+            {"methods": ["energy_trim"], "method": "no_trim"},
+        ],
+    )
+    def test_method_and_methods_together_raise(self, manifest, tmp_path, monkeypatch, override):
+        """The entry point resolves the override; ``process_manifest_with_asr``
+        resolves a pin as the active set. Accepting both let the two layers
+        disagree — a list passed beside a pin was dropped without a word, and
+        an unknown pin passed validation because the list beside it was fine.
+        """
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        with pytest.raises(ValueError, match="not both"):
+            run_multispeaker_evaluation(str(manifest), "whisper_api", output_dir=str(tmp_path / "out"), **override)
+
+    def test_empty_methods_list_raises(self, manifest, tmp_path, monkeypatch):
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        with pytest.raises(ValueError, match="must not be empty"):
+            run_multispeaker_evaluation(str(manifest), "whisper_api", output_dir=str(tmp_path / "out"), methods=[])
+
     @pytest.mark.parametrize("override", [{"methods": ["no_trim"]}, {"method": "no_trim"}])
     def test_override_survives_a_config_whose_method_list_is_unusable(self, manifest, tmp_path, monkeypatch, override):
         """The help says --methods/--method override the config's list, so the
@@ -133,6 +159,9 @@ class TestRunMultispeakerEvaluation:
             {"methods": ["not_a_method"]},
             {"methods": ["no_trim", "nope"]},
             {"method": "not_a_method"},
+            # "" is falsy but not None, so it used to skip validation here and
+            # still count as an explicit method downstream.
+            {"method": ""},
         ],
     )
     def test_unknown_method_in_an_override_raises(self, manifest, tmp_path, monkeypatch, override):

@@ -33,11 +33,13 @@ def run_multispeaker_evaluation(
         model_name: Registered model name (see :mod:`psdn_sonar.models.registry`).
         output_dir: Directory for output files.
         max_samples: Maximum samples to process (0 = all).
-        methods: Preprocessing methods; ``None`` uses config defaults.
+        methods: Preprocessing methods to choose from, replacing the config's
+            list. ``None`` uses the config's. Mutually exclusive with ``method``.
         sweep: Score every active method against ground truth and keep the best
             per clip. With more than one active method this is oracle selection
             and inflates the reported metrics.
-        method: Explicit method name to use for all clips.
+        method: One method pinned for every clip, replacing the config's list.
+            Mutually exclusive with ``methods``.
         language: ISO 639-1 code used for WER/CER normalization.
         custom_hf_model: HuggingFace repo id; when set, ``model_name`` is only
             used as the results-file stem.
@@ -66,15 +68,31 @@ def run_multispeaker_evaluation(
     if not manifest_file.exists():
         raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
 
-    # Both --method and --methods replace the config's list, so both bypass the
-    # loader's KNOWN_METHODS check. Only the list was validated: an unknown
-    # single name became the sole active method, ran the whole evaluation, and
-    # failed every row with "No per-channel methods available" — which names
-    # the wrong problem — before the generic "no clips processed" at the end.
-    unknown = [m for m in (methods or ([method] if method else [])) if m not in KNOWN_METHODS]
+    # ``method`` pins one method for every clip; ``methods`` sets the pool to
+    # choose from. They state different intents, and this entry point rejects
+    # the pair like the CLI does. Without that the two layers disagreed about
+    # which one wins: the check below looked at the list first, while
+    # ``process_manifest_with_asr`` resolves a pin as the active set — so a
+    # list passed alongside a pin was dropped without a word, and an unknown
+    # pin sailed past validation because the list beside it was fine.
+    if methods is not None and method is not None:
+        raise ValueError(
+            "Pass either 'method' or 'methods', not both: 'method' pins one method for "
+            "every clip, 'methods' sets the pool to choose from."
+        )
+    if methods is not None and not methods:
+        raise ValueError("'methods' must not be empty; omit it to use the config's method list.")
+
+    # Either override replaces the config's list, so both bypass the loader's
+    # KNOWN_METHODS check. Membership is tested with ``is not None`` rather
+    # than truthiness: ``method=""`` is an explicit method as far as
+    # ``process_manifest_with_asr`` is concerned, so it has to be caught here.
+    override = list(methods) if methods is not None else ([method] if method is not None else [])
+    unknown = [m for m in override if m not in KNOWN_METHODS]
     if unknown:
         raise ValueError(
-            f"Unknown preprocessing method(s): {', '.join(unknown)}. Known methods: {', '.join(sorted(KNOWN_METHODS))}."
+            f"Unknown preprocessing method(s): {', '.join(repr(m) for m in unknown)}. "
+            f"Known methods: {', '.join(sorted(KNOWN_METHODS))}."
         )
 
     if method in PYANNOTE_METHODS and not PYANNOTE_AVAILABLE:
@@ -89,8 +107,8 @@ def run_multispeaker_evaluation(
 
     # An override replaces the file's method list, so the file is not required
     # to carry a usable one — its settings still are.
-    config = load_multi_speaker_config(config_path, methods_required=not (methods or method))
-    if methods:
+    config = load_multi_speaker_config(config_path, methods_required=not override)
+    if methods is not None:
         config["methods"] = methods
 
     logger.info(

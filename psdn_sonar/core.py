@@ -288,6 +288,11 @@ def process_manifest_with_asr(
     from .preprocessing.pyannote_utils import PYANNOTE_AVAILABLE
 
     if method is not None:
+        # Layering: ``methods`` is the *configured* set at this level, not a
+        # user override — ``run_multispeaker_evaluation`` resolves the override
+        # and always passes both — so a pin winning over it is correct here.
+        # Rejecting the pair belongs at that entry point, which does it.
+        #
         # A pinned method *is* the active set. Leaving the configured list in
         # play let the pin lose silently — a config holding only a per-clip
         # method won the selection and ran instead of the pinned per-channel
@@ -335,7 +340,8 @@ def process_manifest_with_asr(
         )
 
     if not active_methods:
-        raise ValueError(f"No valid preprocessing methods available from: {', '.join(methods)}")
+        available = f" from: {', '.join(methods)}" if methods else ""
+        raise ValueError(f"No valid preprocessing methods available{available}")
 
     # Report the set the run will actually use, and only caution about oracle
     # bias when the sweep has something to select between (issue #210). The

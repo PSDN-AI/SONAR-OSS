@@ -130,7 +130,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so bypass the loader's own check: an unknown name passed to `--method` used
   to become the sole active method, run the whole evaluation, and fail every
   row with "No per-channel methods available" — naming the wrong problem —
-  before the generic no-clips-processed error at the end.
+  before the generic no-clips-processed error at the end. The library entry
+  point rejects the two overrides together, as the CLI already did: it resolved
+  the override list-first while `process_manifest_with_asr` resolves a pin as
+  the active set, so a list passed beside a pin was dropped without a word and
+  an unknown pin passed validation because the list beside it was fine. Both
+  are now tested with `is not None` rather than truthiness, so `method=""` — an
+  explicit method downstream — no longer slips through, and an empty `methods`
+  list is refused rather than quietly meaning "no override".
 - The judge-model guidance in the `llm_metrics` module docstring now names a
   mechanism that exists (#211). It told the reader to opt into a stronger
   judge "via `--judge-model gemini-3.1-pro-preview` on the analysis script";
