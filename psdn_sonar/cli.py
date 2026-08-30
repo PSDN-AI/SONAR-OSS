@@ -848,25 +848,33 @@ Examples:
             "Defaults to bn if omitted — always pass this so the correct normalizer is used."
         ),
     )
-    multi_parser.add_argument(
+    # --method pins one method for every clip; --methods sets the pool the run
+    # chooses from. Passing both states two different intents, and the pinned
+    # one used to lose silently or abort the run, so argparse rejects the pair.
+    method_selection = multi_parser.add_mutually_exclusive_group()
+    method_selection.add_argument(
         "--method",
         type=str,
         default=None,
         help=(
-            "Preprocessing method to use for all clips. Per-channel: energy_trim, "
-            "timestamp_trim, no_trim, pyannote_vad. Per-clip (need a model with the "
-            "matching capability): scribe_diarize, pyannote_diarize. "
-            "If omitted, the method is auto-selected per clip from the active set."
+            "Preprocessing method to use for all clips, overriding the config's list. "
+            "Per-channel: energy_trim, timestamp_trim, no_trim, pyannote_vad. Per-clip "
+            "(need a model with the matching capability): scribe_diarize, "
+            "pyannote_diarize. If omitted, the method is auto-selected per clip from "
+            "the active set. Mutually exclusive with --methods."
         ),
     )
-    multi_parser.add_argument(
+    method_selection.add_argument(
         "--methods",
         nargs="+",
         default=None,
         help=(
-            "Active preprocessing methods, overriding the config's list. Without "
-            "--sweep the best of these is auto-selected per clip; with --sweep every "
-            "one of them is scored. Methods this run cannot use (pyannote without the "
+            "Active preprocessing methods, overriding the config's list. Mutually "
+            "exclusive with --method. With --sweep every one of them is scored. "
+            "Without --sweep the per-channel methods in the set are compared per clip "
+            "and the best is used; a per-clip method (scribe_diarize, pyannote_diarize) "
+            "runs only when the set holds no per-channel method, and then the first one "
+            "listed is used. Methods this run cannot use (pyannote without the "
             "[pyannote] extra, per-clip methods on a model that lacks the capability) "
             "are skipped with a warning."
         ),

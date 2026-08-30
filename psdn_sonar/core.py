@@ -286,7 +286,14 @@ def process_manifest_with_asr(
     from .preprocessing.preprocessing_selector import run_single_method, run_sweep
     from .preprocessing.pyannote_utils import PYANNOTE_AVAILABLE
 
-    if methods is None:
+    if method is not None:
+        # A pinned method *is* the active set. Leaving the configured list in
+        # play let the pin lose silently — a config holding only a per-clip
+        # method won the selection and ran instead of the pinned per-channel
+        # one — and could abort the run with "No valid preprocessing methods"
+        # while the pinned method was perfectly usable.
+        methods = [method]
+    elif methods is None:
         # One source of truth for the fallback set (issue #210). This used to
         # keep its own copy of the same list that ``config_loader`` already
         # declares, so which set a caller got depended on which of the two
@@ -299,7 +306,17 @@ def process_manifest_with_asr(
     pyannote_settings = config_settings.get("pyannote", {})
 
     active_methods = []
+    seen: set[str] = set()
+    duplicates = []
     for m in methods:
+        if m in seen:
+            # A repeated method preprocesses and transcribes again for the same
+            # result: under --sweep it doubled the ASR calls per clip, counted
+            # itself twice in the oracle-bias caution, and still collapsed to a
+            # single entry in all_method_scores.
+            duplicates.append(m)
+            continue
+        seen.add(m)
         if m in PYANNOTE_METHODS and not PYANNOTE_AVAILABLE:
             logger.warning(
                 f"Skipping {m}: pyannote.audio not installed. Install with: pip install 'psdn-sonar[pyannote]'"
@@ -310,8 +327,14 @@ def process_manifest_with_asr(
             continue
         active_methods.append(m)
 
+    if duplicates:
+        logger.warning(
+            "Ignoring duplicate preprocessing method(s): %s. Each method runs once.",
+            ", ".join(dict.fromkeys(duplicates)),
+        )
+
     if not active_methods:
-        raise ValueError("No valid preprocessing methods available")
+        raise ValueError(f"No valid preprocessing methods available from: {', '.join(methods)}")
 
     # Report the set the run will actually use, and only caution about oracle
     # bias when the sweep has something to select between (issue #210). The

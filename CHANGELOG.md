@@ -100,6 +100,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   config is unchanged: its method list is also the candidate set for per-clip
   auto-selection on ordinary runs, so widening it would re-baseline every
   `multi` run and is a separate decision.
+
+  Making the method set reachable exposed four ways it could go wrong quietly,
+  all closed here. A config file the caller *names* is now used or the run
+  stops — a missing path, an unreadable file or a config with no known methods
+  used to warn and silently evaluate with the default methods instead, and a
+  malformed one (`methods: 5`, `silence: oops`) escaped as a bare `TypeError`;
+  the no-argument path stays lenient so a damaged install still runs.
+  `--method` and `--methods` are mutually exclusive, and a pinned `--method` is
+  now the active set: it previously lost to a configured per-clip method that
+  ran in its place, or aborted the run with "No valid preprocessing methods"
+  while the pinned method was perfectly usable. Repeated methods are collapsed
+  with a warning — under `--sweep` a repeat doubled the ASR calls per clip and
+  counted itself twice in the caution while still producing one score.
 - The judge-model guidance in the `llm_metrics` module docstring now names a
   mechanism that exists (#211). It told the reader to opt into a stronger
   judge "via `--judge-model gemini-3.1-pro-preview` on the analysis script";

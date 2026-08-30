@@ -416,6 +416,28 @@ class TestMultiSpeakerDispatch:
         assert kwargs["config_path"] == str(cfg)
         assert kwargs["sweep"] is True
 
+    def test_method_and_methods_are_mutually_exclusive(self, tmp_path):
+        """Passing both states two different intents. The pinned one used to
+        lose silently, or abort the run when the pool filtered down to empty."""
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text("{}\n")
+
+        with patch("psdn_sonar.multispeaker_pipeline.run_multispeaker_evaluation") as mock_run:
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli(
+                    "multi",
+                    "--input",
+                    str(manifest),
+                    "--models",
+                    "whisper_api",
+                    "--method",
+                    "no_trim",
+                    "--methods",
+                    "scribe_diarize",
+                )
+        assert exc_info.value.code == 2
+        mock_run.assert_not_called()
+
     def test_unknown_language_code_exits_before_pipeline(self, tmp_path, caplog):
         manifest = tmp_path / "manifest.jsonl"
         manifest.write_text("{}\n")

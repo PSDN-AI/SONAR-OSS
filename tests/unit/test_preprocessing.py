@@ -294,20 +294,48 @@ class TestLoadMultiSpeakerConfig:
         assert cfg["methods"] == ["no_trim"]
         assert cfg["silence"]["max_silence_ms"] == 400
 
-    def test_missing_file_uses_defaults(self, tmp_path):
-        cfg = load_multi_speaker_config(str(tmp_path / "nope.yaml"))
+    def test_packaged_config_missing_falls_back_to_defaults(self, monkeypatch):
+        """The no-argument path stays lenient: a damaged install still runs."""
+        monkeypatch.setattr("psdn_sonar.preprocessing.config_loader.os.path.exists", lambda _: False)
+        cfg = load_multi_speaker_config()
         assert cfg["methods"] == DEFAULT_METHODS
         assert cfg["pyannote"] == DEFAULT_SETTINGS["pyannote"]
+
+    def test_named_file_that_is_missing_raises(self, tmp_path):
+        """A caller that names a file gets that file or an error. Falling back
+        would evaluate with a configuration nobody asked for and report the
+        result as the requested one."""
+        with pytest.raises(FileNotFoundError, match="Preprocessing config not found"):
+            load_multi_speaker_config(str(tmp_path / "nope.yaml"))
 
     def test_unknown_methods_skipped(self, tmp_path):
         p = tmp_path / "c.yaml"
         p.write_text("methods:\n  - no_trim\n  - bogus_method\n")
         assert load_multi_speaker_config(str(p))["methods"] == ["no_trim"]
 
-    def test_all_unknown_falls_back_to_defaults(self, tmp_path):
+    def test_named_file_with_no_known_methods_raises(self, tmp_path):
         p = tmp_path / "c.yaml"
         p.write_text("methods:\n  - bogus\n")
-        assert load_multi_speaker_config(str(p))["methods"] == DEFAULT_METHODS
+        with pytest.raises(ValueError, match="no known methods"):
+            load_multi_speaker_config(str(p))
+
+    @pytest.mark.parametrize(
+        "body,match",
+        [
+            ("methods: 5\n", "'methods' must be a list of strings"),
+            ("methods:\n  - 5\n", "'methods' must be a list of strings"),
+            ("silence: oops\n", "'silence' must be a mapping"),
+            ("timestamp: 3\n", "'timestamp' must be a mapping"),
+            ("- a\n- b\n", "top level must be a mapping"),
+        ],
+    )
+    def test_malformed_structure_raises_instead_of_a_raw_typeerror(self, tmp_path, body, match):
+        """``methods: 5`` and ``silence: oops`` used to escape as a bare
+        ``TypeError`` from the iteration and the settings merge."""
+        p = tmp_path / "c.yaml"
+        p.write_text(body)
+        with pytest.raises(ValueError, match=match):
+            load_multi_speaker_config(str(p))
 
     def test_settings_merge_with_defaults(self, tmp_path):
         p = tmp_path / "c.yaml"
