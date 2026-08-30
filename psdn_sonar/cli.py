@@ -894,10 +894,11 @@ Examples:
         action="store_true",
         help=(
             "Score every active method against ground truth and keep the best per clip. "
-            "The active set is the config's method list unless --methods overrides it, "
-            "so a config listing one method sweeps that one and selects nothing. "
-            "WARNING: with more than one active method this is oracle selection and "
-            "inflates reported metrics — use only for ablation studies."
+            "The active set is the config's method list unless --methods or --method "
+            "overrides it, so a run pinned with --method — or a config listing one "
+            "method — sweeps that one and selects nothing. WARNING: with more than one "
+            "active method this is oracle selection and inflates reported metrics — use "
+            "only for ablation studies."
         ),
     )
     multi_parser.add_argument("--demographics", action="store_true", help="Generate demographic analysis plots")

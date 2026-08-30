@@ -66,6 +66,17 @@ def run_multispeaker_evaluation(
     if not manifest_file.exists():
         raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
 
+    # Both --method and --methods replace the config's list, so both bypass the
+    # loader's KNOWN_METHODS check. Only the list was validated: an unknown
+    # single name became the sole active method, ran the whole evaluation, and
+    # failed every row with "No per-channel methods available" — which names
+    # the wrong problem — before the generic "no clips processed" at the end.
+    unknown = [m for m in (methods or ([method] if method else [])) if m not in KNOWN_METHODS]
+    if unknown:
+        raise ValueError(
+            f"Unknown preprocessing method(s): {', '.join(unknown)}. Known methods: {', '.join(sorted(KNOWN_METHODS))}."
+        )
+
     if method in PYANNOTE_METHODS and not PYANNOTE_AVAILABLE:
         # Fail fast: the explicit method applies to every clip, so the whole
         # run is doomed. Surface the actionable install hint instead of one
@@ -80,15 +91,6 @@ def run_multispeaker_evaluation(
     # to carry a usable one — its settings still are.
     config = load_multi_speaker_config(config_path, methods_required=not (methods or method))
     if methods:
-        # An explicit list bypasses the config file, and with it the file
-        # loader's KNOWN_METHODS validation — so validate here rather than let
-        # an unknown name reach the strategy table as a KeyError per clip.
-        unknown = [m for m in methods if m not in KNOWN_METHODS]
-        if unknown:
-            raise ValueError(
-                f"Unknown preprocessing method(s): {', '.join(unknown)}. "
-                f"Known methods: {', '.join(sorted(KNOWN_METHODS))}."
-            )
         config["methods"] = methods
 
     logger.info(

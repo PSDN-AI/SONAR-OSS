@@ -127,12 +127,22 @@ class TestRunMultispeakerEvaluation:
                 str(manifest), "whisper_api", output_dir=str(tmp_path / "out"), config_path=str(cfg)
             )
 
-    @pytest.mark.parametrize("bad_methods", [["not_a_method"], ["no_trim", "nope"]])
-    def test_unknown_method_in_explicit_list_raises(self, manifest, tmp_path, monkeypatch, bad_methods):
-        """An explicit list replaces the config's, bypassing the loader's
-        ``KNOWN_METHODS`` check — so it is validated where the override
-        happens, rather than reaching the strategy table as a per-clip
-        ``KeyError``."""
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"methods": ["not_a_method"]},
+            {"methods": ["no_trim", "nope"]},
+            {"method": "not_a_method"},
+        ],
+    )
+    def test_unknown_method_in_an_override_raises(self, manifest, tmp_path, monkeypatch, override):
+        """``--method`` and ``--methods`` both replace the config's list, so
+        both bypass the loader's ``KNOWN_METHODS`` check. Only the list was
+        validated: an unknown single name became the sole active method, ran
+        the whole evaluation, and failed every row with "No per-channel methods
+        available" — which names the wrong problem — before the generic "no
+        clips were successfully processed" at the end.
+        """
         monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
         monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
 
@@ -141,7 +151,7 @@ class TestRunMultispeakerEvaluation:
                 str(manifest),
                 "whisper_api",
                 output_dir=str(tmp_path / "out"),
-                methods=bad_methods,
+                **override,
             )
 
     def test_loads_env_before_model_creation(self, manifest, tmp_path, monkeypatch):

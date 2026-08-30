@@ -85,9 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method, `no_trim` — while the help described "all methods" and the run
   printed the oracle-bias warning regardless; editing the file inside the
   installed package was the only way to change it. `multi` now takes
-  `--methods` (an explicit list, validated against the known methods, since it
-  bypasses the config loader's own check) and `--preprocessing-config` (a path
-  to another YAML, whose silence/timestamp/pyannote settings are honoured too).
+  `--methods` (an explicit list) and `--preprocessing-config` (a path to
+  another YAML, whose silence/timestamp/pyannote settings are honoured too).
   `run_multispeaker_evaluation` already accepted `methods`; the CLI simply
   never passed it. The oracle-bias caution now fires only when the sweep has
   more than one active method, and names the methods actually swept rather than
@@ -126,7 +125,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty config. And a config whose method list holds nothing usable no longer
   blocks a run that overrides that list: `--methods` and `--method` replace it,
   so the file is not required to carry a usable one — its settings still apply,
-  and without an override it still refuses.
+  and without an override it still refuses. Both overrides are now validated
+  against the known methods up front, since both replace the config's list and
+  so bypass the loader's own check: an unknown name passed to `--method` used
+  to become the sole active method, run the whole evaluation, and fail every
+  row with "No per-channel methods available" — naming the wrong problem —
+  before the generic no-clips-processed error at the end.
 - The judge-model guidance in the `llm_metrics` module docstring now names a
   mechanism that exists (#211). It told the reader to opt into a stronger
   judge "via `--judge-model gemini-3.1-pro-preview` on the analysis script";
