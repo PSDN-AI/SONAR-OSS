@@ -16,14 +16,16 @@ or failing score.
 
 Default judge model: ``gemini-3.6-flash`` (see ``DEFAULT_MODEL`` below
 for how the previous default was retired out from under us and what that
-did to the selection rationale). ``gemini-3.1-pro-preview`` is the opt-in
-for stronger Indic reasoning via ``--judge-model``; note it has no
-free-tier quota (a fresh key gets 429 RESOURCE_EXHAUSTED with limit 0),
-so it needs a paid tier. The analysis script's cache key includes the
-judge-model string verbatim, so switching models auto-invalidates cached
-judgments. The combined entity+intent prompt (see ``evaluate_sample``)
-returns both metrics in a single round-trip, halving cost and latency
-relative to running the two prompts separately.
+did to the selection rationale). These metrics are a library surface with
+no CLI subcommand: the judge is chosen per call, by passing ``model=`` to
+``evaluate_sample`` and its siblings, which fall back to ``DEFAULT_MODEL``.
+``gemini-3.1-pro-preview`` is the opt-in for stronger Indic reasoning; note
+it has no free-tier quota (a fresh key gets 429 RESOURCE_EXHAUSTED with
+limit 0), so it needs a paid tier. ``make_cache_key`` takes the judge model
+as an argument and puts it in the key verbatim, so judgments from different
+judges never share a cache slot. The combined entity+intent prompt (see
+``evaluate_sample``) returns both metrics in a single round-trip, halving
+cost and latency relative to running the two prompts separately.
 
 Calibration & known biases
 --------------------------
@@ -100,10 +102,12 @@ Judge continuity notes:
      includes the model string verbatim (``make_cache_key``), so changing
      ``DEFAULT_MODEL`` auto-invalidates cached judgments — no manual
      cache flush needed, and no stale cross-judge comparisons.
-  2. For a stronger judge — e.g. an inter-judge agreement study — opt in
-     via ``--judge-model gemini-3.1-pro-preview`` on the analysis script.
-     That model has no free-tier quota (429 RESOURCE_EXHAUSTED with
-     ``limit: 0`` on a fresh key), so it requires a paid tier.
+  2. For a stronger judge — e.g. an inter-judge agreement study — pass
+     ``model="gemini-3.1-pro-preview"`` to ``evaluate_sample`` (and the
+     same string to ``make_cache_key``, whose ``judge_model`` argument
+     keeps the two judges' cached rows apart). That model has no
+     free-tier quota (429 RESOURCE_EXHAUSTED with ``limit: 0`` on a fresh
+     key), so it requires a paid tier.
 """
 
 DEFAULT_MAX_RETRIES = 4

@@ -78,6 +78,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The judge-model guidance in the `llm_metrics` module docstring now names a
+  mechanism that exists (#211). It told the reader to opt into a stronger
+  judge "via `--judge-model gemini-3.1-pro-preview` on the analysis script";
+  no subcommand takes that flag, and `scripts/` holds no such script. These
+  metrics are a library surface with no CLI entry point, so the docstring
+  now names what actually selects a judge — the `model=` argument on
+  `evaluate_sample` and its siblings, and the `judge_model` argument that
+  keeps `make_cache_key`'s rows for different judges apart. The paid-tier
+  caveat on `gemini-3.1-pro-preview` was independently confirmed and is kept.
 - Number verbalization no longer half-converts a digit run glued to a Latin
   letter (#209). `_DIGIT_RUN_RE` guarded both sides against a Latin letter but
   not against another digit, so the engine matched a *proper sub-run* of a
