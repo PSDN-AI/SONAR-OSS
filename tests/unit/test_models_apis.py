@@ -10,9 +10,11 @@ Covers:
     ``max_retries``, and does not retry non-network exceptions.
   * ``ElevenLabsAPIModel`` — missing-key error, transcribe/diarization/word
     timestamp response parsing.
-  * ``AssemblyAIAPIModel`` — streaming TTFT capture (via a fake realtime
-    transcriber), fallback to batch on streaming failure, batch path leaving
-    ``ttft_s`` None, and PCM framing (resample / passthrough / downmix).
+  * ``AssemblyAIAPIModel`` — streaming TTFT capture (via a fake v3
+    streaming client), fallback to batch on streaming failure with the
+    fallback counted for the artifact (issue #208), fail-fast construction
+    when the SDK lacks ``streaming.v3``, batch path leaving ``ttft_s``
+    None, and PCM framing (resample / passthrough / downmix).
 """
 
 from __future__ import annotations
@@ -172,12 +174,48 @@ class TestElevenLabsAPIModel:
 
 
 # ---------------------------------------------------------------------------
-# AssemblyAI streaming TTFT (fake realtime transcriber) + batch path
+# AssemblyAI streaming TTFT (fake v3 streaming client) + batch path
 # ---------------------------------------------------------------------------
+
+
+def _ensure_streaming_v3_stub() -> None:
+    """Give the assemblyai stub the ``streaming.v3`` submodule the adapter
+    imports (issue #208: the adapter now uses the v3 client — the SDK ships
+    no ``RealtimeTranscriber`` anymore)."""
+    if "assemblyai.streaming.v3" in sys.modules:
+        return
+
+    class _StreamingEvents:
+        Turn = "Turn"
+        Error = "Error"
+
+    class _StreamingClientOptions:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class _StreamingClient:  # pragma: no cover — replaced via monkeypatch
+        def __init__(self, options):
+            self.options = options
+
+    class _StreamingParameters:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    streaming = _types.ModuleType("assemblyai.streaming")
+    v3 = _types.ModuleType("assemblyai.streaming.v3")
+    v3.StreamingClient = _StreamingClient
+    v3.StreamingClientOptions = _StreamingClientOptions
+    v3.StreamingParameters = _StreamingParameters
+    v3.StreamingEvents = _StreamingEvents
+    streaming.v3 = v3
+    sys.modules["assemblyai"].streaming = streaming
+    sys.modules["assemblyai.streaming"] = streaming
+    sys.modules["assemblyai.streaming.v3"] = v3
 
 
 def _install_assemblyai_stub() -> None:
     if "assemblyai" in sys.modules:
+        _ensure_streaming_v3_stub()
         return
 
     class _Settings:
@@ -194,39 +232,39 @@ def _install_assemblyai_stub() -> None:
         def transcribe(self, audio_path):  # overridden per-test
             return SimpleNamespace(text="")
 
-    class _RealtimeTranscriber:  # pragma: no cover — replaced via monkeypatch
-        def __init__(self, **kwargs):
-            self.__dict__.update(kwargs)
-
     aai = _types.ModuleType("assemblyai")
     aai.settings = _Settings()
     aai.TranscriptionConfig = _TranscriptionConfig
     aai.Transcriber = _Transcriber
-    aai.RealtimeTranscriber = _RealtimeTranscriber
     sys.modules["assemblyai"] = aai
+    _ensure_streaming_v3_stub()
 
 
-class _FakeRealtime:
-    """Simulates AssemblyAI's realtime transcriber: a partial then a final."""
+class _FakeStreamingClient:
+    """Simulates the v3 streaming client: a partial turn then a final."""
 
-    def __init__(self, on_data, on_error):
-        self.on_data = on_data
-        self.on_error = on_error
-        self._frames = 0
+    def __init__(self):
+        self.handlers = {}
+        self.params = None
+        self.disconnected_with = None
 
-    def connect(self):
-        pass
+    def on(self, event, handler):
+        self.handlers[event] = handler
 
-    def stream(self, frame):
-        self._frames += 1
-        if self._frames == 1:
-            time.sleep(0.005)  # ensure a measurable, non-zero TTFT
-            self.on_data(SimpleNamespace(text="hello", is_final=False))
-        elif self._frames == 2:
-            self.on_data(SimpleNamespace(text="hello world", is_final=True))
+    def connect(self, params):
+        self.params = params
 
-    def close(self):
-        pass
+    def stream(self, frames):
+        on_turn = self.handlers["Turn"]
+        for i, _frame in enumerate(frames):
+            if i == 0:
+                time.sleep(0.005)  # ensure a measurable, non-zero TTFT
+                on_turn(self, SimpleNamespace(transcript="hello", end_of_turn=False, turn_order=0))
+            elif i == 1:
+                on_turn(self, SimpleNamespace(transcript="hello world", end_of_turn=True, turn_order=0))
+
+    def disconnect(self, terminate=False):
+        self.disconnected_with = terminate
 
 
 class TestAssemblyAIStreaming:
@@ -241,9 +279,8 @@ class TestAssemblyAIStreaming:
         from psdn_sonar.models.apis import AssemblyAIAPIModel
 
         model = AssemblyAIAPIModel(api_key="x", streaming=True)
-        monkeypatch.setattr(
-            model, "_make_realtime_transcriber", lambda on_data, on_error: _FakeRealtime(on_data, on_error)
-        )
+        fake = _FakeStreamingClient()
+        monkeypatch.setattr(model, "_make_streaming_client", lambda: fake)
         monkeypatch.setattr(model, "_iter_pcm_frames", lambda audio_path: [b"\x00\x00", b"\x00\x00"])
 
         result = model.transcribe("clip.wav")
@@ -252,8 +289,26 @@ class TestAssemblyAIStreaming:
         assert text == "hello world"
         assert lm.ttft_s is not None
         assert lm.complete_s >= lm.ttft_s
+        # Executed-protocol bookkeeping (issue #208).
+        assert model.streamed_utterances == 1
+        assert model.streaming_fallbacks == 0
+        assert fake.disconnected_with is True  # session terminated cleanly
 
-    def test_streaming_failure_falls_back_to_batch(self, monkeypatch):
+    def test_streaming_session_params_carry_rate_and_language(self, monkeypatch):
+        _install_assemblyai_stub()
+        from psdn_sonar.models.apis import AssemblyAIAPIModel
+
+        model = AssemblyAIAPIModel(api_key="x", streaming=True, sample_rate=16000, language="en")
+        fake = _FakeStreamingClient()
+        monkeypatch.setattr(model, "_make_streaming_client", lambda: fake)
+        monkeypatch.setattr(model, "_iter_pcm_frames", lambda audio_path: [b"\x00\x00", b"\x00\x00"])
+
+        model.transcribe("clip.wav")
+        assert fake.params.sample_rate == 16000
+        assert fake.params.language_code == "en"
+        assert fake.params.format_turns is True
+
+    def test_streaming_failure_falls_back_to_batch_and_is_counted(self, monkeypatch):
         _install_assemblyai_stub()
         from psdn_sonar.models.apis import AssemblyAIAPIModel
 
@@ -262,12 +317,50 @@ class TestAssemblyAIStreaming:
         def _boom(*a, **kw):
             raise RuntimeError("ws connect failed")
 
-        monkeypatch.setattr(model, "_make_realtime_transcriber", _boom)
+        monkeypatch.setattr(model, "_make_streaming_client", _boom)
         monkeypatch.setattr(model.transcriber, "transcribe", lambda ap: SimpleNamespace(text="batch fallback"))
 
         text, lm = model.transcribe("clip.wav")
         assert text == "batch fallback"
         assert lm.ttft_s is None  # batch path → no TTFT
+        # Issue #208: the fallback used to be a terminal warning only; now
+        # the adapter counts it so the artifact can record what ran.
+        assert model.streaming_fallbacks == 1
+        assert model.streamed_utterances == 0
+        assert "ws connect failed" in model.last_streaming_error
+
+    def test_constructor_fails_fast_when_sdk_has_no_v3_client(self, monkeypatch):
+        # Issue #208: the adapter called aai.RealtimeTranscriber, which no
+        # released SDK ships anymore, so streaming failed per utterance at
+        # transcription time. An SDK without streaming.v3 must fail at
+        # construction with the reason, not run a whole batch of fallbacks.
+        _install_assemblyai_stub()
+        from psdn_sonar.models.apis import AssemblyAIAPIModel
+
+        monkeypatch.delitem(sys.modules, "assemblyai.streaming.v3", raising=False)
+        monkeypatch.delitem(sys.modules, "assemblyai.streaming", raising=False)
+        monkeypatch.delattr(sys.modules["assemblyai"], "streaming", raising=False)
+
+        with pytest.raises(ImportError, match="streaming.v3"):
+            AssemblyAIAPIModel(api_key="x", streaming=True)
+        # Batch mode does not need the streaming client and must still work.
+        assert AssemblyAIAPIModel(api_key="x", streaming=False).streaming is False
+
+    def test_streaming_session_with_no_transcript_and_errors_raises(self, monkeypatch):
+        _install_assemblyai_stub()
+        from psdn_sonar.models.apis import AssemblyAIAPIModel
+
+        class _SilentErroringClient(_FakeStreamingClient):
+            def stream(self, frames):
+                list(frames)
+                self.handlers["Error"](self, RuntimeError("auth rejected"))
+
+        model = AssemblyAIAPIModel(api_key="x", streaming=True)
+        monkeypatch.setattr(model, "_make_streaming_client", lambda: _SilentErroringClient())
+        monkeypatch.setattr(model, "_iter_pcm_frames", lambda audio_path: [b"\x00\x00"])
+
+        with pytest.raises(RuntimeError, match="no transcript"):
+            model._transcribe_streaming("clip.wav")
 
     def test_batch_path_returns_complete_only(self, monkeypatch):
         _install_assemblyai_stub()

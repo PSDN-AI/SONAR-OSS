@@ -78,6 +78,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `--streaming` actually streams again, and `scores.json` records the
+  protocol that ran, not the one that was requested (#208). The AssemblyAI
+  adapter called `aai.RealtimeTranscriber`, a class no released SDK ships
+  anymore (gone from 0.64.x and 1.x alike), so every utterance failed,
+  logged a terminal-only warning, and fell back to batch — while the
+  artifact recorded `protocol: streaming` with empty `warnings`, empty
+  `ttft_s` on every row and null TTFT percentiles: a streaming run that
+  produced no TTFT, indistinguishable from the artifacts alone. The adapter
+  now drives the SDK's `streaming.v3` client (present in both current SDK
+  generations, taking the same PCM frames, sample rate and language code),
+  and an SDK without it fails at construction with the reason instead of
+  running a whole batch of per-utterance fallbacks. Runtime fallbacks are
+  still tolerated per utterance but are now *counted*: the `protocol` field
+  records `streaming` only when no utterance fell back, and any fallback
+  puts a warning in the scores.json `warnings` array naming the count and
+  the last error. `SONAR_PROTOCOL` remains an explicit override.
 - A transcript returned in a different writing system is now called out
   instead of scoring as a silently "successful" WER 1.0 (#207). The
   script-mismatch check added for issue #148 read references only, so it
