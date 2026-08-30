@@ -101,20 +101,48 @@ def _default_submission_for_model(
     """
     from psdn_sonar.benchmark.submission import SubmissionConfig
 
-    # Protocol comes from the model that ran (an adapter in streaming mode
-    # measures ttft_s); SONAR_PROTOCOL remains as an explicit override.
+    # Protocol comes from the mode that actually executed, not the one that
+    # was requested (issue #208: every utterance fell back to batch and the
+    # artifact still said streaming). "streaming" is recorded only when the
+    # adapter is in streaming mode AND no utterance fell back to batch; a
+    # mixed run records "batch" and the fallback warning explains the mix.
+    # SONAR_PROTOCOL remains as an explicit override.
     env_protocol = os.getenv("SONAR_PROTOCOL")
     protocol: Literal["batch", "streaming"]
     if env_protocol in ("batch", "streaming"):
         protocol = cast('Literal["batch", "streaming"]', env_protocol)
+    elif getattr(model, "streaming", False) and not getattr(model, "streaming_fallbacks", 0):
+        protocol = "streaming"
     else:
-        protocol = "streaming" if getattr(model, "streaming", False) else "batch"
+        protocol = "batch"
     return SubmissionConfig.from_env(
         provider=os.getenv("SONAR_PROVIDER") or getattr(model, "provider", None) or "local",
         model_snapshot=getattr(model, "provider_model_id", None) or model_name,
         region=os.getenv("SONAR_REGION") or None,
         protocol=protocol,
         inference_params={"language_code": language},
+    )
+
+
+def _streaming_fallback_warning(model, model_name: str) -> Optional[str]:
+    """Warning text when a requested streaming run fell back to batch.
+
+    The per-utterance fallback used to exist only in the terminal while
+    scores.json recorded ``protocol: streaming`` with null TTFT percentiles
+    and empty ``warnings`` (issue #208). The adapter counts its fallbacks;
+    this puts the count and the reason into the artifact.
+    """
+    fallbacks = getattr(model, "streaming_fallbacks", 0)
+    if not getattr(model, "streaming", False) or not fallbacks:
+        return None
+    total = fallbacks + getattr(model, "streamed_utterances", 0)
+    reason = getattr(model, "last_streaming_error", None)
+    return (
+        f"Streaming was requested for model '{model_name}', but {fallbacks} of {total} "
+        f"utterance(s) fell back to the batch protocol"
+        + (f" (last error: {reason})" if reason else "")
+        + ". The protocol field records 'batch' because streaming did not serve every "
+        "utterance; rows that fell back have no ttft_s."
     )
 
 
@@ -827,6 +855,14 @@ class SingleSpeakerEvaluator:
                 logger.warning(hyp_mismatch)
             result["hypothesis_script_warning"] = hyp_mismatch
 
+            # A streaming run that fell back to batch used to be visible
+            # only in the terminal; the artifact recorded the requested
+            # protocol with empty warnings (issue #208).
+            streaming_fallback = _streaming_fallback_warning(model, model_name)
+            if streaming_fallback:
+                logger.warning(streaming_fallback)
+            result["streaming_fallback_warning"] = streaming_fallback
+
             all_results[model_name] = result
 
             output_file = Path(output_dir) / f"asr_detailed_{model_name}.csv"
@@ -850,13 +886,18 @@ class SingleSpeakerEvaluator:
                 )
 
                 # Warnings raised during this model's own evaluation (a
-                # semantics failure in the batch encode, or transcripts that
-                # came back in the wrong writing system — issue #207) are
+                # semantics failure in the batch encode, transcripts that
+                # came back in the wrong writing system — issue #207 — or a
+                # streaming run that fell back to batch — issue #208) are
                 # recorded in this model's artifact; anything already in
                 # run_warnings from the preflight is not duplicated.
                 per_model_warnings = [
                     w
-                    for w in (result.get("semantics_warning"), result.get("hypothesis_script_warning"))
+                    for w in (
+                        result.get("semantics_warning"),
+                        result.get("hypothesis_script_warning"),
+                        result.get("streaming_fallback_warning"),
+                    )
                     if w and w not in run_warnings
                 ]
                 model_warnings = run_warnings + per_model_warnings if per_model_warnings else run_warnings
