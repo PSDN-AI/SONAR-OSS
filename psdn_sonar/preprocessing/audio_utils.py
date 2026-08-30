@@ -97,14 +97,35 @@ def trim_by_timestamps(
     speaker: str,
     padding_ms: int = 100,
     output_path: Optional[Path] = None,
+    combined_audio_path: Optional[Path] = None,
 ) -> tuple:
-    """Extract the segments belonging to *speaker* ("A" or "B") from *audio_path*.
+    """Extract the segments belonging to *speaker* ("A" or "B").
 
     Segment dicts need ``speaker``, ``start``, and ``end`` keys; each kept
     segment is padded by *padding_ms* on both sides.
 
-    Returns ``(output_path, original_duration_s, trimmed_duration_s)``.
-    When no segments match the speaker the input path is returned unchanged.
+    ``start``/``end`` are offsets on the combined-recording timeline — the
+    schema the shipped fixtures and ``docs/FAQ.md`` use. When every segment
+    starts inside *audio_path* (a channel file spanning that timeline), the
+    speaker's own channel is trimmed, which also keeps the other speaker's
+    crosstalk out. When a segment starts at or beyond the end of
+    *audio_path* — a channel file holding only this speaker's own turn, so
+    the combined-timeline offsets cannot apply to it — the segments are
+    extracted from *combined_audio_path* instead. Issue #205: those offsets
+    used to be clamped against the channel file, every segment was dropped,
+    and the speaker was silently transcribed and scored on 100 ms of
+    padding, with no error and exit 0.
+
+    Returns ``(output_path, original_duration_s, trimmed_duration_s)``,
+    where ``original_duration_s`` is the duration of the file the segments
+    were actually cut from. When no segments match the speaker the input
+    path is returned unchanged.
+
+    Raises:
+        RuntimeError: when the offsets fit neither the channel file nor an
+            available combined recording, or when no segment overlaps the
+            chosen source — scoring the padding would fabricate a WER for
+            speech the run never looked at.
     """
     speaker_filter = "speaker_a" if speaker == "A" else "speaker_b"
 
@@ -114,36 +135,66 @@ def trim_by_timestamps(
         original_duration = get_audio_duration(audio_path)
         return audio_path, original_duration, original_duration
 
+    times = [(parse_timestamp(seg["start"]), parse_timestamp(seg["end"])) for seg in filtered_segments]
+
     audio = AudioSegment.from_file(str(audio_path))
+    source_name = Path(audio_path).name
+
+    latest_start_ms = max(int(start * 1000) for start, _ in times)
+    if latest_start_ms >= len(audio):
+        channel_s = len(audio) / 1000.0
+        if combined_audio_path is not None and Path(combined_audio_path).exists():
+            audio = AudioSegment.from_file(str(combined_audio_path))
+            source_name = Path(combined_audio_path).name
+            logger.info(
+                "timestamp_trim [%s/%s]: segment offsets reach %.2f s but the channel file "
+                "is %.2f s long; extracting from the combined recording %s instead",
+                Path(audio_path).stem,
+                speaker,
+                latest_start_ms / 1000.0,
+                channel_s,
+                source_name,
+            )
+        else:
+            raise RuntimeError(
+                f"timestamp_trim: speaker {speaker}'s transcript segments start as late as "
+                f"{latest_start_ms / 1000.0:.2f} s, but {Path(audio_path).name} is only "
+                f"{channel_s:.2f} s long — the start/end offsets are on the combined-recording "
+                "timeline, which this channel file does not span, and no combined recording "
+                "(<audio_id>_Combined_Audio.wav next to the channel files) is available to "
+                "extract from. Refusing to score padding as this speaker's turn (issue #205)."
+            )
+
     original_duration = len(audio) / 1000.0
 
     result = AudioSegment.empty()
     padding_audio = AudioSegment.silent(duration=padding_ms)
+    kept = 0
 
-    for i, segment in enumerate(filtered_segments):
-        start_time = parse_timestamp(segment["start"])
-        end_time = parse_timestamp(segment["end"])
-
-        start_ms = int(start_time * 1000)
-        end_ms = int(end_time * 1000)
-
-        start_ms = max(0, start_ms)
-        end_ms = min(len(audio), end_ms)
+    for start_time, end_time in times:
+        start_ms = max(0, int(start_time * 1000))
+        end_ms = min(len(audio), int(end_time * 1000))
 
         if start_ms >= end_ms:
             continue
 
-        if i > 0:
+        if kept > 0:
             result += padding_audio
 
         pad_start = max(0, start_ms - padding_ms)
         pad_end = min(len(audio), end_ms + padding_ms)
 
-        segment_audio = audio[pad_start:pad_end]
-        result += segment_audio
+        result += audio[pad_start:pad_end]
+        kept += 1
 
-    if filtered_segments:
-        result += padding_audio
+    if kept == 0:
+        raise RuntimeError(
+            f"timestamp_trim: none of speaker {speaker}'s {len(times)} transcript segment(s) "
+            f"overlap {source_name} ({original_duration:.2f} s), so there is nothing to score. "
+            "Refusing to export padding as this speaker's turn (issue #205)."
+        )
+
+    result += padding_audio
 
     trimmed_duration = len(result) / 1000.0
 

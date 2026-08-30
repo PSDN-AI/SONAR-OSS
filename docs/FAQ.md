@@ -91,8 +91,19 @@ Transcript JSON:
 }
 ```
 
-Optional combined / mixed audio, when used for VAD or diarization, must be
-named `{audio_id}_Combined_Audio.wav` in the same directory as `speaker_a`
+`start` and `end` are offsets on the **combined-recording timeline** (in the
+example above, speaker B's turn begins 0.65 s into the conversation, even
+though `speaker_b.wav` itself starts at that speaker's first word).
+`--method timestamp_trim` cuts each speaker's turns using these offsets: from
+the speaker's own channel file when it spans that timeline, otherwise from
+the combined recording. If a channel file holds only the speaker's own turn
+*and* no combined recording is present, `timestamp_trim` fails for that
+speaker with an error naming the mismatch rather than scoring silence
+(issue #205).
+
+Optional combined / mixed audio, when used for VAD, diarization, or
+`timestamp_trim` as described above, must be named
+`{audio_id}_Combined_Audio.wav` in the same directory as `speaker_a`
 (for example `sample_audio/TEST001/TEST001_Combined_Audio.wav`).
 
 See `examples/test_manifest.jsonl` for a working sample.

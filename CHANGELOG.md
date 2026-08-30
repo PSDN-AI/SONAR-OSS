@@ -78,6 +78,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `timestamp_trim` no longer scores the second speaker on 100 ms of padding
+  (#205). Transcript `start`/`end` offsets are on the combined-recording
+  timeline (the shipped fixtures' and FAQ schema's convention, now stated in
+  `docs/FAQ.md`), but they were clamped against each speaker's own channel
+  file — for the speaker who talks second, the start lay past the end of
+  their file, every segment was dropped, and the trailing padding was
+  exported, transcribed, and scored as their turn: `Samples: 2, Failed: 0`,
+  empty `error` column, exit 0, WER 1.0 fabricated from silence. The trim
+  now picks its source by timeline fit: a channel file that spans the
+  offsets is trimmed in place (keeping channel isolation), otherwise the
+  segments are cut from the `<audio_id>_Combined_Audio.wav` recording the
+  offsets actually describe — `run_single_method`/`run_sweep` now hand it to
+  the strategy. When neither source can hold the offsets, or no segment
+  overlaps the chosen source, the method fails for that speaker with an
+  error naming the mismatch instead of exporting padding as a success.
 - Evaluations no longer make an unbounded network call to the NLTK data host
   at import time (#204). With the `[bengali]` extra installed,
   `text_processing` imported `bnlp` at module scope, and `bnlp`'s module
