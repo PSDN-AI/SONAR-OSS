@@ -231,14 +231,21 @@ class ElevenLabsAPIModel(ASRModel):
 
 
 class AssemblyAIAPIModel(ASRModel):
-    """AssemblyAI adapter with optional realtime-streaming TTFT measurement.
+    """AssemblyAI adapter with optional streaming TTFT measurement.
 
     Batch mode (``streaming=False``, default) returns the final transcript
-    with ``ttft_s=None``. Streaming mode drives the realtime transcriber and
-    records wall-clock to the first non-empty partial as ``ttft_s``; any
-    streaming failure logs a warning and falls back to batch. Branch on
-    ``self.streaming`` (not ``supports_latency_metrics``) to know whether
-    TTFT will actually be measured.
+    with ``ttft_s=None``. Streaming mode drives the SDK's ``streaming.v3``
+    client (the replacement for ``RealtimeTranscriber``, which the SDK
+    removed — issue #208: the adapter kept calling it, so every utterance
+    fell back to batch while scores.json recorded ``protocol: streaming``)
+    and records wall-clock to the first non-empty transcript as ``ttft_s``.
+
+    A runtime streaming failure logs a warning and falls back to batch for
+    that utterance, and the fallback is *counted*: ``streaming_fallbacks``,
+    ``streamed_utterances`` and ``last_streaming_error`` let the evaluator
+    record the protocol that actually ran and put the reason in the
+    scores.json ``warnings`` array. Branch on ``self.streaming`` (not
+    ``supports_latency_metrics``) to know whether TTFT will be measured.
     """
 
     supports_latency_metrics = True
@@ -273,20 +280,70 @@ class AssemblyAIAPIModel(ASRModel):
         self.transcriber = aai.Transcriber(config=self.config)
         self.streaming = streaming
         self._sample_rate = sample_rate
+        self._language_code = language_code
+        # Executed-protocol bookkeeping (issue #208): the evaluator records
+        # the protocol that ran, not the one that was requested.
+        self.streamed_utterances = 0
+        self.streaming_fallbacks = 0
+        self.last_streaming_error: Optional[str] = None
+        if streaming:
+            self._require_streaming_support()
+
+    @staticmethod
+    def _require_streaming_support() -> None:
+        """Fail at construction when the SDK has no ``streaming.v3`` client.
+
+        The class this adapter used to call, ``aai.RealtimeTranscriber``,
+        is gone from current SDK releases, so streaming failed on every
+        utterance and silently ran batch (issue #208). Failing here costs
+        milliseconds, not a whole run recorded under the wrong protocol.
+        """
+        try:
+            import assemblyai.streaming.v3  # noqa: F401
+        except ImportError as exc:
+            import assemblyai as aai
+
+            version = getattr(aai, "__version__", "unknown")
+            raise ImportError(
+                f"--streaming needs the assemblyai SDK's streaming.v3 client, which the "
+                f"installed version ({version}) does not provide. Upgrade the SDK "
+                "(pip install -U assemblyai — recent releases including 1.x ship it) "
+                "or drop --streaming to run the batch protocol."
+            ) from exc
 
     @_retry()
     def transcribe(self, audio_path: str):
         if self.streaming:
             try:
                 text, ttft_s, complete_s = self._transcribe_streaming(audio_path)
+                self.streamed_utterances += 1
                 return (text or ""), LatencyMetrics(complete_s=complete_s, ttft_s=ttft_s)
             except Exception as e:
-                logger.warning("Streaming transcription failed (%s); falling back to batch for %s", e, audio_path)
+                self.streaming_fallbacks += 1
+                self.last_streaming_error = str(e) or type(e).__name__
+                logger.warning(
+                    "Streaming transcription failed (%s); falling back to batch for %s "
+                    "(the fallback is recorded in scores.json — issue #208)",
+                    e,
+                    audio_path,
+                )
         try:
             t0 = time.perf_counter()
             transcript = self.transcriber.transcribe(audio_path)
             text = transcript.text or ""
             complete_s = round(time.perf_counter() - t0, 4)
+            # This adapter pins no speech model, so provider_model_id starts
+            # None and model_snapshot in scores.json fell back to the registry
+            # alias — the one hosted adapter whose artifact could not be tied
+            # to a server-side model id (issue #212). The response reports the
+            # model that actually served the request; record the first one.
+            if self.provider_model_id is None:
+                served_model = getattr(transcript, "speech_model", None)
+                if not served_model:
+                    raw = getattr(transcript, "json_response", None) or {}
+                    served_model = raw.get("speech_model") if isinstance(raw, dict) else None
+                if served_model:
+                    self.provider_model_id = str(served_model)
             if not text and getattr(transcript, "error", None):
                 # The SDK reports some failures (e.g. rejected audio) as an
                 # errored transcript object rather than an exception.
@@ -298,28 +355,17 @@ class AssemblyAIAPIModel(ASRModel):
             self._record_transcribe_failure(audio_path, e)
             return None
 
-    @staticmethod
-    def _is_final_transcript(transcript) -> bool:
-        """Best-effort detection of a final (vs partial) realtime transcript."""
-        is_final = getattr(transcript, "is_final", None)
-        if is_final is not None:
-            return bool(is_final)
-        return "final" in str(getattr(transcript, "message_type", "")).lower()
-
-    def _make_realtime_transcriber(self, on_data, on_error):
-        """Build AssemblyAI's realtime transcriber. Overridable in tests."""
+    def _make_streaming_client(self):
+        """Build the SDK's v3 streaming client. Overridable in tests."""
         import assemblyai as aai
+        from assemblyai.streaming.v3 import StreamingClient, StreamingClientOptions
 
-        return aai.RealtimeTranscriber(
-            sample_rate=self._sample_rate,
-            on_data=on_data,
-            on_error=on_error,
-        )
+        return StreamingClient(StreamingClientOptions(api_key=aai.settings.api_key))
 
     def _iter_pcm_frames(self, audio_path: str, frame_ms: int = 300):
         """Yield mono int16 PCM frames from ``audio_path`` at ``self._sample_rate``.
 
-        The realtime transcriber is told the stream rate, so frames MUST be
+        The streaming client is told the stream rate, so frames MUST be
         emitted at that rate (downmix to mono, resample when the file's
         native rate differs) or the server mis-times every frame.
         Overridable in tests.
@@ -334,7 +380,7 @@ class AssemblyAIAPIModel(ASRModel):
             import librosa
 
             data = librosa.resample(np.asarray(data, dtype="float32"), orig_sr=sr, target_sr=self._sample_rate)
-        # Float [-1, 1] -> little-endian int16 PCM, which is what the realtime
+        # Float [-1, 1] -> little-endian int16 PCM, which is what the streaming
         # transcriber expects on the wire.
         pcm = (np.clip(data, -1.0, 1.0) * 32767.0).astype("<i2")
         frame_len = max(1, int(self._sample_rate * frame_ms / 1000))
@@ -342,39 +388,59 @@ class AssemblyAIAPIModel(ASRModel):
             yield pcm[start : start + frame_len].tobytes()
 
     def _transcribe_streaming(self, audio_path: str):
-        """Stream ``audio_path`` and return ``(text, ttft_s, complete_s)``.
+        """Stream ``audio_path`` through the v3 client and return
+        ``(text, ttft_s, complete_s)``.
 
-        ``ttft_s`` is the wall-clock to the first non-empty partial transcript;
-        ``complete_s`` is the total wall-clock through session close.
+        ``ttft_s`` is the wall-clock to the first non-empty transcript event
+        (partial or final); ``complete_s`` is the total wall-clock through
+        session close. Turn transcripts are joined in turn order; when the
+        session ends mid-turn, the last unfinished transcript stands in.
+
+        Raises when the session produced no transcript and reported an
+        error, so the caller counts the fallback instead of scoring an
+        empty streaming result (issue #208).
         """
+        from assemblyai.streaming.v3 import StreamingEvents, StreamingParameters
+
         ttft: Optional[float] = None
-        finals: list = []
+        turns: dict = {}
         last_partial = ""
+        errors: list = []
         t0 = time.perf_counter()
 
-        def on_data(transcript):
+        def on_turn(_client, event):
             nonlocal ttft, last_partial
-            text = (getattr(transcript, "text", "") or "").strip()
+            text = (getattr(event, "transcript", "") or "").strip()
             if not text:
                 return
             if ttft is None:
                 ttft = round(time.perf_counter() - t0, 4)
-            if self._is_final_transcript(transcript):
-                finals.append(text)
+            if getattr(event, "end_of_turn", False):
+                turns[getattr(event, "turn_order", len(turns))] = text
             else:
                 last_partial = text
 
-        def on_error(error):
-            logger.error("Realtime streaming error: %s", error)
+        def on_error(_client, error):
+            errors.append(error)
+            logger.error("Streaming error: %s", error)
 
-        transcriber = self._make_realtime_transcriber(on_data=on_data, on_error=on_error)
-        transcriber.connect()
+        client = self._make_streaming_client()
+        client.on(StreamingEvents.Turn, on_turn)
+        client.on(StreamingEvents.Error, on_error)
+        client.connect(
+            StreamingParameters(
+                sample_rate=self._sample_rate,
+                format_turns=True,
+                language_code=self._language_code,
+            )
+        )
         try:
-            for frame in self._iter_pcm_frames(audio_path):
-                transcriber.stream(frame)
+            client.stream(self._iter_pcm_frames(audio_path))
         finally:
-            transcriber.close()
+            client.disconnect(terminate=True)
 
-        text = " ".join(finals).strip() or last_partial
+        text = " ".join(turns[k] for k in sorted(turns)).strip() or last_partial
+        if not text and errors:
+            raise RuntimeError(f"streaming session produced no transcript: {errors[-1]}")
         complete_s = round(time.perf_counter() - t0, 4)
         return text, ttft, complete_s

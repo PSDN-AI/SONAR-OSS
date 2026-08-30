@@ -138,6 +138,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are now tested with `is not None` rather than truthiness, so `method=""` — an
   explicit method downstream — no longer slips through, and an empty `methods`
   list is refused rather than quietly meaning "no override".
+- The six dev5-pass findings from #212, none of which failed a run:
+  - An exported shell variable now wins over the same name in `.env`
+    (python-dotenv's own default; `load_env()` passed `override=True`), so a
+    per-run `env ELEVENLABS_API_KEY=... psdn-sonar ...` prefix actually
+    applies instead of silently running with the checkout's `.env`
+    credential. The README states the precedence.
+  - The CLI summary table and the `.txt` stats summary agree again: the CLI
+    reads the written CSV (4-decimal values) while the summary read the raw
+    in-memory accumulator, drifting in the fourth decimal for the same
+    quantity. Metrics are now accumulated at the CSV's own precision, so
+    everything a reader can recompute from the artifact matches what the
+    toolkit prints.
+  - The per-clip methods (`scribe_diarize`, `pyannote_diarize`) now populate
+    `inference_latency_s`. They call `transcribe_diarized` /
+    `transcribe_with_word_timestamps` directly, bypassing the timing wrapper,
+    so the column was empty for them while the same adapter's per-channel
+    runs filled it. Exactly the model call is measured — pyannote diarization
+    is not inference.
+  - `banglaasr_v5` joined the Bengali default model list — it was registered
+    but reachable only via `--models`, despite being among the strongest
+    Bengali results of the dev5 pass. `wav2vec2_xlsr_korean` is documented in
+    the registry as a deliberate backwards-compatibility alias of
+    `kresnik_wav2vec2_large_xlsr_korean` and stays out of the defaults so the
+    checkpoint is never evaluated twice in one run.
+  - `model_snapshot` for `assemblyai_api` now records the speech model the
+    service reports having served (e.g. `universal`) instead of the registry
+    alias — the adapter pins no model, so the artifact could not be tied to a
+    server-side model id where the other two hosted adapters could.
+  - The README ffmpeg paragraph names the actual decode path (the package
+    decodes with ffmpeg itself and hands the pipeline a raw array; nothing
+    shells out from `transformers` anymore) and no longer claims MP3
+    unconditionally needs ffmpeg — the libsndfile ≥ 1.1 bundled by current
+    soundfile wheels reads MP3 directly.
+- `--streaming` actually streams again, and `scores.json` records the
+  protocol that ran, not the one that was requested (#208). The AssemblyAI
+  adapter called `aai.RealtimeTranscriber`, a class no released SDK ships
+  anymore (gone from 0.64.x and 1.x alike), so every utterance failed,
+  logged a terminal-only warning, and fell back to batch — while the
+  artifact recorded `protocol: streaming` with empty `warnings`, empty
+  `ttft_s` on every row and null TTFT percentiles: a streaming run that
+  produced no TTFT, indistinguishable from the artifacts alone. The adapter
+  now drives the SDK's `streaming.v3` client (present in both current SDK
+  generations, taking the same PCM frames, sample rate and language code),
+  and an SDK without it fails at construction with the reason instead of
+  running a whole batch of per-utterance fallbacks. Runtime fallbacks are
+  still tolerated per utterance but are now *counted*: the `protocol` field
+  records `streaming` only when no utterance fell back, and any fallback
+  puts a warning in the scores.json `warnings` array naming the count and
+  the last error. `SONAR_PROTOCOL` remains an explicit override.
+- A transcript returned in a different writing system is now called out
+  instead of scoring as a silently "successful" WER 1.0 (#207). The
+  script-mismatch check added for issue #148 read references only, so it
+  caught a mis-set `--language` but not the mirror failure: the service
+  itself transcribing in another script (observed: AssemblyAI returning
+  Devanagari for `bn`), where hypotheses share no characters with the
+  references and every row floors at WER 1.0 — from the artifacts alone,
+  indistinguishable from a model that transcribed badly. After each model's
+  evaluation the same scan now runs over that model's predictions; a clear
+  foreign-script majority logs a warning naming the model and the two
+  scripts, states that WER/CER on the run measure the script difference
+  rather than transcription accuracy, and is recorded in that model's
+  `scores.json` `warnings` array. Same deliberate gates as the reference
+  check: dedicated-normalizer languages only, enough script-bearing text,
+  clear majority — so code-switched output does not trip it, and all-failed
+  runs (empty predictions) stay with their own error reporting.
+- Audio-quality metrics now decode the same containers transcription does,
+  and say so when they can't (#206). The pipeline ASR adapters decode by
+  handing ffmpeg the file path, while the twelve quality columns (SNR,
+  clipping, silence, tiers, DNSMOS/UTMOS/SQUIM) decoded independently
+  through `librosa.load` — and libsndfile reads neither AAC nor ALAC, so an
+  M4A file (the default iOS recording format) transcribed successfully
+  while every quality column came back blank, with an empty
+  `quality_warnings` cell, an empty `error` column, and a debug-only log
+  line: the row read as a complete result. The quality path now falls back
+  to the same ffmpeg-by-path decoder the adapters use (factored into
+  `psdn_sonar.utils.audio_io`), so anything the run can transcribe it can
+  also measure. And when the metrics genuinely cannot be computed, the row
+  says so: `quality_warnings` carries `quality_metrics_unavailable:` /
+  `mos_metrics_unavailable:` with the reason naming both decoders' errors,
+  logged at warning level instead of debug.
 - The judge-model guidance in the `llm_metrics` module docstring now names a
   mechanism that exists (#211). It told the reader to opt into a stronger
   judge "via `--judge-model gemini-3.1-pro-preview` on the analysis script";

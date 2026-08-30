@@ -100,6 +100,95 @@ class TestMeanStd:
         assert _fmt_std(0.25) == "0.2500"
 
 
+class TestSummaryMatchesCsvPrecision:
+    """Issue #212: the CLI table reads the written CSV (4-decimal values)
+    while the .txt summary read the raw accumulator, so the two disagreed in
+    the fourth decimal for the same quantity. The accumulator now stores the
+    CSV's own precision, so every summary derives from the published values."""
+
+    def test_accumulates_at_csv_precision(self):
+        from psdn_sonar.loaders.base import _fmt
+
+        acc = {k: [] for k in core._METRIC_KEYS}
+        values = (0.11114999, 0.51236666, 0.87654321, 0.5, 0.01834999, 0.42, 0.33333333, 0.66666666)
+        core._accumulate(acc, values)
+        for key, v in zip(core._METRIC_KEYS, values):
+            assert acc[key] == [float(_fmt(v))]
+
+    def test_none_values_still_skipped(self):
+        acc = {k: [] for k in core._METRIC_KEYS}
+        core._accumulate(acc, (0.5, None, 0.25, None, None, None, None, None))
+        assert acc["cer_n"] == [0.5]
+        assert acc["wer_n"] == []
+        assert acc["sem_n"] == [0.25]
+
+
+class TestPerClipLatencyRecorded:
+    """Issue #212: the per-clip strategies call transcribe_diarized /
+    transcribe_with_word_timestamps directly on the adapter, so those ASR
+    calls were never timed and inference_latency_s stayed empty for
+    scribe_diarize/pyannote_diarize while the same adapter's per-channel
+    methods populated the column."""
+
+    def test_wrapper_times_into_accumulator_and_unshadows_class_methods(self):
+        latencies: list = []
+
+        class _WordModel:
+            def transcribe_with_word_timestamps(self, path):
+                return [{"text": "hi", "start": 0.0, "end": 0.5}]
+
+        model = _WordModel()
+        with core._timed_per_clip_calls(model, latencies):
+            model.transcribe_with_word_timestamps("x.wav")
+            model.transcribe_with_word_timestamps("y.wav")
+
+        assert len(latencies) == 2
+        assert all(v >= 0.0 for v in latencies)
+        # The class method is un-shadowed on exit; no instance attribute leaks.
+        assert "transcribe_with_word_timestamps" not in vars(model)
+
+    def test_instance_attribute_methods_are_restored_not_deleted(self):
+        latencies: list = []
+        model = _StubModel()
+
+        def _diarize(path, num_speakers=2):
+            return {"spk0": "hello"}
+
+        model.transcribe_diarized = _diarize
+        with core._timed_per_clip_calls(model, latencies):
+            assert model.transcribe_diarized("x.wav") == {"spk0": "hello"}
+
+        assert model.transcribe_diarized is _diarize
+        assert len(latencies) == 1
+
+    def test_scribe_diarize_rows_carry_latency(self, tmp_path):
+        manifest = _write_manifest_dataset(tmp_path, ref_a="hello world", ref_b="good morning")
+        _write_wav(tmp_path / "audio" / "conv_001_Combined_Audio.wav", seconds=2.0)
+        output = tmp_path / "results" / "out.csv"
+
+        class _DiarizingStub(_StubModel):
+            supports_diarization = True
+
+            def transcribe_diarized(self, audio_path, num_speakers=2):
+                return {"spk0": "hello world", "spk1": "good morning"}
+
+        process_manifest_with_asr(
+            str(manifest),
+            _DiarizingStub(),
+            str(output),
+            asr_model_name="stub-model",
+            language="en",
+            methods=["scribe_diarize"],
+        )
+
+        with open(output, encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert {r["speaker"] for r in rows} == {"A", "B"}
+        # Pre-fix both rows had inference_latency_s == "".
+        assert all(r["inference_latency_s"] != "" for r in rows)
+        assert all(float(r["inference_latency_s"]) >= 0.0 for r in rows)
+
+
 class TestProcessDatasetWithASR:
     def _run(self, tmp_path, monkeypatch, samples, **kwargs):
         monkeypatch.setitem(core._DATASET_LOADERS, "stub", _StubLoader(samples))

@@ -58,35 +58,14 @@ def _decode_audio(audio_path: str, sampling_rate: int):
     input is seekable, so everything the installed ffmpeg can read, this
     can. When decoding genuinely fails, the error names ffmpeg and carries
     its stderr instead of claiming the file is malformed.
+
+    The implementation lives in :mod:`psdn_sonar.utils.audio_io` so the
+    audio-quality metrics can decode the same containers transcription does
+    (issue #206); this name stays because tests and call sites patch it.
     """
-    import subprocess
+    from psdn_sonar.utils.audio_io import decode_audio_ffmpeg
 
-    import numpy as np
-
-    cmd = [
-        "ffmpeg",
-        "-v",
-        "error",
-        "-i",
-        audio_path,
-        "-ac",
-        "1",
-        "-ar",
-        str(sampling_rate),
-        "-f",
-        "f32le",
-        "pipe:1",
-    ]
-    proc = subprocess.run(cmd, capture_output=True)
-    stderr = proc.stderr.decode("utf-8", errors="replace").strip()
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg could not decode '{audio_path}': {stderr or f'exit code {proc.returncode}'}")
-    audio = np.frombuffer(proc.stdout, dtype=np.float32)
-    if audio.size == 0:
-        raise RuntimeError(
-            f"ffmpeg decoded no audio from '{audio_path}': {stderr or 'the file has no decodable audio stream'}"
-        )
-    return audio
+    return decode_audio_ffmpeg(audio_path, sampling_rate)
 
 
 def _pipeline_transcribe(pipe, audio_path: str) -> str:

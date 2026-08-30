@@ -15,6 +15,7 @@ import os
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
 from tqdm import tqdm
@@ -91,9 +92,13 @@ def _scored_metric_values(scored) -> tuple:
 
 
 def _accumulate(acc: Dict[str, list], values: tuple) -> None:
+    # Accumulate at the CSV's own 4-decimal precision so the .txt summary,
+    # the CLI table (which reads the written CSV), and anything a reader
+    # recomputes from the artifact all agree — the unrounded accumulator
+    # drifted from the CSV-derived mean in the fourth decimal (issue #212).
     for key, value in zip(_METRIC_KEYS, values):
         if value is not None:
-            acc[key].append(value)
+            acc[key].append(round(value, 4))
 
 
 def _stats_lines(acc: Dict[str, list], suffix: str) -> List[str]:
@@ -105,6 +110,51 @@ def _stats_lines(acc: Dict[str, list], suffix: str) -> List[str]:
     m, s = _mean_std(acc[f"poseidon_{suffix}"])
     lines.append(f"POSEIDON: Mean {m:.4f}, Std {_fmt_std(s)}")
     return lines
+
+
+@contextmanager
+def _timed_per_clip_calls(asr_model, latencies: list):
+    """Record ASR latency for the per-clip (diarization) strategies.
+
+    Those strategies call ``transcribe_diarized`` /
+    ``transcribe_with_word_timestamps`` directly on the adapter, so their
+    ASR calls were never timed and ``inference_latency_s`` stayed empty for
+    ``scribe_diarize``/``pyannote_diarize`` while the same adapter's
+    per-channel runs populated it (issue #212). Exactly the model call is
+    measured — pyannote diarization is not inference — into the same
+    accumulator the per-channel wrapper appends to. The instrumentation is
+    removed on exit so a reused adapter never reports into a stale list.
+    """
+
+    def _timed(bound):
+        def timed(*args, **kwargs):
+            # Same stale-cause clearing as the per-channel wrapper (issue #170).
+            if hasattr(asr_model, "last_transcribe_error"):
+                asr_model.last_transcribe_error = None
+            t0 = time.perf_counter()
+            out = bound(*args, **kwargs)
+            latencies.append(round(time.perf_counter() - t0, 4))
+            return out
+
+        return timed
+
+    wrapped = []
+    for name in ("transcribe_diarized", "transcribe_with_word_timestamps"):
+        bound = getattr(asr_model, name, None)
+        if callable(bound):
+            # Instance attributes are restored to their original value;
+            # class-provided methods are un-shadowed with delattr.
+            was_instance_attr = name in getattr(asr_model, "__dict__", {})
+            wrapped.append((name, was_instance_attr, bound))
+            setattr(asr_model, name, _timed(bound))
+    try:
+        yield
+    finally:
+        for name, was_instance_attr, bound in wrapped:
+            if was_instance_attr:
+                setattr(asr_model, name, bound)
+            else:
+                delattr(asr_model, name)
 
 
 def process_dataset_with_asr(
@@ -415,7 +465,10 @@ def process_manifest_with_asr(
     failed_count = 0
     acc: Dict[str, list] = {k: [] for k in _METRIC_KEYS}
 
-    with open(output_csv, "w", newline="", encoding="utf-8") as outfile:
+    with (
+        open(output_csv, "w", newline="", encoding="utf-8") as outfile,
+        _timed_per_clip_calls(asr_model, transcribe_latencies),
+    ):
         writer = csv.DictWriter(outfile, fieldnames=fieldnames, delimiter=",")
         writer.writeheader()
 
