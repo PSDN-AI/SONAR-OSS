@@ -46,6 +46,24 @@ class TestGetLanguageDefaults:
         defaults = get_language_defaults("ko")
         assert defaults is not None
 
+    def test_banglaasr_v5_is_reachable_by_default(self):
+        # Issue #212: registered but in no language default list, so one of
+        # the strongest Bengali checkpoints of the dev5 pass never ran
+        # unless named explicitly with --models.
+        assert "banglaasr_v5" in get_language_defaults("bn")
+
+    def test_korean_alias_duplicates_config_but_not_the_defaults(self):
+        # wav2vec2_xlsr_korean is a deliberate backwards-compatibility alias
+        # of kresnik_wav2vec2_large_xlsr_korean (issue #212); it must stay
+        # constructible but never make the defaults run the same checkpoint
+        # twice.
+        from psdn_sonar.models.registry import _MODEL_CONFIGS
+
+        assert _MODEL_CONFIGS["wav2vec2_xlsr_korean"] == _MODEL_CONFIGS["kresnik_wav2vec2_large_xlsr_korean"]
+        defaults = get_language_defaults("ko")
+        assert "kresnik_wav2vec2_large_xlsr_korean" in defaults
+        assert "wav2vec2_xlsr_korean" not in defaults
+
     def test_unknown_language(self):
         assert get_language_defaults("zz") is None
 
