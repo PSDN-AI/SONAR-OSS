@@ -6,7 +6,14 @@ logger = logging.getLogger(__name__)
 
 
 def load_env() -> None:
-    """Load .env file if python-dotenv is available. Call explicitly before using API keys."""
+    """Load .env file if python-dotenv is available. Call explicitly before using API keys.
+
+    Variables already present in the process environment win over .env
+    entries (python-dotenv's own default). ``override=True`` made the .env
+    value take effect even when the same name was exported in the shell, so
+    a per-run ``env ELEVENLABS_API_KEY=... psdn-sonar ...`` silently ran
+    with the checkout's .env credential instead (issue #212).
+    """
     try:
         from dotenv import load_dotenv as _load_dotenv
     except ImportError:
@@ -19,7 +26,7 @@ def load_env() -> None:
 
     for path in candidates:
         if os.path.isfile(path):
-            _load_dotenv(path, override=True)
+            _load_dotenv(path, override=False)
             logger.debug("Loaded .env from: %s", path)
             return
 

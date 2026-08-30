@@ -332,6 +332,18 @@ class AssemblyAIAPIModel(ASRModel):
             transcript = self.transcriber.transcribe(audio_path)
             text = transcript.text or ""
             complete_s = round(time.perf_counter() - t0, 4)
+            # This adapter pins no speech model, so provider_model_id starts
+            # None and model_snapshot in scores.json fell back to the registry
+            # alias — the one hosted adapter whose artifact could not be tied
+            # to a server-side model id (issue #212). The response reports the
+            # model that actually served the request; record the first one.
+            if self.provider_model_id is None:
+                served_model = getattr(transcript, "speech_model", None)
+                if not served_model:
+                    raw = getattr(transcript, "json_response", None) or {}
+                    served_model = raw.get("speech_model") if isinstance(raw, dict) else None
+                if served_model:
+                    self.provider_model_id = str(served_model)
             if not text and getattr(transcript, "error", None):
                 # The SDK reports some failures (e.g. rejected audio) as an
                 # errored transcript object rather than an exception.

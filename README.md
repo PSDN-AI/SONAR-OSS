@@ -74,14 +74,17 @@ helps other voice-AI teams find it and tells us where to invest.
 - `ffmpeg` **required** by the pipeline-based ASR adapters — including the
   English defaults `whisper_base_en` / `whisper_small_en` and any `--hf-model`
   that falls back to the generic pipeline — for **all** audio input, WAV
-  included (the `transformers` pipeline shells out to `ffmpeg` to decode file
-  paths). These adapters refuse to load without it and name the missing
-  binary. Adapters that decode audio themselves (the `wav2vec2_*` models and
-  the non-pipeline Whisper fine-tunes) evaluate WAV without `ffmpeg`; MP3 and
-  some `pydub` paths need it regardless. Install: `sudo apt-get install
-  ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS). The `[pyannote]`
-  extra needs `ffmpeg` too: pyannote.audio 4.x decodes audio through
-  torchcodec, which loads the system ffmpeg libraries at runtime
+  included (the package decodes every input file with `ffmpeg` itself and
+  hands the pipeline a raw array, so one decoder covers WAV, M4A/AAC and
+  everything else). These adapters refuse to load without it and name the
+  missing binary. Adapters that decode through libsndfile (the `wav2vec2_*`
+  models and the non-pipeline Whisper fine-tunes) evaluate WAV and FLAC —
+  and MP3, with the libsndfile ≥ 1.1 that current `soundfile` wheels bundle —
+  without `ffmpeg`; formats libsndfile cannot read (M4A/AAC) and `pydub`
+  silence-trimming of non-WAV input still need it. Install: `sudo apt-get
+  install ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS). The
+  `[pyannote]` extra needs `ffmpeg` too: pyannote.audio 4.x decodes audio
+  through torchcodec, which loads the system ffmpeg libraries at runtime
 
 **Supported environments.** CI validates Linux x86_64 with CPython 3.10, 3.11,
 and 3.12, plus macOS arm64 with CPython 3.12 and the `[ml]` extra installed
@@ -233,7 +236,9 @@ The LLM-judged metrics (entity preservation and intent pass rate, importable
 from `psdn_sonar.utils.llm_metrics` — a library-only surface with no CLI
 subcommand) read `GEMINI_API_KEY` (preferred) or `GOOGLE_API_KEY` as an
 alternative. A `.env` entry and an exported variable both work, same as the
-other API keys.
+other API keys; when the same name is set in both places, the exported
+variable wins, so a per-run `env GEMINI_API_KEY=... psdn-sonar ...` prefix
+overrides the checkout's `.env`.
 
 ## Usage
 

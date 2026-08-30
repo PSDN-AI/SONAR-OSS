@@ -104,6 +104,21 @@ class TestRunMultispeakerEvaluation:
         # loading .env here also fixes the 401-with-valid-token failure mode.
         assert os.environ["HF_TOKEN"] == "fake-hf-token-from-dotenv"
 
+    def test_exported_variable_wins_over_dotenv(self, tmp_path, monkeypatch):
+        """Issue #212: load_env() used override=True, so the .env value beat
+        the same name exported in the shell — a per-run
+        ``env ELEVENLABS_API_KEY=... psdn-sonar ...`` prefix silently ran
+        with the checkout's .env credential instead."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text("ELEVENLABS_API_KEY=key-from-dotenv\n")
+        monkeypatch.setenv("ELEVENLABS_API_KEY", "key-from-shell")
+
+        from psdn_sonar.config import load_env
+
+        load_env()
+
+        assert os.environ["ELEVENLABS_API_KEY"] == "key-from-shell"
+
     def test_custom_hf_model_and_language_forwarded(self, manifest, tmp_path, monkeypatch):
         captured = {}
         created = {}

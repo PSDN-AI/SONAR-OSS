@@ -84,6 +84,10 @@ _MODEL_CONFIGS: Dict[str, Tuple[str, dict]] = {
         "psdn_sonar.models.huggingface.Wav2Vec2KoreanModel",
         {"model_id": "kresnik/wav2vec2-large-xlsr-korean"},
     ),
+    # Intentional alias of kresnik_wav2vec2_large_xlsr_korean (same class and
+    # model_id), kept for backwards compatibility with existing --models
+    # invocations; deliberately not in any language default list so the
+    # checkpoint is never evaluated twice in one run (issue #212).
     "wav2vec2_xlsr_korean": (
         "psdn_sonar.models.huggingface.Wav2Vec2KoreanModel",
         {"model_id": "kresnik/wav2vec2-large-xlsr-korean"},
@@ -120,6 +124,9 @@ LANGUAGE_DEFAULT_MODELS: Dict[str, List[str]] = {
         "tugstugi_bengali",
         "tugstugi_bengali_regional",
         "banglaasr",
+        # Registered but reachable only via --models until issue #212 noted
+        # it was among the strongest Bengali results in the dev5 pass.
+        "banglaasr_v5",
         "wav2vec2_bengali",
         "elevenlabs_api",
         "whisper_api",

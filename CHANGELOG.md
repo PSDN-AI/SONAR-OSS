@@ -78,6 +78,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The six dev5-pass findings from #212, none of which failed a run:
+  - An exported shell variable now wins over the same name in `.env`
+    (python-dotenv's own default; `load_env()` passed `override=True`), so a
+    per-run `env ELEVENLABS_API_KEY=... psdn-sonar ...` prefix actually
+    applies instead of silently running with the checkout's `.env`
+    credential. The README states the precedence.
+  - The CLI summary table and the `.txt` stats summary agree again: the CLI
+    reads the written CSV (4-decimal values) while the summary read the raw
+    in-memory accumulator, drifting in the fourth decimal for the same
+    quantity. Metrics are now accumulated at the CSV's own precision, so
+    everything a reader can recompute from the artifact matches what the
+    toolkit prints.
+  - The per-clip methods (`scribe_diarize`, `pyannote_diarize`) now populate
+    `inference_latency_s`. They call `transcribe_diarized` /
+    `transcribe_with_word_timestamps` directly, bypassing the timing wrapper,
+    so the column was empty for them while the same adapter's per-channel
+    runs filled it. Exactly the model call is measured — pyannote diarization
+    is not inference.
+  - `banglaasr_v5` joined the Bengali default model list — it was registered
+    but reachable only via `--models`, despite being among the strongest
+    Bengali results of the dev5 pass. `wav2vec2_xlsr_korean` is documented in
+    the registry as a deliberate backwards-compatibility alias of
+    `kresnik_wav2vec2_large_xlsr_korean` and stays out of the defaults so the
+    checkpoint is never evaluated twice in one run.
+  - `model_snapshot` for `assemblyai_api` now records the speech model the
+    service reports having served (e.g. `universal`) instead of the registry
+    alias — the adapter pins no model, so the artifact could not be tied to a
+    server-side model id where the other two hosted adapters could.
+  - The README ffmpeg paragraph names the actual decode path (the package
+    decodes with ffmpeg itself and hands the pipeline a raw array; nothing
+    shells out from `transformers` anymore) and no longer claims MP3
+    unconditionally needs ffmpeg — the libsndfile ≥ 1.1 bundled by current
+    soundfile wheels reads MP3 directly.
 - `--streaming` actually streams again, and `scores.json` records the
   protocol that ran, not the one that was requested (#208). The AssemblyAI
   adapter called `aai.RealtimeTranscriber`, a class no released SDK ships

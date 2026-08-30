@@ -405,6 +405,58 @@ class TestAssemblyAIStreaming:
         assert model.last_transcribe_error == "Invalid API key"
 
 
+class TestAssemblyAIModelSnapshot:
+    """Issue #212: the adapter pins no speech model, so model_snapshot in
+    scores.json recorded the registry alias — the one hosted adapter whose
+    artifact could not be tied to a server-side model id. The response names
+    the model that served the request; the adapter records the first one."""
+
+    def _model(self):
+        _install_assemblyai_stub()
+        from psdn_sonar.models.apis import AssemblyAIAPIModel
+
+        return AssemblyAIAPIModel(api_key="x", streaming=False)
+
+    def test_served_speech_model_recorded_from_response(self, monkeypatch):
+        model = self._model()
+        assert model.provider_model_id is None
+        monkeypatch.setattr(
+            model.transcriber, "transcribe", lambda ap: SimpleNamespace(text="hi", speech_model="universal")
+        )
+
+        model.transcribe("clip.wav")
+        assert model.provider_model_id == "universal"
+
+    def test_served_speech_model_read_from_raw_response_too(self, monkeypatch):
+        # Some SDK versions expose the field only on the raw JSON payload.
+        model = self._model()
+        monkeypatch.setattr(
+            model.transcriber,
+            "transcribe",
+            lambda ap: SimpleNamespace(text="hi", json_response={"speech_model": "slam-1"}),
+        )
+
+        model.transcribe("clip.wav")
+        assert model.provider_model_id == "slam-1"
+
+    def test_response_without_the_field_keeps_alias_fallback(self, monkeypatch):
+        model = self._model()
+        monkeypatch.setattr(model.transcriber, "transcribe", lambda ap: SimpleNamespace(text="hi"))
+
+        model.transcribe("clip.wav")
+        assert model.provider_model_id is None  # scores.json falls back to the alias
+
+    def test_config_pinned_model_is_not_overwritten(self, monkeypatch):
+        model = self._model()
+        model.provider_model_id = "pinned-by-config"
+        monkeypatch.setattr(
+            model.transcriber, "transcribe", lambda ap: SimpleNamespace(text="hi", speech_model="universal")
+        )
+
+        model.transcribe("clip.wav")
+        assert model.provider_model_id == "pinned-by-config"
+
+
 def _install_openai_stub() -> None:
     if "openai" in sys.modules:
         return
