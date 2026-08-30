@@ -1,5 +1,11 @@
-import numpy as np
+import logging
+import shutil
+import subprocess
 
+import numpy as np
+import pytest
+
+from psdn_sonar import audio_quality
 from psdn_sonar.audio_quality import (
     assign_snr_tier,
     calculate_clipping_ratio,
@@ -141,13 +147,15 @@ class TestComputeAudioQualityMetrics:
         assert result["snr_tier"] in ("Low", "Medium", "High")
         assert isinstance(result["quality_warnings"], str)
 
-    def test_nonexistent_file_returns_safe_defaults(self):
+    def test_nonexistent_file_returns_safe_defaults_and_says_why(self):
         result = compute_audio_quality_metrics("/nonexistent/path.wav")
         assert result["snr_db"] is None
         assert result["clipping_ratio"] is None
         assert result["silence_ratio"] is None
         assert result["snr_tier"] is None
-        assert result.get("quality_warnings") == ""
+        # Issue #206: blank metrics used to come with an empty warnings
+        # cell, indistinguishable from a complete result.
+        assert result["quality_warnings"].startswith("quality_metrics_unavailable:")
 
     def test_values_are_rounded(self, wav_file):
         result = compute_audio_quality_metrics(wav_file)
@@ -169,6 +177,90 @@ class TestComputeAudioQualityMetrics:
         assert result["snr_db"] is None
         assert result["snr_tier"] is None
         assert "high_silence" in result["quality_warnings"]
+
+
+_FFMPEG = shutil.which("ffmpeg") is not None
+requires_ffmpeg = pytest.mark.skipif(not _FFMPEG, reason="ffmpeg not on PATH")
+
+
+def _write_wav(path, seconds=1.0, sr=16_000):
+    import soundfile as sf
+
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    sf.write(str(path), (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32), sr)
+    return path
+
+
+class TestDecodeParityWithTranscription:
+    """Issue #206: transcription decodes with ffmpeg by path while the
+    quality metrics decoded with librosa/libsndfile, which reads neither AAC
+    nor ALAC — the same M4A transcribed fine and produced twelve blank
+    quality columns with an empty warnings cell and a debug-only log line."""
+
+    @requires_ffmpeg
+    def test_fallback_decodes_what_libsndfile_cannot(self, tmp_path, monkeypatch):
+        """When librosa cannot open the file, the ffmpeg fallback decodes it
+        and real metrics come back."""
+        wav = _write_wav(tmp_path / "a.wav")
+
+        def _libsndfile_refuses(path, sr):
+            raise RuntimeError(f"Error opening '{path}': Format not recognised.")
+
+        monkeypatch.setattr(audio_quality.librosa, "load", _libsndfile_refuses)
+        result = compute_audio_quality_metrics(str(wav), include_mos=False)
+        assert result["snr_db"] is not None
+        assert result["snr_tier"] in ("Low", "Medium", "High")
+        assert "quality_metrics_unavailable" not in result["quality_warnings"]
+
+    @requires_ffmpeg
+    def test_real_m4a_gets_quality_metrics(self, tmp_path):
+        """An AAC-in-M4A file — the container the issue reproduces with —
+        yields populated quality columns."""
+        m4a = tmp_path / "sample.m4a"
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "aac", str(m4a)],
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            pytest.skip(f"ffmpeg cannot encode AAC here: {proc.stderr.decode(errors='replace')[:100]}")
+
+        result = compute_audio_quality_metrics(str(m4a), include_mos=False)
+        assert result["snr_db"] is not None
+        assert result["clipping_ratio"] is not None
+        assert result["silence_ratio"] is not None
+        assert result["snr_tier"] in ("Low", "Medium", "High")
+
+    def test_undecodable_file_warns_loudly_and_names_both_decoders(self, tmp_path, caplog):
+        bad = tmp_path / "noise.m4a"
+        bad.write_bytes(b"\x00not audio at all")
+
+        with caplog.at_level(logging.WARNING, logger="psdn_sonar.audio_quality"):
+            result = compute_audio_quality_metrics(str(bad), include_mos=True)
+
+        assert result["snr_db"] is None
+        warning_cell = result["quality_warnings"]
+        assert warning_cell.startswith("quality_metrics_unavailable:")
+        assert "librosa" in warning_cell
+        assert "ffmpeg" in warning_cell
+        assert any("Audio quality metrics unavailable" in r.message for r in caplog.records)
+        # MOS columns are filled with their empty defaults, not omitted.
+        assert "mos_tier" in result and result["mos_tier"] is None
+
+    def test_mos_failure_is_named_next_to_the_base_metrics(self, tmp_path, monkeypatch, caplog):
+        import psdn_sonar.quality_models as quality_models
+
+        wav = _write_wav(tmp_path / "a.wav")
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("onnx runtime exploded")
+
+        monkeypatch.setattr(quality_models, "compute_mos_metrics", _boom)
+        with caplog.at_level(logging.WARNING, logger="psdn_sonar.audio_quality"):
+            result = compute_audio_quality_metrics(str(wav), include_mos=True)
+
+        assert result["snr_db"] is not None  # base metrics unaffected
+        assert "mos_metrics_unavailable: onnx runtime exploded" in result["quality_warnings"]
+        assert result["mos_tier"] is None
 
 
 class TestGetAudioQualityConfig:
