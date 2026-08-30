@@ -78,6 +78,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A transcript returned in a different writing system is now called out
+  instead of scoring as a silently "successful" WER 1.0 (#207). The
+  script-mismatch check added for issue #148 read references only, so it
+  caught a mis-set `--language` but not the mirror failure: the service
+  itself transcribing in another script (observed: AssemblyAI returning
+  Devanagari for `bn`), where hypotheses share no characters with the
+  references and every row floors at WER 1.0 — from the artifacts alone,
+  indistinguishable from a model that transcribed badly. After each model's
+  evaluation the same scan now runs over that model's predictions; a clear
+  foreign-script majority logs a warning naming the model and the two
+  scripts, states that WER/CER on the run measure the script difference
+  rather than transcription accuracy, and is recorded in that model's
+  `scores.json` `warnings` array. Same deliberate gates as the reference
+  check: dedicated-normalizer languages only, enough script-bearing text,
+  clear majority — so code-switched output does not trip it, and all-failed
+  runs (empty predictions) stay with their own error reporting.
 - Audio-quality metrics now decode the same containers transcription does,
   and say so when they can't (#206). The pipeline ASR adapters decode by
   handing ffmpeg the file path, while the twelve quality columns (SNR,

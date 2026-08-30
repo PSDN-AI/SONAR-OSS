@@ -12,7 +12,10 @@ import json
 import pytest
 
 from psdn_sonar.evaluators.single_speaker import SingleSpeakerEvaluator
-from psdn_sonar.language.script_check import script_mismatch_warning
+from psdn_sonar.language.script_check import (
+    hypothesis_script_mismatch_warning,
+    script_mismatch_warning,
+)
 
 ENGLISH_REFS = [
     "the quick brown fox jumps over the lazy dog",
@@ -77,6 +80,49 @@ class TestScriptMismatchWarning:
         assert warning is not None
 
 
+class TestHypothesisScriptMismatchWarning:
+    """Issue #207: the reference-side check reads references only, so a
+    service returning transcripts in a different writing system (observed:
+    Devanagari for --language bn) floored every row at WER 1.0 with empty
+    warnings — indistinguishable from a model that transcribed badly."""
+
+    def test_devanagari_hypotheses_under_bn_warn(self):
+        warning = hypothesis_script_mismatch_warning(HINDI_REFS, "bn", "assemblyai_api")
+        assert warning is not None
+        assert "Model 'assemblyai_api'" in warning
+        assert "Devanagari" in warning
+        assert "--language 'bn'" in warning
+        assert "Bengali script" in warning
+        assert "not transcription accuracy" in warning
+
+    @pytest.mark.parametrize(
+        "hyps,language",
+        [
+            (ENGLISH_REFS, "en"),
+            (BENGALI_REFS, "bn"),
+            (HINDI_REFS, "hi"),
+            (KOREAN_REFS, "ko"),
+        ],
+    )
+    def test_matching_script_is_silent(self, hyps, language):
+        assert hypothesis_script_mismatch_warning(hyps, language, "m") is None
+
+    def test_language_without_implied_script_is_silent(self):
+        assert hypothesis_script_mismatch_warning(HINDI_REFS, "sw", "m") is None
+
+    def test_all_failed_run_with_empty_predictions_is_silent(self):
+        # An all-failed run has empty prediction cells; those carry no
+        # script signal and already have their own error reporting.
+        assert hypothesis_script_mismatch_warning(["", "", ""], "bn", "m") is None
+
+    def test_too_little_text_is_silent(self):
+        assert hypothesis_script_mismatch_warning(["नमस्ते"], "bn", "m") is None
+
+    def test_code_switched_majority_expected_script_is_silent(self):
+        hyps = ["আমি গতকাল আমার বন্ধুর সাথে বাজারে গিয়ে একটি নতুন app download করে তার review লিখেছি"]
+        assert hypothesis_script_mismatch_warning(hyps, "bn", "m") is None
+
+
 class TestWarningRecordedInScores:
     """The warning must reach both the log and scores.json (issue #148: the
     artifact of a wrong-language run was indistinguishable from a correct
@@ -134,4 +180,75 @@ class TestWarningRecordedInScores:
         with caplog.at_level("WARNING"):
             payload = self._run(tmp_path, "en")
         assert "script-bearing" not in caplog.text
+        assert payload["warnings"] == []
+
+
+class TestHypothesisWarningRecordedInScores:
+    """End-to-end through run_evaluation: references in the right script,
+    predictions in another — the run the issue #207 artifacts could not
+    distinguish from a badly transcribing model."""
+
+    def _stub(self, monkeypatch, predictions):
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker.load_env", lambda: None)
+        monkeypatch.setattr(
+            SingleSpeakerEvaluator,
+            "load_data",
+            lambda *args, **kwargs: [
+                {"audio_path": f"clip{i}.wav", "ground_truth": ref} for i, ref in enumerate(BENGALI_REFS)
+            ],
+        )
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker._model_factory", lambda *a, **k: object())
+        results = [
+            {"audio_path": f"clip{i}.wav", "ground_truth": ref, "prediction": pred, "wer": 1.0, "error": ""}
+            for i, (ref, pred) in enumerate(zip(BENGALI_REFS, predictions))
+        ]
+        monkeypatch.setattr(
+            SingleSpeakerEvaluator,
+            "evaluate_one",
+            lambda *args, **kwargs: {
+                "model_name": "assemblyai_api",
+                "results": results,
+                "summary": {
+                    "total_samples": len(results),
+                    "successful": len(results),
+                    "failed": 0,
+                    "avg_wer": 1.0,
+                    "avg_cer": 0.88,
+                    "elapsed_time": 0.1,
+                    "avg_latency_s": None,
+                    "median_latency_s": None,
+                    "p95_latency_s": None,
+                },
+            },
+        )
+
+    def _run(self, tmp_path):
+        SingleSpeakerEvaluator.run_evaluation(
+            tsv_path="eval.tsv",
+            output_dir=str(tmp_path),
+            models=["assemblyai_api"],
+            language="bn",
+            write_scores=True,
+            compute_sem=False,
+        )
+        return json.loads((tmp_path / "scores_assemblyai_api.json").read_text(encoding="utf-8"))
+
+    def test_wrong_script_hypotheses_warn_and_mark_artifact(self, tmp_path, monkeypatch, caplog):
+        self._stub(monkeypatch, HINDI_REFS)  # Devanagari predictions for Bengali references
+        with caplog.at_level("WARNING"):
+            payload = self._run(tmp_path)
+
+        assert "Model 'assemblyai_api'" in caplog.text
+        hyp_warnings = [w for w in payload["warnings"] if "returned transcripts" in w]
+        assert len(hyp_warnings) == 1
+        assert "Devanagari" in hyp_warnings[0]
+        assert "--language 'bn'" in hyp_warnings[0]
+        # The reference-side warning must not fire: the references are fine.
+        assert not any(w.startswith("Reference transcriptions") for w in payload["warnings"])
+
+    def test_matching_script_hypotheses_leave_artifact_clean(self, tmp_path, monkeypatch, caplog):
+        self._stub(monkeypatch, BENGALI_REFS)
+        with caplog.at_level("WARNING"):
+            payload = self._run(tmp_path)
+        assert "returned transcripts" not in caplog.text
         assert payload["warnings"] == []
