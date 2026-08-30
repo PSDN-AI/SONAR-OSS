@@ -277,6 +277,8 @@ def run_multi_speaker(args):
                 max_samples=args.max_samples,
                 sweep=getattr(args, "sweep", False),
                 method=getattr(args, "method", None),
+                methods=getattr(args, "methods", None),
+                config_path=getattr(args, "preprocessing_config", None),
                 language=args.language,
                 custom_hf_model=custom_hf_model,
             )
@@ -851,16 +853,41 @@ Examples:
         type=str,
         default=None,
         help=(
-            "Preprocessing method to use for all clips "
-            "(energy_trim, timestamp_trim, no_trim, pyannote_vad). "
-            "If omitted, method is auto-selected per clip based on available data."
+            "Preprocessing method to use for all clips. Per-channel: energy_trim, "
+            "timestamp_trim, no_trim, pyannote_vad. Per-clip (need a model with the "
+            "matching capability): scribe_diarize, pyannote_diarize. "
+            "If omitted, the method is auto-selected per clip from the active set."
+        ),
+    )
+    multi_parser.add_argument(
+        "--methods",
+        nargs="+",
+        default=None,
+        help=(
+            "Active preprocessing methods, overriding the config's list. Without "
+            "--sweep the best of these is auto-selected per clip; with --sweep every "
+            "one of them is scored. Methods this run cannot use (pyannote without the "
+            "[pyannote] extra, per-clip methods on a model that lacks the capability) "
+            "are skipped with a warning."
+        ),
+    )
+    multi_parser.add_argument(
+        "--preprocessing-config",
+        type=str,
+        default=None,
+        help=(
+            "Path to a multi-speaker preprocessing YAML (its methods list plus the "
+            "silence/timestamp/pyannote settings). Defaults to the packaged "
+            "psdn_sonar/multi_speaker_config.yaml. --methods overrides its method list."
         ),
     )
     multi_parser.add_argument(
         "--sweep",
         action="store_true",
         help=(
-            "Run all methods and pick the best per clip using ground truth (oracle selection). "
+            "Score every active method against ground truth and keep the best per clip "
+            "(oracle selection). The active set is the config's method list unless "
+            "--methods overrides it, so a config listing one method sweeps one method. "
             "WARNING: inflates reported metrics. Use only for ablation studies."
         ),
     )

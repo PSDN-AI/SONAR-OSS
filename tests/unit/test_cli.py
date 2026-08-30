@@ -379,6 +379,42 @@ class TestMultiSpeakerDispatch:
         assert kwargs["method"] == "energy_trim"
         assert kwargs["custom_hf_model"] is None
         assert kwargs["language"] == "bn"
+        # Neither new option given: the config file still decides (issue #210).
+        assert kwargs["methods"] is None
+        assert kwargs["config_path"] is None
+
+    def test_forwards_methods_and_preprocessing_config(self, tmp_path):
+        """Issue #210: --sweep could only ever reach the packaged config's
+        method list, because the subcommand had no option for either the list
+        or the file."""
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text("{}\n")
+        out_csv = tmp_path / "out.csv"
+        out_csv.write_text("cer_conv\n0.1\n")
+        cfg = tmp_path / "preprocessing.yaml"
+        cfg.write_text("methods:\n  - no_trim\n")
+
+        with patch("psdn_sonar.multispeaker_pipeline.run_multispeaker_evaluation") as mock_run:
+            mock_run.return_value = str(out_csv)
+            run_cli(
+                "multi",
+                "--input",
+                str(manifest),
+                "--models",
+                "whisper_api",
+                "--sweep",
+                "--methods",
+                "energy_trim",
+                "timestamp_trim",
+                "no_trim",
+                "--preprocessing-config",
+                str(cfg),
+            )
+
+        kwargs = mock_run.call_args[1]
+        assert kwargs["methods"] == ["energy_trim", "timestamp_trim", "no_trim"]
+        assert kwargs["config_path"] == str(cfg)
+        assert kwargs["sweep"] is True
 
     def test_unknown_language_code_exits_before_pipeline(self, tmp_path, caplog):
         manifest = tmp_path / "manifest.jsonl"

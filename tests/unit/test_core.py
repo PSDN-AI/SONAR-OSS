@@ -242,6 +242,63 @@ class TestProcessManifestWithASR:
             scores = json.loads(row["all_method_scores"])
             assert scores["no_trim"] >= 0.6
 
+    def test_sweep_over_one_method_does_not_claim_oracle_bias(self, tmp_path, caplog):
+        """Issue #210: the caution fired before the active set was resolved, so
+        a sweep with nothing to select between still warned about a bias that
+        run could not introduce, and said nothing about why it was trivial."""
+        manifest = _write_manifest_dataset(tmp_path)
+
+        with caplog.at_level("WARNING"):
+            process_manifest_with_asr(
+                str(manifest),
+                _StubModel("hello world"),
+                str(tmp_path / "out.csv"),
+                language="en",
+                methods=["no_trim"],
+                sweep=True,
+            )
+
+        # The single-method message says "no oracle bias is introduced", so
+        # assert on the affirmative caution and its inflation claim.
+        assert "introduces oracle bias" not in caplog.text
+        assert "inflate reported metrics" not in caplog.text
+        assert "single active method (no_trim)" in caplog.text
+        assert "--methods" in caplog.text
+
+    def test_sweep_over_several_methods_names_them_in_the_caution(self, tmp_path, caplog):
+        manifest = _write_manifest_dataset(tmp_path)
+
+        with caplog.at_level("WARNING"):
+            process_manifest_with_asr(
+                str(manifest),
+                _StubModel("hello world"),
+                str(tmp_path / "out.csv"),
+                language="en",
+                methods=["energy_trim", "no_trim"],
+                sweep=True,
+            )
+
+        assert "introduces oracle bias" in caplog.text
+        assert "inflate reported metrics" in caplog.text
+        assert "all 2 active methods (energy_trim, no_trim)" in caplog.text
+
+    def test_default_method_set_comes_from_the_config_loader(self, tmp_path, caplog):
+        """Issue #210: core carried its own copy of the fallback list, so which
+        set a caller got depended on which of the two declarations it reached."""
+        from psdn_sonar.preprocessing.config_loader import DEFAULT_METHODS
+
+        manifest = _write_manifest_dataset(tmp_path)
+
+        with caplog.at_level("INFO"):
+            process_manifest_with_asr(
+                str(manifest),
+                _StubModel("hello world"),
+                str(tmp_path / "out.csv"),
+                language="en",
+            )
+
+        assert f"Active preprocessing methods: {', '.join(DEFAULT_METHODS)}" in caplog.text
+
     def test_missing_transcript_raises_when_nothing_processed(self, tmp_path):
         """A run that processed zero clips must raise (issue #102), not end
         looking like a completed evaluation. The CSV still gets its header."""

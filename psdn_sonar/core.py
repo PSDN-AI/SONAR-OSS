@@ -281,19 +281,17 @@ def process_manifest_with_asr(
         load_transcript_with_segments,
     )
     from .preprocessing.audio_utils import get_combined_audio_path
+    from .preprocessing.config_loader import DEFAULT_METHODS
     from .preprocessing.methods import PER_CLIP_METHODS, PYANNOTE_METHODS
     from .preprocessing.preprocessing_selector import run_single_method, run_sweep
     from .preprocessing.pyannote_utils import PYANNOTE_AVAILABLE
 
-    if sweep:
-        logger.warning(
-            "Running in sweep mode (--sweep): all methods are scored against ground truth to select "
-            "the best per clip. This introduces oracle bias and will inflate reported metrics. "
-            "Do not use sweep results as production benchmarks."
-        )
-
     if methods is None:
-        methods = ["energy_trim", "timestamp_trim", "no_trim"]
+        # One source of truth for the fallback set (issue #210). This used to
+        # keep its own copy of the same list that ``config_loader`` already
+        # declares, so which set a caller got depended on which of the two
+        # code paths it happened to reach.
+        methods = list(DEFAULT_METHODS)
 
     config_settings = config_settings or {}
     silence_settings = config_settings.get("silence", {})
@@ -314,6 +312,31 @@ def process_manifest_with_asr(
 
     if not active_methods:
         raise ValueError("No valid preprocessing methods available")
+
+    # Report the set the run will actually use, and only caution about oracle
+    # bias when the sweep has something to select between (issue #210). The
+    # warning used to fire before the set was even resolved, so a sweep over a
+    # single method described a bias that run could not introduce while saying
+    # nothing about why the sweep was trivial.
+    if sweep and len(active_methods) > 1:
+        logger.warning(
+            "Running in sweep mode (--sweep): all %d active methods (%s) are scored against "
+            "ground truth to select the best per clip. This introduces oracle bias and will "
+            "inflate reported metrics. Do not use sweep results as production benchmarks.",
+            len(active_methods),
+            ", ".join(active_methods),
+        )
+    elif sweep:
+        logger.warning(
+            "--sweep has a single active method (%s), so there is nothing to select between "
+            "and no oracle bias is introduced — this run is equivalent to --method %s. Widen "
+            "the set with --methods, or point --preprocessing-config at a config that lists "
+            "more.",
+            active_methods[0],
+            active_methods[0],
+        )
+    else:
+        logger.info("Active preprocessing methods: %s", ", ".join(active_methods))
 
     entries = load_manifest(manifest_path)
     logger.info(f"Loaded {len(entries)} clips from manifest: {manifest_path}")

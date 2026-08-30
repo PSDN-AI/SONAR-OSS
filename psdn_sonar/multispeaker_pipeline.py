@@ -24,6 +24,7 @@ def run_multispeaker_evaluation(
     method: Optional[str] = None,
     language: str = "bn",
     custom_hf_model: Optional[str] = None,
+    config_path: Optional[str] = None,
 ) -> Path:
     """Evaluate a manifest with one ASR model and return the results CSV path.
 
@@ -38,6 +39,9 @@ def run_multispeaker_evaluation(
         language: ISO 639-1 code used for WER/CER normalization.
         custom_hf_model: HuggingFace repo id; when set, ``model_name`` is only
             used as the results-file stem.
+        config_path: Multi-speaker preprocessing YAML; ``None`` uses the packaged
+            ``psdn_sonar/multi_speaker_config.yaml``. ``methods`` still wins over
+            whatever method list the file carries.
 
     Raises:
         FileNotFoundError: If the manifest does not exist.
@@ -52,7 +56,7 @@ def run_multispeaker_evaluation(
 
     from psdn_sonar.core import process_manifest_with_asr
     from psdn_sonar.models.registry import create_model
-    from psdn_sonar.preprocessing.config_loader import load_multi_speaker_config
+    from psdn_sonar.preprocessing.config_loader import KNOWN_METHODS, load_multi_speaker_config
     from psdn_sonar.preprocessing.methods import PYANNOTE_METHODS
     from psdn_sonar.preprocessing.pyannote_utils import PYANNOTE_AVAILABLE
 
@@ -70,8 +74,17 @@ def run_multispeaker_evaluation(
             "(pyannote models are gated on HuggingFace — set HF_TOKEN after accepting the model terms)."
         )
 
-    config = load_multi_speaker_config()
+    config = load_multi_speaker_config(config_path)
     if methods:
+        # An explicit list bypasses the config file, and with it the file
+        # loader's KNOWN_METHODS validation — so validate here rather than let
+        # an unknown name reach the strategy table as a KeyError per clip.
+        unknown = [m for m in methods if m not in KNOWN_METHODS]
+        if unknown:
+            raise ValueError(
+                f"Unknown preprocessing method(s): {', '.join(unknown)}. "
+                f"Known methods: {', '.join(sorted(KNOWN_METHODS))}."
+            )
         config["methods"] = methods
 
     logger.info(

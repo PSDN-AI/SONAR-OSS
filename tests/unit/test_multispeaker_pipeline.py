@@ -68,6 +68,44 @@ class TestRunMultispeakerEvaluation:
         assert captured["methods"] == ["energy_trim", "no_trim"]
         assert captured["config_settings"]["methods"] == ["energy_trim", "no_trim"]
 
+    def test_config_path_reaches_the_loader(self, manifest, tmp_path, monkeypatch):
+        """Issue #210: ``load_multi_speaker_config`` always took a path, but
+        nothing passed one, so editing the file inside the installed package
+        was the only way to change the method list or the trim settings."""
+        captured = {}
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        cfg = tmp_path / "preprocessing.yaml"
+        cfg.write_text("methods:\n  - energy_trim\n  - no_trim\ntimestamp:\n  padding_ms: 250\n")
+
+        run_multispeaker_evaluation(
+            str(manifest),
+            "whisper_api",
+            output_dir=str(tmp_path / "out"),
+            config_path=str(cfg),
+        )
+
+        assert captured["methods"] == ["energy_trim", "no_trim"]
+        assert captured["config_settings"]["timestamp"]["padding_ms"] == 250
+
+    @pytest.mark.parametrize("bad_methods", [["not_a_method"], ["no_trim", "nope"]])
+    def test_unknown_method_in_explicit_list_raises(self, manifest, tmp_path, monkeypatch, bad_methods):
+        """An explicit list replaces the config's, bypassing the loader's
+        ``KNOWN_METHODS`` check — so it is validated where the override
+        happens, rather than reaching the strategy table as a per-clip
+        ``KeyError``."""
+        monkeypatch.setattr("psdn_sonar.core.process_manifest_with_asr", lambda **kw: None)
+        monkeypatch.setattr("psdn_sonar.models.registry.create_model", lambda name, **kwargs: object())
+
+        with pytest.raises(ValueError, match="Unknown preprocessing method"):
+            run_multispeaker_evaluation(
+                str(manifest),
+                "whisper_api",
+                output_dir=str(tmp_path / "out"),
+                methods=bad_methods,
+            )
+
     def test_loads_env_before_model_creation(self, manifest, tmp_path, monkeypatch):
         """load_env() must run before create_model so API adapters see .env keys (issue #167)."""
         calls = []

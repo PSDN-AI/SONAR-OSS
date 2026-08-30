@@ -78,6 +78,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `--sweep` can now reach a method set other than the packaged config's, and
+  its caution matches what the run actually did (#210). The `multi` subcommand
+  had no option for either the method list or the config file, so a sweep
+  always covered whatever `psdn_sonar/multi_speaker_config.yaml` listed — one
+  method, `no_trim` — while the help described "all methods" and the run
+  printed the oracle-bias warning regardless; editing the file inside the
+  installed package was the only way to change it. `multi` now takes
+  `--methods` (an explicit list, validated against the known methods, since it
+  bypasses the config loader's own check) and `--preprocessing-config` (a path
+  to another YAML, whose silence/timestamp/pyannote settings are honoured too).
+  `run_multispeaker_evaluation` already accepted `methods`; the CLI simply
+  never passed it. The oracle-bias caution now fires only when the sweep has
+  more than one active method, and names the methods actually swept rather than
+  the ones requested — with a single method it says the run is equivalent to
+  `--method <name>` and how to widen the set. Runs without `--sweep` log the
+  active set. The fallback method list is no longer declared in two places:
+  `core` uses `config_loader.DEFAULT_METHODS` instead of its own copy, so which
+  set a caller got no longer depends on which declaration it reached. And
+  `--method`'s help names all six values it accepts, not four. The packaged
+  config is unchanged: its method list is also the candidate set for per-clip
+  auto-selection on ordinary runs, so widening it would re-baseline every
+  `multi` run and is a separate decision.
 - The judge-model guidance in the `llm_metrics` module docstring now names a
   mechanism that exists (#211). It told the reader to opt into a stronger
   judge "via `--judge-model gemini-3.1-pro-preview` on the analysis script";
