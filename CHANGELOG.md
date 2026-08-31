@@ -78,6 +78,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Documentation named a `scores_<model>.json` field that does not exist, and
+  `BengaliProcessor.tokenize` imported a bnlp name that is not there (#223).
+  README, USAGE and the FAQ pre-run checklist all pointed readers at
+  `config.device`; the device is recorded at `submission.device`, and all
+  three now say so. USAGE also claimed every evaluation run writes a scores
+  artifact — only `single` does, and the leaderboard section now states that
+  `multi` writes per-clip CSV/TXT with no scores file. Separately, the
+  `tokenizer: bnlp` branch of `BengaliProcessor.tokenize` imported
+  `bnlp.tokenize.Tokenizer`, a module and class bnlp_toolkit does not ship,
+  behind a bare `except: pass` that discarded the `ModuleNotFoundError` on
+  every call. The branch now uses the same `BasicTokenizer` the canonical
+  WER pipeline loads (through the guarded `bnlp_compat` import), an
+  installed-but-broken bnlp is logged at WARNING instead of swallowed, and
+  the `LanguageProcessor.tokenize` docstring no longer claims the method
+  produces "the units WER is computed over" — WER/CER come from `jiwer`
+  over the normalized string, and no processor's `tokenize` sits on the
+  scoring path today; wiring one in would be a normalization-contract bump.
 - `--sweep` can now reach a method set other than the packaged config's, and
   its caution matches what the run actually did (#210). The `multi` subcommand
   had no option for either the method list or the config file, so a sweep

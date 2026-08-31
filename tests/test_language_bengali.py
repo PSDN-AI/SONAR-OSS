@@ -107,6 +107,75 @@ class TestBengaliTokenize:
         assert proc.tokenize("এটি") == list("এটি")
 
 
+class TestBengaliTokenizeBnlpBranch:
+    """The ``tokenizer: bnlp`` branch after issue #223.
+
+    Before the fix the branch imported ``bnlp.tokenize.Tokenizer`` — a module
+    and class that do not exist in bnlp_toolkit — and a bare ``except: pass``
+    discarded the ``ModuleNotFoundError`` on every call, so the branch always
+    fell through to whitespace splitting in silence. It now uses the same
+    ``BasicTokenizer`` the canonical WER pipeline loads, and an installed-but-
+    broken bnlp is reported at WARNING instead of swallowed.
+    """
+
+    def test_uses_basic_tokenizer_when_bnlp_is_available(self, monkeypatch):
+        # Stub bnlp with only the names the real package exposes: a
+        # BasicTokenizer at the top level, no `bnlp.tokenize` submodule.
+        # The old wrong import cannot succeed against this stub.
+        from types import SimpleNamespace
+
+        from psdn_sonar.utils import bnlp_compat
+
+        marker = ["TOKENIZED", "BY", "BNLP"]
+
+        class FakeBasicTokenizer:
+            def tokenize(self, text):
+                return list(marker)
+
+        fake_bnlp = SimpleNamespace(BasicTokenizer=FakeBasicTokenizer)
+        monkeypatch.setattr(bnlp_compat, "import_bnlp", lambda: fake_bnlp)
+
+        proc = _make_processor()
+        assert proc.tokenize("এটি একটি পরীক্ষা") == marker
+
+    def test_broken_bnlp_warns_and_falls_back_to_whitespace(self, monkeypatch, caplog):
+        import logging
+
+        from psdn_sonar.utils import bnlp_compat
+
+        class ExplodingTokenizer:
+            def tokenize(self, text):
+                raise RuntimeError("bnlp broke mid-call")
+
+        from types import SimpleNamespace
+
+        fake_bnlp = SimpleNamespace(BasicTokenizer=ExplodingTokenizer)
+        monkeypatch.setattr(bnlp_compat, "import_bnlp", lambda: fake_bnlp)
+
+        proc = _make_processor()
+        with caplog.at_level(logging.WARNING, logger="psdn_sonar.language.bengali"):
+            tokens = proc.tokenize("এটি একটি পরীক্ষা")
+
+        assert tokens == ["এটি", "একটি", "পরীক্ষা"]
+        assert any("falling back to whitespace splitting" in rec.message for rec in caplog.records)
+
+    def test_missing_bnlp_stays_quiet_and_falls_back(self, monkeypatch, caplog):
+        # Absent bnlp is the documented degradation without the [bengali]
+        # extra: whitespace splitting with no WARNING noise per call.
+        import logging
+
+        from psdn_sonar.utils import bnlp_compat
+
+        monkeypatch.setattr(bnlp_compat, "import_bnlp", lambda: None)
+
+        proc = _make_processor()
+        with caplog.at_level(logging.WARNING, logger="psdn_sonar.language.bengali"):
+            tokens = proc.tokenize("এটি একটি পরীক্ষা")
+
+        assert tokens == ["এটি", "একটি", "পরীক্ষা"]
+        assert not caplog.records
+
+
 class TestBengaliValidateText:
     @pytest.mark.parametrize(
         ("text", "expected"),

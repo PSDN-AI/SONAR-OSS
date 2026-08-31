@@ -233,7 +233,7 @@ synced locally with `scripts/download_data.py --config your_sync.yaml` — see
 - [ ] `.env` file exists with valid, non-expired API keys (especially if using `whisper_api`, `assemblyai_api`, or `elevenlabs_api`)
 - [ ] `HF_TOKEN` is set if using pyannote VAD/diarization, **and** the token's account has accepted the user conditions of the gated models: [`pyannote/segmentation-3.0`](https://huggingface.co/pyannote/segmentation-3.0), [`pyannote/speaker-diarization-3.1`](https://huggingface.co/pyannote/speaker-diarization-3.1), and [`pyannote/speaker-diarization-community-1`](https://huggingface.co/pyannote/speaker-diarization-community-1) (a one-time form on each model page; the diarization pipeline downloads the third as a gated dependency under pyannote.audio 4.x, even though no command names it — VAD alone needs only `segmentation-3.0`). A valid token that has not accepted the conditions fails with `403 ... not in the authorized list`
 - [ ] Disk, bandwidth, and time are budgeted for a **first** run: datasets and model checkpoints download in full (several GB — see "What a first run costs" in the README), and `--max-samples` bounds processing, not the download
-- [ ] You know which device the run will use: local models pick CUDA, then MPS, then CPU (recorded in `scores_<model>.json` under `config.device`); on CPU, Whisper-class models run at roughly 20 s/sample vs ~1 s/sample for CTC models
+- [ ] You know which device the run will use: local models pick CUDA, then MPS, then CPU (recorded in `scores_<model>.json` under `submission.device`); on CPU, Whisper-class models run at roughly 20 s/sample vs ~1 s/sample for CTC models
 
 **Input data:**
 

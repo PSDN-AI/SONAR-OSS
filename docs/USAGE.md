@@ -105,7 +105,7 @@ strings WER/CER were computed over after language normalization.
 
 Local models auto-select the best available device (CUDA, then MPS, then
 CPU), and the device used is recorded in `scores_<model>.json` under
-`config.device`. Before sizing a run, read "What a first run costs" in the
+`submission.device`. Before sizing a run, read "What a first run costs" in the
 [README](../README.md#requirements): first runs download models and datasets
 in full (several GB), and Whisper-class models on CPU run at roughly
 20 s/sample versus ~1 s/sample for CTC models.
@@ -128,8 +128,10 @@ and are skipped from language defaults when the keys are unset.
 
 ## 4. Compare completed runs: the leaderboard
 
-Every evaluation run writes a `scores_<model>.json` artifact into its output
-directory. `psdn-sonar leaderboard` scans one or more directories for those
+Every single-speaker evaluation run (`psdn-sonar single` or `run_evaluation`)
+writes a `scores_<model>.json` artifact into its output directory; `multi`
+writes per-clip CSV/TXT results but no scores artifact, so its runs do not
+appear here. `psdn-sonar leaderboard` scans one or more directories for those
 artifacts and renders a comparison table:
 
 ```bash

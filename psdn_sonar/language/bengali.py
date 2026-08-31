@@ -99,23 +99,35 @@ class BengaliProcessor(LanguageProcessor):
             return text
 
     def tokenize(self, text: str) -> List[str]:
-        """Tokenize with bnlp's word tokenizer, char mode, or whitespace,
-        per ``config.language.tokenizer``."""
+        """Tokenize with bnlp's ``BasicTokenizer``, char mode, or whitespace,
+        per ``config.language.tokenizer``.
+
+        Not on the scoring path (see the class docstring): WER tokenization
+        runs through ``_tokenize_bengali`` in
+        ``psdn_sonar.utils.text_processing``. This method uses the same
+        ``BasicTokenizer`` so a future caller gets the same token stream.
+        """
         tokenizer_type = self.config.language.tokenizer
 
         if tokenizer_type == "bnlp":
             try:
                 from psdn_sonar.utils.bnlp_compat import import_bnlp
 
-                if import_bnlp() is None:
-                    raise ImportError("bnlp is not installed")
-                # Safe now: the guarded import above already executed the
-                # package body, so this submodule import has no side effects.
-                from bnlp.tokenize import Tokenizer
-
-                return Tokenizer().word_tokenize(text)
+                bnlp = import_bnlp()
+                if bnlp is not None:
+                    return bnlp.BasicTokenizer().tokenize(text)
+                # bnlp absent is the expected degradation without the
+                # [bengali] extra — quiet, like the canonical pipeline.
+                logger.debug("bnlp not installed; BengaliProcessor.tokenize falls back to whitespace splitting")
             except Exception:
-                pass
+                # bnlp present but broken is not expected — say so instead
+                # of discarding the error (issue #223: a wrong import sat
+                # here unnoticed because a bare `except: pass` swallowed
+                # the ModuleNotFoundError on every call).
+                logger.warning(
+                    "bnlp tokenization failed in BengaliProcessor; falling back to whitespace splitting",
+                    exc_info=True,
+                )
         elif tokenizer_type == "char":
             return list(text.replace(" ", ""))
         return text.split()
