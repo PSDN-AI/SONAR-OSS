@@ -132,7 +132,16 @@ class LanguageProcessor(ABC):
 
     @abstractmethod
     def tokenize(self, text: str) -> List[str]:
-        """Split normalized text into the units WER is computed over."""
+        """Split normalized text into word-level tokens.
+
+        Not currently on the scoring path (issue #223): WER/CER are computed
+        by ``jiwer`` over the normalized string, which splits on whitespace
+        (Bengali additionally pre-splits via ``_tokenize_bengali`` in
+        ``psdn_sonar.utils.text_processing``). This method is part of the
+        config-driven contract every language exposes for library callers;
+        wiring it into scoring would change token counts and therefore WER,
+        so it requires a normalization-contract bump plus re-baselining.
+        """
 
     def verbalize_numbers(self, text: str) -> str:
         """Convert digit tokens to spoken words. Default: no-op."""

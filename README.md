@@ -114,7 +114,7 @@ behind an adapter: `khushids_bengali` is a 62 MB PEFT adapter whose
 
 **Compute device and runtime.** Local HuggingFace adapters auto-select the
 best available device — CUDA, then MPS (Apple Silicon), then CPU — and the
-device used is recorded in each run's `scores_<model>.json` (`config.device`),
+device used is recorded in each run's `scores_<model>.json` (`submission.device`),
 since a GPU run and a CPU run can produce different transcripts for the same
 audio. On CPU, architecture dominates runtime: measured on the same
 200-utterance FLEURS Bengali set, a Wav2Vec2 CTC model ran at ~1.2 s/sample
