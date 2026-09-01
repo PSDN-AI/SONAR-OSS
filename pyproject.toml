@@ -1,8 +1,8 @@
 [project]
 name = "psdn-sonar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Multi-language ASR evaluation toolkit — metrics, reporting, and benchmarks"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "PSDN AI"}]

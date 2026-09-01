@@ -11,7 +11,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/PSDN-AI/SONAR-OSS?style=social)](https://github.com/PSDN-AI/SONAR-OSS/stargazers)
 [![Follow on X](https://img.shields.io/twitter/follow/psdnai?style=social)](https://x.com/psdnai)
 
-[**Website**](https://psdn.ai) · [**X / Twitter**](https://x.com/psdnai) · [**LinkedIn**](https://www.linkedin.com/company/psdnai) · [**Package (TestPyPI)**](https://test.pypi.org/project/psdn-sonar/) · [**Usage guide**](docs/USAGE.md) · [**FAQ**](docs/FAQ.md)
+[**Website**](https://psdn.ai) · [**X / Twitter**](https://x.com/psdnai) · [**LinkedIn**](https://www.linkedin.com/company/psdnai) · [**Package (PyPI)**](https://pypi.org/project/psdn-sonar/) · [**Usage guide**](docs/USAGE.md) · [**FAQ**](docs/FAQ.md)
 
 </div>
 
@@ -125,15 +125,12 @@ your run first.
 
 ## Installation
 
-### Install the pre-release from TestPyPI (for testing)
+### Install from PyPI
 
-This repository is version **`0.1.0.dev6`**, and that is the pre-release
-published on [TestPyPI](https://test.pypi.org/project/psdn-sonar/) — the
-commands below name it exactly. The package is not yet on PyPI. To install
-the TestPyPI wheel exactly as released:
+Requires Python 3.10, 3.11, or 3.12.
 
-1. Create and activate a fresh Python 3.10–3.12 virtual environment. These
-   examples use Python 3.12; substitute 3.10 or 3.11 if needed.
+1. Create and activate a fresh virtual environment. These examples use
+   Python 3.12; substitute 3.10 or 3.11 if needed.
 
    macOS or Linux (bash/zsh):
 
@@ -151,30 +148,24 @@ the TestPyPI wheel exactly as released:
    .\sonar-env\Scripts\Activate.ps1
    ```
 
-2. Download only the released wheel from TestPyPI, without resolving its
-   dependencies:
-
-   ```text
-   python -m pip download --index-url https://test.pypi.org/simple/ --no-deps --only-binary=:all: --no-cache-dir --dest testpypi-dist "psdn-sonar==0.1.0.dev6"
-   ```
-
-3. Install that wheel, resolving dependencies from PyPI only:
-
-   ```text
-   python -m pip install --index-url https://pypi.org/simple/ --no-cache-dir "testpypi-dist/psdn_sonar-0.1.0.dev6-py3-none-any.whl"
-   ```
-
-4. Verify the install:
+2. Install the package:
 
    ```bash
-   psdn-sonar --version                                           # matches the wheel you installed
+   python -m pip install psdn-sonar
+   ```
+
+   To install an optional extra, name it in brackets — for example
+   `python -m pip install "psdn-sonar[ml]"` for the local-model backends.
+   [`CONTRIBUTING.md`](CONTRIBUTING.md) lists every extra and what it pulls in.
+
+3. Verify the install:
+
+   ```bash
+   psdn-sonar --version
    python -c "import psdn_sonar; print(psdn_sonar.__version__)"
    ```
 
-Then follow [`docs/USAGE.md`](docs/USAGE.md) for runnable examples. To install
-an optional extra in step 3, append it to the wheel path, for example
-`"testpypi-dist/psdn_sonar-0.1.0.dev6-py3-none-any.whl[ml]"`. Once `0.1.0` is
-released, this section becomes a plain `pip install psdn-sonar`.
+Then follow [`docs/USAGE.md`](docs/USAGE.md) for runnable examples.
 
 ### Contributor install (from source)
 
