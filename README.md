@@ -59,7 +59,7 @@ helps other voice-AI teams find it and tells us where to invest.
 
 - [Requirements](#requirements)
 - [Installation](#installation)
-  - [Install the pre-release from TestPyPI](#install-the-pre-release-from-testpypi-for-testing)
+  - [Install from PyPI](#install-from-pypi)
   - [Contributor install (from source)](#contributor-install-from-source)
   - [API keys and gated models](#api-keys-and-gated-models)
 - [Usage](#usage)
@@ -181,8 +181,8 @@ source .venv/bin/activate
 ```
 
 Or with plain pip (editable, freshly resolved). **Create and activate a
-virtual environment first** — exactly as in step 1 of the TestPyPI section
-above. On "externally managed" interpreters (PEP 668: Homebrew and
+virtual environment first** — exactly as in step 1 of the PyPI install
+section above. On "externally managed" interpreters (PEP 668: Homebrew and
 Debian/Ubuntu system Pythons) pip otherwise refuses with
 `error: externally-managed-environment` and installs nothing:
 
