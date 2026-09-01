@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-01
+
+### Fixed
+
+- `requires-python` now excludes Python 3.13 and later. The classifiers, the
+  CI matrix, and the README have always named 3.10-3.12, but pip reads only
+  `requires-python`, which carried no upper bound — so 3.13 and 3.14 installed
+  the package and then failed on `import psdn_sonar.preprocessing`, because
+  `pydub` needs the `audioop` module removed from the standard library in 3.13.
+  pip now declines the install with a message naming the required version
+  instead of leaving a broken environment behind.
+
+### Changed
+
+- The README installs from PyPI rather than TestPyPI. A project description is
+  built into its release and cannot be edited afterwards, and 0.1.0 shipped a
+  README that still said the package was not yet on PyPI; this release corrects
+  the project page.
+
 ## [0.1.0] - 2026-09-01
 
 ### Added
