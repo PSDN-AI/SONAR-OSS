@@ -23,13 +23,15 @@
           - "SECURITY.md"
           - "docs/import-gate.md"
           - ".github/workflows/gitleaks.yml"
+          - ".github/workflows/dependency-audit.yml"
+          - "security/**"
 
 "track: release":
   - changed-files:
       - any-glob-to-any-file:
           - "LICENSE"
           - "CHANGELOG.md"
-          - "docs/RELEASE.md"
+          - "docs/RELEASING.md"
 
 "track: repro":
   - changed-files:
