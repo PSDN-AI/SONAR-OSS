@@ -1,5 +1,5 @@
 {
-  "_comment": "Approved repository-settings state (M3-SEC-01, issue #25). scripts/check_repo_settings.py compares live GitHub settings against this file and fails on drift. Interim launch-window values (zero required reviews, enforce_admins off, no pypi environment reviewers) were approved in issue #25 and expire at the public visibility flip. Update this file only through a reviewed PR, in the same change as any settings change.",
+  "_comment": "Approved repository-settings state (M3-SEC-01, issue #25). scripts/check_repo_settings.py compares live GitHub settings against this file and fails on drift. The pypi environment now carries the required reviewers and the branch:main deployment policy the production release path needs (issue #51). Two interim values deliberately outlive the visibility flip: required_approving_review_count stays 0 and enforce_admins stays false until 0.1.0 is published, because raising them mid-release would leave the release-preparation pull requests needing a second approver. Owner: AndyBoWu. Expiry: immediately after the 0.1.0 production publish, tracked on issue #51. Update this file only through a reviewed PR, in the same change as any settings change.",
   "branch_protection_main": {
     "required_status_checks": {
       "strict": true,
@@ -44,11 +44,11 @@
     "default_workflow_permissions": "read",
     "can_approve_pull_request_reviews": false
   },
-  "actions_access_level": "none",
+  "actions_access_level": "not_applicable_public",
   "repo_flags": {
-    "visibility": "private",
+    "visibility": "public",
     "has_wiki": false,
-    "allow_forking": false,
+    "allow_forking": true,
     "allow_squash_merge": true,
     "allow_merge_commit": false,
     "allow_rebase_merge": false,
@@ -65,8 +65,8 @@
     "pypi": {
       "can_admins_bypass": false,
       "custom_branch_policies": true,
-      "deployment_policies": ["tag:v*"],
-      "reviewers": []
+      "deployment_policies": ["branch:main"],
+      "reviewers": ["User:AndyBoWu", "User:RN0311"]
     },
     "testpypi": {
       "can_admins_bypass": true,
