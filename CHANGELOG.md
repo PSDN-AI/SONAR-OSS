@@ -7,8 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-01
+
 ### Added
 
+- Multi-language text normalization pipeline (Bengali, Hindi, English, Korean)
+  with loanword replacement, symbol/number verbalization, and script checks.
+- Config-driven ASR backends: HuggingFace models, hosted APIs (OpenAI Whisper,
+  AssemblyAI, ElevenLabs), and a central model registry.
+- Evaluation metrics: CER, WER, semantic similarity, and the composite
+  PSDN score with configurable weights.
+- Audio-quality metrics: SNR, clipping ratio, silence ratio, and optional
+  reference-free MOS scorers (DNSMOS, UTMOS, SQUIM).
+- Single-speaker, multi-speaker (manifest-driven), and custom (YAML-configured)
+  evaluation pipelines, exposed via the `psdn-sonar` CLI.
+- Dataset discovery and preparation for public corpora (`psdn-sonar discover`).
+- Reporting suite: markdown report generator plus lexical-diversity,
+  cross-dataset, demographic, audio-quality, and latency plots.
+- Precomputed public benchmark data and aggregation scripts
+  (`precompute_benchmarks.py`, `extract_benchmarks.py`, `build_macro_summary.py`).
+- Data utilities: YAML-driven cloud sync, Common Voice and Zeroth-Korean
+  TSV converters, transcript-JSON data prep, SNR-vs-WER analysis.
+- Runnable examples for every pipeline under `examples/`.
 - `psdn-sonar leaderboard` renders a comparison table from the
   `scores_<model>.json` artifacts that evaluation runs write (#117). It shows
   measured numbers only: metrics absent from every contributing run render as
@@ -939,26 +959,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   normalizes before computing CER/WER — and labels `calculate_cer_wer` as a
   raw-text primitive, so the first documented number matches what an
   evaluation run reports (#100).
-
-## [0.1.0] - 2026-08-17
-
-### Added
-
-- Multi-language text normalization pipeline (Bengali, Hindi, English, Korean)
-  with loanword replacement, symbol/number verbalization, and script checks.
-- Config-driven ASR backends: HuggingFace models, hosted APIs (OpenAI Whisper,
-  AssemblyAI, ElevenLabs), and a central model registry.
-- Evaluation metrics: CER, WER, semantic similarity, and the composite
-  PSDN score with configurable weights.
-- Audio-quality metrics: SNR, clipping ratio, silence ratio, and optional
-  reference-free MOS scorers (DNSMOS, UTMOS, SQUIM).
-- Single-speaker, multi-speaker (manifest-driven), and custom (YAML-configured)
-  evaluation pipelines, exposed via the `psdn-sonar` CLI.
-- Dataset discovery and preparation for public corpora (`psdn-sonar discover`).
-- Reporting suite: markdown report generator plus lexical-diversity,
-  cross-dataset, demographic, audio-quality, and latency plots.
-- Precomputed public benchmark data and aggregation scripts
-  (`precompute_benchmarks.py`, `extract_benchmarks.py`, `build_macro_summary.py`).
-- Data utilities: YAML-driven cloud sync, Common Voice and Zeroth-Korean
-  TSV converters, transcript-JSON data prep, SNR-vs-WER analysis.
-- Runnable examples for every pipeline under `examples/`.
