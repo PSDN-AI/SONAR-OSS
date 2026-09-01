@@ -26,9 +26,11 @@ on:
 permissions: {}
 
 concurrency:
-  # Never cancel an in-progress release for the same tag. The index is part
-  # of the key: a TestPyPI rehearsal must not cancel a production release.
-  group: release-${{ github.event.action }}-${{ github.event.client_payload.tag }}
+  # One release at a time per tag, across both indexes: cancel-in-progress is
+  # false, so a second dispatch for the same tag queues rather than cancels.
+  # Both targets write the same tag's GitHub Release, so letting a TestPyPI
+  # and a PyPI run overlap would let the loser's notes clobber the winner's.
+  group: release-${{ github.event.client_payload.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -245,10 +247,46 @@ jobs:
       name: ${{ needs.build.outputs.target }}
       url: https://${{ needs.build.outputs.index-host }}/project/psdn-sonar/
     permissions:
-      # OIDC token for Trusted Publishing + PEP 740 attestations. Nothing
-      # else: this job intentionally has no checkout and no contents scope.
+      # OIDC token for Trusted Publishing + PEP 740 attestations.
       id-token: write
+      # Read-only ref lookups for the post-approval recheck below. This job
+      # still has no checkout: no repository code runs next to the token.
+      contents: read
     steps:
+      # verify-release-commit ran before the environment gate, and the gate
+      # can hold this job for as long as a reviewer takes. Re-assert both
+      # positional facts after approval and before the upload: an index never
+      # forgets a version, so a wheel published from a commit the tag no
+      # longer names is a provenance mismatch that cannot be withdrawn.
+      - name: Re-verify the release position after approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.client_payload.tag }}
+          SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
+        run: |
+          set -euo pipefail
+
+          main_sha="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$main_sha" != "$SOURCE_COMMIT" ]; then
+            echo "::error::main advanced to $main_sha while the release waited for approval — $SOURCE_COMMIT is no longer the candidate"
+            exit 1
+          fi
+
+          ref_json="$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG")"
+          sha="$(jq -r '.object.sha' <<<"$ref_json")"
+          otype="$(jq -r '.object.type' <<<"$ref_json")"
+          # Annotated tags point at one tag object; dereference it.
+          if [ "$otype" = "tag" ]; then
+            sha="$(gh api "repos/$GH_REPO/git/tags/$sha" --jq '.object.sha')"
+          fi
+          if [ "$sha" != "$SOURCE_COMMIT" ]; then
+            echo "::error::Tag $RELEASE_TAG now points at $sha but the artifacts were built from $SOURCE_COMMIT — refusing to publish"
+            exit 1
+          fi
+
+          echo "Release position re-verified: main and $RELEASE_TAG both at $SOURCE_COMMIT"
+
       - name: Download built distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:

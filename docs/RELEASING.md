@@ -77,7 +77,9 @@ The same check is available as the `Release verification` workflow (`workflow_di
    ```
 
 5. For a production release, a reviewer approves the `pypi` environment in the Actions run. This is the
-   human approval on the release; it cannot be delegated to automation.
+   human approval on the release; it cannot be delegated to automation. The gate can hold the job for
+   as long as the reviewer takes, so the publish job re-checks — after approval, before the upload —
+   that `main` and the tag both still point at the commit the artifacts were built from.
 6. Watch `build → verify-release-commit → publish → smoke-test → github-release` finish green. The
    publish job does not report success until the index serves the exact files the build produced.
 
@@ -87,11 +89,27 @@ The workflow attaches the wheel, the sdist, `SHA256SUMS.txt`, and `release-evide
 commit, tag, check-run evidence, artifact digests) to the GitHub Release, and the index carries PEP 740
 attestations for the published files.
 
-Verify the published package outside CI:
+Verify the published package outside CI. From production PyPI:
 
 ```bash
 python -m venv /tmp/verify
 /tmp/verify/bin/pip install "psdn-sonar==<version>"
+```
+
+From TestPyPI, a plain `pip install` will not find a rehearsal build: the default index is production
+PyPI, which has no `.devN` release. Take the package from TestPyPI and its dependencies from PyPI, the
+way the smoke-test job does:
+
+```bash
+python -m venv /tmp/verify
+/tmp/verify/bin/pip download --index-url https://test.pypi.org/simple/ \
+  --no-deps --only-binary :all: --dest /tmp/testpypi-dist "psdn-sonar==<version>"
+/tmp/verify/bin/pip install --index-url https://pypi.org/simple/ /tmp/testpypi-dist/*.whl
+```
+
+Then, from either index:
+
+```bash
 /tmp/verify/bin/psdn-sonar --version
 
 # Run from outside the checkout so the import cannot resolve to the source tree.
