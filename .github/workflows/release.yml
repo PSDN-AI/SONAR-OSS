@@ -249,16 +249,41 @@ jobs:
     permissions:
       # OIDC token for Trusted Publishing + PEP 740 attestations.
       id-token: write
-      # Read-only ref lookups for the post-approval recheck below. This job
-      # still has no checkout: no repository code runs next to the token.
+      # The post-approval re-verification below reads refs and check runs.
       contents: read
+      actions: read
     steps:
-      # verify-release-commit ran before the environment gate, and the gate
-      # can hold this job for as long as a reviewer takes. Re-assert both
-      # positional facts after approval and before the upload: an index never
-      # forgets a version, so a wheel published from a commit the tag no
-      # longer names is a provenance mismatch that cannot be withdrawn.
-      - name: Re-verify the release position after approval
+      # verify-release-commit runs before the environment gate, and the gate
+      # holds this job for as long as a reviewer takes. Everything it proved
+      # can decay during that wait — main can advance, the tag can move, a
+      # required check can be re-run and go red — so the whole verification
+      # runs again here, after approval and immediately before the upload.
+      # An index never forgets a version: this is the last point where the
+      # release can still be stopped.
+      #
+      # The verifier is checked out from main, which is already the source of
+      # this workflow file, so running it here widens no trust boundary.
+      - name: Check out trusted release verifier
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: main
+          path: trusted-release-gate
+          persist-credentials: false
+
+      - name: Re-verify the release commit after approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
+          TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          set -euo pipefail
+          python trusted-release-gate/scripts/verify_release_commit.py "$SOURCE_COMMIT" \
+            --tag "$TAG" \
+            --evidence "$RUNNER_TEMP/release-evidence.json" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The verifier proves the commit; this proves the tag still names it.
+      - name: Re-verify the tag after approval
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -266,12 +291,6 @@ jobs:
           SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
         run: |
           set -euo pipefail
-
-          main_sha="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')"
-          if [ "$main_sha" != "$SOURCE_COMMIT" ]; then
-            echo "::error::main advanced to $main_sha while the release waited for approval — $SOURCE_COMMIT is no longer the candidate"
-            exit 1
-          fi
 
           ref_json="$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG")"
           sha="$(jq -r '.object.sha' <<<"$ref_json")"
@@ -285,16 +304,24 @@ jobs:
             exit 1
           fi
 
-          echo "Release position re-verified: main and $RELEASE_TAG both at $SOURCE_COMMIT"
+          echo "Tag $RELEASE_TAG still points at $SOURCE_COMMIT"
+
+      # Replaces the pre-gate evidence: what the Release records must be the
+      # verification the upload actually happened on.
+      - name: Upload post-approval release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-evidence
+          path: ${{ runner.temp }}/release-evidence.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
 
       - name: Download built distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-dist
           path: dist
-
-      - name: Record artifact checksums
-        run: (cd dist && sha256sum -- *) > "$RUNNER_TEMP/SHA256SUMS.txt"
 
       - name: Publish to ${{ needs.build.outputs.index-name }}
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
@@ -310,10 +337,30 @@ jobs:
           # action's default: the attestation is release evidence.
           attestations: true
 
+  # Separate from `publish` on purpose. The upload is irreversible and
+  # `skip-existing` is false on production, so a re-run of a job that had
+  # already uploaded would fail permanently on "file already exists". Keeping
+  # the index check in its own job means a CDN lag can be re-run on its own.
+  verify-index:
+    name: Verify ${{ needs.build.outputs.index-name }} serves the built artifacts
+    needs: [build, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: {}
+    steps:
+      - name: Download built distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Record artifact checksums
+        run: (cd dist && sha256sum -- *) > "$RUNNER_TEMP/SHA256SUMS.txt"
+
       # Both indexes upload files sequentially and their JSON responses can
-      # lag or briefly expose only part of a release. Do not report publish
-      # success until the index serves the exact files the build job made.
-      - name: Verify ${{ needs.build.outputs.index-name }} serves the built artifacts
+      # lag or briefly expose only part of a release. The release is not
+      # complete until the index serves the exact files the build job made.
+      - name: Compare the served files with the built artifacts
         env:
           VERSION: ${{ needs.build.outputs.version }}
           INDEX_NAME: ${{ needs.build.outputs.index-name }}
@@ -357,7 +404,7 @@ jobs:
 
   smoke-test:
     name: Smoke test from ${{ needs.build.outputs.index-name }}
-    needs: [build, publish]
+    needs: [build, verify-index]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions: {}
@@ -411,7 +458,7 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    needs: [build, publish, smoke-test]
+    needs: [build, publish, verify-index, smoke-test]
     # Runs even when the smoke test fails: a published version with no
     # Release (no recorded hashes, no commit binding) is exactly the
     # inconsistency this workflow exists to prevent. The smoke result is
@@ -493,6 +540,7 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
           SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
           SMOKE_RESULT: ${{ needs.smoke-test.result }}
+          INDEX_RESULT: ${{ needs.verify-index.result }}
           INDEX_NAME: ${{ needs.build.outputs.index-name }}
           INDEX_HOST: ${{ needs.build.outputs.index-host }}
         run: |
@@ -502,12 +550,15 @@ jobs:
             printf '## psdn-sonar %s (%s)\n\n' "$VERSION" "$INDEX_NAME"
             printf -- '- **Source commit:** %s\n' "$SOURCE_COMMIT"
             printf -- '- **%s:** https://%s/project/psdn-sonar/%s/\n' "$INDEX_NAME" "$INDEX_HOST" "$VERSION"
+            printf -- '- **Index serves the built files:** %s\n' "$INDEX_RESULT"
             printf -- '- **Smoke test:** %s\n' "$SMOKE_RESULT"
-            printf -- '- **Release verification:** passed (release-evidence.json)\n'
+            printf -- '- **Release verification:** passed after approval (release-evidence.json)\n'
             printf -- '- **Provenance:** PEP 740 attestations published with the files\n\n'
             printf '### SHA-256 checksums\n\n```\n'
             cat SHA256SUMS.txt
             printf '```\n'
+            # Machine-readable record of which index this Release describes.
+            printf '\n<!-- psdn-sonar-release-index: %s -->\n' "$INDEX_NAME"
           } > "$RUNNER_TEMP/notes.md"
 
           # dev/a/b/rc versions must never become the repo's "Latest
@@ -522,6 +573,16 @@ jobs:
           # the existing release and strand the stale smoke result in its
           # body. Editing refreshes the notes; --clobber refreshes assets.
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            # Nothing stops a TestPyPI dispatch for a tag that has already
+            # been released to production, and both write this one Release.
+            # A rehearsal must not replace production notes and assets with
+            # its own; production may still supersede a rehearsal record.
+            existing_index="$(gh release view "$RELEASE_TAG" --json body --jq '.body' \
+              | sed -n 's/.*psdn-sonar-release-index: \([A-Za-z]*\).*/\1/p' | tail -n 1)"
+            if [ "$existing_index" = "PyPI" ] && [ "$INDEX_NAME" != "PyPI" ]; then
+              echo "::notice::Release $RELEASE_TAG already records a production PyPI publish; leaving it unchanged"
+              exit 0
+            fi
             gh release edit "$RELEASE_TAG" \
               --title "psdn-sonar $VERSION" \
               --notes-file "$RUNNER_TEMP/notes.md" \

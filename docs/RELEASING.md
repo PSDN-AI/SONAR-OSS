@@ -78,10 +78,12 @@ The same check is available as the `Release verification` workflow (`workflow_di
 
 5. For a production release, a reviewer approves the `pypi` environment in the Actions run. This is the
    human approval on the release; it cannot be delegated to automation. The gate can hold the job for
-   as long as the reviewer takes, so the publish job re-checks — after approval, before the upload —
-   that `main` and the tag both still point at the commit the artifacts were built from.
-6. Watch `build → verify-release-commit → publish → smoke-test → github-release` finish green. The
-   publish job does not report success until the index serves the exact files the build produced.
+   as long as the reviewer takes, so the publish job runs the whole verification again — after
+   approval, immediately before the upload — including the required checks, and records that
+   post-approval evidence on the Release.
+6. Watch `build → verify-release-commit → publish → verify-index → smoke-test → github-release`
+   finish green. `verify-index` polls the index until it serves the exact files the build produced;
+   it is a separate job so a slow CDN can be re-run without re-uploading.
 
 ## After publishing
 
@@ -127,7 +129,12 @@ inspect the published wheel and sdist metadata for anything that should not be p
 tag, or move the tag and re-dispatch; the workflow refuses to create a Release whose tag no longer
 points at the commit the artifacts were built from.
 
-**The publish step failed partway.** On TestPyPI, `skip-existing: true` makes a retry of the same tag
+**The index check or the smoke test failed after a successful upload.** Re-run the failed jobs. The
+upload lives in its own job, so re-running `verify-index` or `smoke-test` does not re-upload anything.
+The GitHub Release is still created — a published version with no recorded hashes is the one
+inconsistency this workflow refuses to leave behind — and the failure is recorded in its notes.
+
+**The upload itself failed partway.** On TestPyPI, `skip-existing: true` makes a retry of the same tag
 safe. On PyPI it is `false` by design — a silent skip would hide a real problem — so a partial upload
 leaves the version consumed. Recovery is a new patch version, not a retry.
 
