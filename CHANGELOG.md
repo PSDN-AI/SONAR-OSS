@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-01
+
+### Fixed
+
+- The README's table of contents linked the install section by its former
+  TestPyPI anchor, which 0.1.1 renamed, so the first link under Installation
+  resolved to nothing; a later paragraph still sent readers to "the TestPyPI
+  section above" for the virtual-environment step. A project description is
+  built into its release, so publishing is what puts the corrected README on
+  the project page.
+
 ## [0.1.1] - 2026-09-01
 
 ### Fixed
