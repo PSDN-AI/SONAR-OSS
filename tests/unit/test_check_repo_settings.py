@@ -73,10 +73,12 @@ def test_committed_baseline_parses_and_flattens():
     assert flat["branch_protection_main.enforce_admins"] is False
     assert flat["actions_permissions.allowed_actions"] == "selected"
     assert "Dependency audit@15368" in flat["branch_protection_main.required_status_checks.checks"]
-    assert flat["actions_access_level"] == "none"
-    assert flat["environments.pypi.deployment_policies"] == '["tag:v*"]'
-    assert flat["environments.pypi.reviewers"] == "[]"
-    assert flat["repo_flags.allow_forking"] is False
+    assert flat["actions_access_level"] == "not_applicable_public"
+    # repository_dispatch runs on refs/heads/main, so the production environment
+    # gates on that branch and on named reviewers (issue #51).
+    assert flat["environments.pypi.deployment_policies"] == '["branch:main"]'
+    assert flat["environments.pypi.reviewers"] == '["User:AndyBoWu", "User:RN0311"]'
+    assert flat["repo_flags.allow_forking"] is True
     assert flat["security_and_analysis.secret_scanning"] == "disabled"
 
 
@@ -179,9 +181,9 @@ def _canned_responses():
         },
         "/actions/permissions/access": {"access_level": "none"},
         "": {
-            "visibility": "private",
+            "visibility": "public",
             "has_wiki": False,
-            "allow_forking": False,
+            "allow_forking": True,
             "allow_squash_merge": True,
             "allow_merge_commit": False,
             "allow_rebase_merge": False,
@@ -197,13 +199,27 @@ def _canned_responses():
         "/environments?per_page=100": {
             "total_count": 2,
             "environments": [
-                {"name": "pypi", "can_admins_bypass": False, **env_payload},
+                {
+                    "name": "pypi",
+                    "can_admins_bypass": False,
+                    "deployment_branch_policy": {"custom_branch_policies": True},
+                    "protection_rules": [
+                        {"type": "branch_policy"},
+                        {
+                            "type": "required_reviewers",
+                            "reviewers": [
+                                {"type": "User", "reviewer": {"login": "AndyBoWu"}},
+                                {"type": "User", "reviewer": {"login": "RN0311"}},
+                            ],
+                        },
+                    ],
+                },
                 {"name": "testpypi", "can_admins_bypass": True, **env_payload},
             ],
         },
         "/environments/pypi/deployment-branch-policies?per_page=100": {
             "total_count": 1,
-            "branch_policies": [{"name": "v*", "type": "tag"}],
+            "branch_policies": [{"name": "main", "type": "branch"}],
         },
         "/environments/testpypi/deployment-branch-policies?per_page=100": {
             "total_count": 1,
