@@ -4374,7 +4374,7 @@ wheels = [
 
 [[package]]
 name = "psdn-sonar"
-version = "0.1.0.dev6"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
