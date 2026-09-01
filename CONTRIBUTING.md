@@ -185,6 +185,12 @@ Dependency changes are deliberate and reviewed; there is no automated version-bu
   references manually; automated Dependabot version-update pull requests are intentionally
   disabled so dependency changes remain deliberate during release-readiness work.
 
+## Releases
+
+Releases are cut by maintainers, not by contributors. How a version is tagged, how it reaches TestPyPI
+or production PyPI, and how a bad release is yanked are documented in
+[the release runbook](docs/RELEASING.md).
+
 ## Public Repository Safety
 
 This project is public. Please keep contributions safe to publish.

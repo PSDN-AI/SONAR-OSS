@@ -1,24 +1,34 @@
 name: Release
 
-# Default-branch TestPyPI release via Trusted Publishing (OIDC) — no stored
-# token anywhere. repository_dispatch always uses the default branch's
-# workflow; the tag is untrusted data in client_payload, never the source of
-# the workflow or verifier. The workflow filename and the `testpypi`
-# environment name are load-bearing: both are registered in the index-side
-# Trusted Publisher and must match exactly (M3-REL-02a). Production PyPI is
-# M3-REL-02c. The testpypi environment must allow only the main branch.
-# Maintainer trigger:
+# Default-branch release via Trusted Publishing (OIDC) — no stored token
+# anywhere. repository_dispatch always uses the default branch's workflow;
+# the tag is untrusted data in client_payload, never the source of the
+# workflow or verifier. The dispatch type selects the index:
+#
+#   release-testpypi -> TestPyPI, `testpypi` environment (rehearsal)
+#   release-pypi     -> PyPI,     `pypi` environment (production, reviewed)
+#
+# The workflow filename and both environment names are load-bearing: each is
+# registered in the index-side Trusted Publisher and must match exactly
+# (M3-REL-02a, M3-REL-02c). Both environments must allow only the main
+# branch: a deployment branch policy is matched against the GITHUB_REF of the
+# run, and repository_dispatch always runs on refs/heads/main, so a tag-based
+# policy rejects the deployment before it can publish.
+# Maintainer trigger (see docs/RELEASING.md for the full runbook):
 #   gh api --method POST repos/PSDN-AI/SONAR-OSS/dispatches \
 #     -f event_type=release-testpypi -f 'client_payload[tag]=vX.Y.Z'
+#   gh api --method POST repos/PSDN-AI/SONAR-OSS/dispatches \
+#     -f event_type=release-pypi -f 'client_payload[tag]=vX.Y.Z'
 on:
   repository_dispatch:
-    types: [release-testpypi]
+    types: [release-testpypi, release-pypi]
 
 permissions: {}
 
 concurrency:
-  # Never cancel an in-progress release for the same tag.
-  group: release-${{ github.event.client_payload.tag }}
+  # Never cancel an in-progress release for the same tag. The index is part
+  # of the key: a TestPyPI rehearsal must not cancel a production release.
+  group: release-${{ github.event.action }}-${{ github.event.client_payload.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -33,6 +43,11 @@ jobs:
     outputs:
       version: ${{ steps.gate.outputs.version }}
       source-commit: ${{ steps.gate.outputs.source-commit }}
+      # Index routing, resolved once. No later job hardcodes an index.
+      target: ${{ steps.gate.outputs.target }}
+      index-name: ${{ steps.gate.outputs.index-name }}
+      index-host: ${{ steps.gate.outputs.index-host }}
+      upload-url: ${{ steps.gate.outputs.upload-url }}
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -63,10 +78,11 @@ jobs:
       # psdn_sonar/__init__.py). An index rejects a re-upload of any
       # version it has ever seen, so every mismatch caught here is an
       # unburnable version number saved. The tag must match both.
-      - name: Release gate (tag ↔ version consistency)
+      - name: Release gate (tag ↔ version consistency, index routing)
         id: gate
         env:
           RELEASE_TAG: ${{ github.event.client_payload.tag }}
+          EVENT_ACTION: ${{ github.event.action }}
         run: |
           set -euo pipefail
 
@@ -106,8 +122,43 @@ jobs:
           # specified for that case, so record the dereferenced commit.
           SOURCE_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
 
-          echo "version=$PYPROJECT_VERSION" >> "$GITHUB_OUTPUT"
-          echo "source-commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          # The dispatch type is the only thing that selects an index, and it
+          # is resolved here so the gate above has already run: a mismatched
+          # tag never reaches a publish job at all.
+          case "$EVENT_ACTION" in
+            release-pypi)
+              TARGET=pypi
+              INDEX_NAME=PyPI
+              INDEX_HOST=pypi.org
+              UPLOAD_URL=https://upload.pypi.org/legacy/
+              # Production is one-way: any version number uploaded here is
+              # burned forever. Development builds are rehearsal artifacts
+              # and belong on TestPyPI, so refuse them before the upload.
+              if printf '%s' "$PYPROJECT_VERSION" | grep -Eq '\.dev[0-9]*'; then
+                echo "::error::Refusing to publish development version $PYPROJECT_VERSION to production PyPI — dispatch release-testpypi instead"
+                exit 1
+              fi
+              ;;
+            release-testpypi)
+              TARGET=testpypi
+              INDEX_NAME=TestPyPI
+              INDEX_HOST=test.pypi.org
+              UPLOAD_URL=https://test.pypi.org/legacy/
+              ;;
+            *)
+              echo "::error::Unknown dispatch type $EVENT_ACTION"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "version=$PYPROJECT_VERSION"
+            echo "source-commit=$SOURCE_COMMIT"
+            echo "target=$TARGET"
+            echo "index-name=$INDEX_NAME"
+            echo "index-host=$INDEX_HOST"
+            echo "upload-url=$UPLOAD_URL"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build wheel and source distribution
         run: uv build --clear --no-sources --out-dir dist
@@ -183,14 +234,16 @@ jobs:
           retention-days: 90
           overwrite: true
 
-  publish-testpypi:
-    name: Publish to TestPyPI
+  publish:
+    name: Publish to ${{ needs.build.outputs.index-name }}
     needs: [build, verify-release-commit]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # `pypi` carries required reviewers, so a production release waits here
+    # for a named human to approve the deployment (M3-REL-02c).
     environment:
-      name: testpypi
-      url: https://test.pypi.org/project/psdn-sonar/
+      name: ${{ needs.build.outputs.target }}
+      url: https://${{ needs.build.outputs.index-host }}/project/psdn-sonar/
     permissions:
       # OIDC token for Trusted Publishing + PEP 740 attestations. Nothing
       # else: this job intentionally has no checkout and no contents scope.
@@ -205,29 +258,34 @@ jobs:
       - name: Record artifact checksums
         run: (cd dist && sha256sum -- *) > "$RUNNER_TEMP/SHA256SUMS.txt"
 
-      - name: Publish to TestPyPI
+      - name: Publish to ${{ needs.build.outputs.index-name }}
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
-          repository-url: https://test.pypi.org/legacy/
-          # TestPyPI only: twine uploads files sequentially, so a transient
-          # failure between wheel and sdist would otherwise wedge the tag
+          repository-url: ${{ needs.build.outputs.upload-url }}
+          # True on TestPyPI only: twine uploads files sequentially, so a
+          # transient failure between wheel and sdist would wedge the tag
           # (the uploaded filename is taken forever and every retry fails).
-          # The production PyPI job (M3-REL-02c) must set this to false —
-          # there a silent skip would mask a real problem.
-          skip-existing: true
+          # False on production PyPI, where a silent skip would mask a real
+          # problem — recovery there is a new patch version, not a retry.
+          skip-existing: ${{ needs.build.outputs.target == 'testpypi' }}
+          # PEP 740 provenance, stated rather than inherited from the
+          # action's default: the attestation is release evidence.
+          attestations: true
 
-      # TestPyPI uploads files sequentially and its JSON response can lag or
-      # briefly expose only part of a release. Do not report publish success
-      # until the index serves the exact files produced by the build job.
-      - name: Verify TestPyPI serves the built artifacts
+      # Both indexes upload files sequentially and their JSON responses can
+      # lag or briefly expose only part of a release. Do not report publish
+      # success until the index serves the exact files the build job made.
+      - name: Verify ${{ needs.build.outputs.index-name }} serves the built artifacts
         env:
           VERSION: ${{ needs.build.outputs.version }}
+          INDEX_NAME: ${{ needs.build.outputs.index-name }}
+          INDEX_HOST: ${{ needs.build.outputs.index-host }}
         run: |
           set -euo pipefail
           for attempt in $(seq 1 60); do
             if curl -fsS --connect-timeout 3 --max-time 5 \
               -H 'Cache-Control: no-cache' \
-              "https://test.pypi.org/pypi/psdn-sonar/$VERSION/json" \
+              "https://$INDEX_HOST/pypi/psdn-sonar/$VERSION/json" \
               -o "$RUNNER_TEMP/release.json" &&
               python3 - <<'EOF'
           import json
@@ -244,8 +302,8 @@ jobs:
               expected[name.strip().lstrip("*")] = digest
 
           if published != expected:
-              print(f"TestPyPI not ready: {published}")
-              print(f"Expected:           {expected}")
+              print(f"Index not ready: {published}")
+              print(f"Expected:        {expected}")
               raise SystemExit(1)
           EOF
             then
@@ -256,25 +314,27 @@ jobs:
               sleep 20
             fi
           done
-          echo "::error::TestPyPI did not serve the exact build artifacts after 60 attempts"
+          echo "::error::$INDEX_NAME did not serve the exact build artifacts after 60 attempts"
           exit 1
 
   smoke-test:
-    name: Smoke test from TestPyPI
-    needs: [build, publish-testpypi]
+    name: Smoke test from ${{ needs.build.outputs.index-name }}
+    needs: [build, publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions: {}
     env:
       VERSION: ${{ needs.build.outputs.version }}
+      INDEX_HOST: ${{ needs.build.outputs.index-host }}
     steps:
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.10"
 
-      # Download only the package wheel from TestPyPI, then install that
-      # local wheel with dependencies resolved only from real PyPI.
+      # Download only the package wheel from the index just published to,
+      # then install that local wheel with dependencies resolved only from
+      # real PyPI (TestPyPI carries no usable copy of the dependency tree).
       - name: Install published package in a clean environment
         run: |
           set -euo pipefail
@@ -282,12 +342,12 @@ jobs:
           python -m venv "$RUNNER_TEMP/smoke"
           PIP="$RUNNER_TEMP/smoke/bin/pip"
 
-          mkdir "$RUNNER_TEMP/testpypi"
-          "$PIP" download --index-url https://test.pypi.org/simple/ \
+          mkdir "$RUNNER_TEMP/published"
+          "$PIP" download --index-url "https://$INDEX_HOST/simple/" \
             --no-deps --only-binary :all: --no-cache-dir \
-            --dest "$RUNNER_TEMP/testpypi" "psdn-sonar==$VERSION"
+            --dest "$RUNNER_TEMP/published" "psdn-sonar==$VERSION"
           "$PIP" install --index-url https://pypi.org/simple/ --no-cache-dir \
-            "$RUNNER_TEMP"/testpypi/*.whl
+            "$RUNNER_TEMP"/published/*.whl
           "$PIP" check
 
       # Run from RUNNER_TEMP so the import cannot resolve to a source tree.
@@ -313,12 +373,12 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    needs: [build, publish-testpypi, smoke-test]
+    needs: [build, publish, smoke-test]
     # Runs even when the smoke test fails: a published version with no
     # Release (no recorded hashes, no commit binding) is exactly the
     # inconsistency this workflow exists to prevent. The smoke result is
     # recorded in the release body instead.
-    if: ${{ !cancelled() && needs.publish-testpypi.result == 'success' }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -355,10 +415,10 @@ jobs:
       # so a crafted tag name cannot inject into this contents:write job.
       #
       # --verify-tag below only proves the tag exists; this step proves it
-      # still targets the commit the artifacts were built from. No tag
-      # ruleset can enforce immutability yet (private free-plan repo), so
-      # a tag force-moved mid-run would otherwise bind this Release (and
-      # its source archives) to a commit the wheel was never built from.
+      # still targets the commit the artifacts were built from. A tag
+      # ruleset restricts who may move `v*`, but not when, so a tag
+      # force-moved mid-run would otherwise bind this Release (and its
+      # source archives) to a commit the wheel was never built from.
       - name: Verify tag still points at the built commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -395,15 +455,18 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
           SOURCE_COMMIT: ${{ needs.build.outputs.source-commit }}
           SMOKE_RESULT: ${{ needs.smoke-test.result }}
+          INDEX_NAME: ${{ needs.build.outputs.index-name }}
+          INDEX_HOST: ${{ needs.build.outputs.index-host }}
         run: |
           set -euo pipefail
 
           {
-            printf '## psdn-sonar %s (TestPyPI)\n\n' "$VERSION"
+            printf '## psdn-sonar %s (%s)\n\n' "$VERSION" "$INDEX_NAME"
             printf -- '- **Source commit:** %s\n' "$SOURCE_COMMIT"
-            printf -- '- **TestPyPI:** https://test.pypi.org/project/psdn-sonar/%s/\n' "$VERSION"
+            printf -- '- **%s:** https://%s/project/psdn-sonar/%s/\n' "$INDEX_NAME" "$INDEX_HOST" "$VERSION"
             printf -- '- **Smoke test:** %s\n' "$SMOKE_RESULT"
-            printf -- '- **Release verification:** passed (release-evidence.json)\n\n'
+            printf -- '- **Release verification:** passed (release-evidence.json)\n'
+            printf -- '- **Provenance:** PEP 740 attestations published with the files\n\n'
             printf '### SHA-256 checksums\n\n```\n'
             cat SHA256SUMS.txt
             printf '```\n'
