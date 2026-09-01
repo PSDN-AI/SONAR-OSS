@@ -428,9 +428,25 @@ jobs:
           PIP="$RUNNER_TEMP/smoke/bin/pip"
 
           mkdir "$RUNNER_TEMP/published"
-          "$PIP" download --index-url "https://$INDEX_HOST/simple/" \
-            --no-deps --only-binary :all: --no-cache-dir \
-            --dest "$RUNNER_TEMP/published" "psdn-sonar==$VERSION"
+
+          # An index serves its JSON API and its /simple/ page from separate
+          # caches: verify-index can pass on its first attempt while /simple/
+          # still lists only the previous release. Retry rather than fail the
+          # one check that proves a user can install what was just published.
+          for attempt in $(seq 1 30); do
+            if "$PIP" download --index-url "https://$INDEX_HOST/simple/" \
+              --no-deps --only-binary :all: --no-cache-dir \
+              --dest "$RUNNER_TEMP/published" "psdn-sonar==$VERSION"; then
+              echo "Wheel downloaded after $attempt attempt(s)"
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::$INDEX_HOST/simple/ did not list psdn-sonar $VERSION after 30 attempts"
+              exit 1
+            fi
+            sleep 20
+          done
+
           "$PIP" install --index-url https://pypi.org/simple/ --no-cache-dir \
             "$RUNNER_TEMP"/published/*.whl
           "$PIP" check
