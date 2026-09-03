@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `--demographics` on a dataset without per-recording metadata no longer
+  crashes after a successful evaluation (#234). The shipped example carries no
+  `metadata.json`, the demographic join produced all-NA columns as documented,
+  and the NAs then reached plotnine's axis expansion, which died on
+  `'>' not supported between instances of 'int' and 'NoneType'` — logged
+  twice, under `Evaluation failed`, with exit 1, although the evaluation's
+  artifacts were already on disk. Missing metadata is now a warned skip that
+  names the expected layout (`<dataset-dir>/<audio_id>/metadata.json` with
+  `speaker_a`/`speaker_b` objects carrying `age`/`gender`/`region`), exits 0,
+  and leaves no empty directory skeletons; demographics with partial coverage
+  produce outputs for the dimensions that have data. A genuine failure in the
+  stage now logs one traceback and exits non-zero under a message that names
+  the demographic stage and states that the evaluation itself completed.
+  `DemographicAnalyzer.run_full_analysis` returns whether it wrote outputs,
+  `create_violin_plot` raises a named `ValueError` on all-NA input instead of
+  plotnine's opaque `TypeError`, and the `--demographics`/`--dataset-dir` help
+  now states the metadata contract the flags need.
+
 ## [0.1.2] - 2026-09-01
 
 ### Fixed

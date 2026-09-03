@@ -473,6 +473,119 @@ class TestMultiSpeakerDispatch:
         assert kwargs["language"] == "en"
 
 
+class TestMultiDemographicsStage:
+    """The optional --demographics stage after issue #234.
+
+    On the shipped example (which carries no metadata.json) the stage used to
+    crash inside plotnine, log the same traceback twice, and report
+    ``Evaluation failed`` with exit 1 — although the evaluation had completed
+    and written its artifacts. Missing metadata is now a warned skip with
+    exit 0; a genuine failure in the stage exits non-zero under a message
+    that names the stage and states that the evaluation itself succeeded.
+    """
+
+    @staticmethod
+    def _eval_outputs(tmp_path):
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text("{}\n")
+        out_csv = tmp_path / "asr_eval_results_mymodel_manifest.csv"
+        out_csv.write_text("audio_id,speaker,wer_conv\nrec1,A,0.1\nrec1,B,0.2\n")
+        return manifest, out_csv
+
+    def test_missing_metadata_skips_and_exits_zero(self, tmp_path, caplog):
+        manifest, out_csv = self._eval_outputs(tmp_path)
+        dataset_dir = tmp_path / "dataset"
+        dataset_dir.mkdir()
+        output_dir = tmp_path / "out"
+
+        with caplog.at_level("WARNING"):
+            with patch("psdn_sonar.multispeaker_pipeline.run_multispeaker_evaluation") as mock_run:
+                mock_run.return_value = str(out_csv)
+                run_cli(
+                    "multi",
+                    "--input",
+                    str(manifest),
+                    "--models",
+                    "whisper_api",
+                    "--demographics",
+                    "--dataset-dir",
+                    str(dataset_dir),
+                    "--output",
+                    str(output_dir),
+                )  # completes without SystemExit
+
+        assert "metadata.json" in caplog.text
+        assert "Evaluation failed" not in caplog.text
+        assert "Demographic analysis complete" not in caplog.text
+        # No empty demographic directory skeletons.
+        assert not (output_dir / "demographic-analysis").exists()
+
+    def test_stage_failure_exits_one_without_claiming_the_evaluation_failed(self, tmp_path, caplog):
+        manifest, out_csv = self._eval_outputs(tmp_path)
+        dataset_dir = tmp_path / "dataset"
+        dataset_dir.mkdir()
+
+        with caplog.at_level("ERROR"):
+            with patch("psdn_sonar.multispeaker_pipeline.run_multispeaker_evaluation") as mock_run:
+                mock_run.return_value = str(out_csv)
+                with patch(
+                    "psdn_sonar.analysis.demographic_analyzer.DemographicAnalyzer.run_full_analysis",
+                    side_effect=RuntimeError("plotting exploded"),
+                ):
+                    with pytest.raises(SystemExit) as exc_info:
+                        run_cli(
+                            "multi",
+                            "--input",
+                            str(manifest),
+                            "--models",
+                            "whisper_api",
+                            "--demographics",
+                            "--dataset-dir",
+                            str(dataset_dir),
+                            "--output",
+                            str(tmp_path / "out"),
+                        )
+
+        assert exc_info.value.code == 1
+        assert "Evaluation failed" not in caplog.text
+        assert "Demographic analysis failed for" in caplog.text
+        assert "completed" in caplog.text  # ...and says the evaluation succeeded
+        # The traceback is logged exactly once, not once per handler layer.
+        assert sum(1 for r in caplog.records if r.exc_info) == 1
+
+    def test_successful_stage_logs_completion_and_exits_zero(self, tmp_path, caplog):
+        manifest, out_csv = self._eval_outputs(tmp_path)
+        dataset_dir = tmp_path / "dataset"
+        meta_dir = dataset_dir / "rec1"
+        meta_dir.mkdir(parents=True)
+        (meta_dir / "metadata.json").write_text(
+            '{"speaker_a": {"age": 30, "gender": "female", "region": "north"},'
+            ' "speaker_b": {"age": 45, "gender": "male", "region": "south"}}'
+        )
+        output_dir = tmp_path / "out"
+
+        with caplog.at_level("INFO"):
+            with patch("psdn_sonar.multispeaker_pipeline.run_multispeaker_evaluation") as mock_run:
+                mock_run.return_value = str(out_csv)
+                run_cli(
+                    "multi",
+                    "--input",
+                    str(manifest),
+                    "--models",
+                    "whisper_api",
+                    "--demographics",
+                    "--dataset-dir",
+                    str(dataset_dir),
+                    "--output",
+                    str(output_dir),
+                )
+
+        assert "Demographic analysis complete" in caplog.text
+        assert "Evaluation failed" not in caplog.text
+        plots = output_dir / "demographic-analysis" / "demographic_plots" / "mymodel"
+        assert (plots / "gender_wer_conv.png").exists()
+
+
 class TestCustomDispatch:
     def test_forwards_config_and_report_flag(self, tmp_path):
         config_file = tmp_path / "eval.yaml"

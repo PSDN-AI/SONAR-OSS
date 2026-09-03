@@ -72,8 +72,18 @@ class DemographicAnalyzer:
 
     @classmethod
     def create_violin_plot(cls, df: pd.DataFrame, demographic: str, metric: str, output_path: Path) -> None:
-        """Violin + boxplot + jitter of *metric* grouped by *demographic*."""
+        """Violin + boxplot + jitter of *metric* grouped by *demographic*.
+
+        Raises ValueError when no row carries both values: plotnine's own
+        failure on an all-NA frame is an unrelated ``TypeError`` from axis
+        expansion that names neither column (issue #234).
+        """
         df_clean = df.dropna(subset=[demographic, metric]).copy()
+        if df_clean.empty:
+            raise ValueError(
+                f"No rows have both '{demographic}' and '{metric}' — nothing to plot. "
+                f"Demographic values come from <dataset_dir>/<audio_id>/metadata.json."
+            )
         df_clean[f"{demographic}_str"] = df_clean[demographic].astype(str)
 
         plot = (
@@ -128,27 +138,55 @@ class DemographicAnalyzer:
     @classmethod
     def run_full_analysis(
         cls, results_csv: Path, dataset_dir: Path, output_dir: Path, model_name: Optional[str] = None
-    ) -> None:
-        """Generate violin plots, per-group stats CSVs, and a text summary for one model."""
+    ) -> bool:
+        """Generate violin plots, per-group stats CSVs, and a text summary for one model.
+
+        Returns True when outputs were written. Demographics with no data
+        are skipped, and when *no* recording has any metadata the whole
+        analysis is skipped with a warning naming the expected layout and a
+        False return, instead of crashing inside plotnine on the all-NA
+        columns (issue #234: the shipped example fixture has no
+        ``metadata.json``, and the resulting NA columns surfaced as an
+        unrelated ``TypeError`` from axis expansion). Nothing is written and
+        no directories are created for a skipped analysis.
+        """
         if model_name is None:
             model_name = _model_name_from_csv(results_csv)
 
         df = cls.load_data_with_metadata(results_csv, dataset_dir)
+
+        with_data = [d for d in cls.DEMOGRAPHICS if d in df.columns and df[d].notna().any()]
+        if not with_data:
+            logger.warning(
+                "No demographic metadata found for any of the %d recording(s) in %s. "
+                "Speaker attributes are read from %s/<audio_id>/metadata.json "
+                "('speaker_a'/'speaker_b' objects with 'age', 'gender', 'region' keys); "
+                "no such file exists for these recordings. Skipping demographic "
+                "analysis for %s — the evaluation artifacts are unaffected.",
+                df["audio_id"].nunique(),
+                results_csv,
+                dataset_dir,
+                model_name,
+            )
+            return False
 
         plots_dir = output_dir / "demographic_plots" / model_name
         stats_dir = output_dir / "demographic_stats" / model_name
         plots_dir.mkdir(exist_ok=True, parents=True)
         stats_dir.mkdir(exist_ok=True, parents=True)
 
-        for demographic in cls.DEMOGRAPHICS:
+        for demographic in with_data:
             for metric in cls.METRICS:
                 if metric not in df.columns:
+                    continue
+                if df.dropna(subset=[demographic, metric]).empty:
                     continue
                 cls.create_violin_plot(df, demographic, metric, plots_dir / f"{demographic}_{metric}.png")
                 stats = cls.generate_summary_stats(df, demographic, metric)
                 stats.to_csv(stats_dir / f"{demographic}_{metric}.csv", index=False, float_format="%.4f")
 
         cls.create_summary_report(df, output_dir, output_dir / f"demographic_summary_{model_name}.txt")
+        return True
 
     @classmethod
     def create_summary_report(cls, df: pd.DataFrame, output_dir: Path, report_path: Optional[Path] = None) -> None:

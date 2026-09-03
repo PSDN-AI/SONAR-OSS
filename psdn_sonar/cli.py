@@ -285,11 +285,13 @@ def run_multi_speaker(args):
             output_csvs.append((model_name, output_csv))
             logger.info("Completed: %s", model_name)
 
+        demographic_failures = []
         if args.demographics and args.dataset_dir:
             logger.info("Generating demographic analysis for all models")
             for model_name, output_csv in output_csvs:
                 logger.info("Processing demographics for: %s", model_name)
-                run_demographic_analysis(output_csv, args.dataset_dir, args.output)
+                if not run_demographic_analysis(output_csv, args.dataset_dir, args.output):
+                    demographic_failures.append(model_name)
 
         if args.report:
             logger.info("Generating comprehensive reports for all models")
@@ -308,6 +310,19 @@ def run_multi_speaker(args):
         for model_name, output_csv in output_csvs:
             display_aggregate_stats(output_csv, model_name)
 
+        if demographic_failures:
+            # Honest exit: the evaluation succeeded and its artifacts are on
+            # disk, but the run did not deliver everything that was asked of
+            # it, so the exit code stays non-zero — under a message that says
+            # which stage failed instead of "Evaluation failed" (issue #234).
+            logger.error(
+                "Demographic analysis failed for: %s (traceback above). The evaluation "
+                "itself completed and its results are in %s.",
+                ", ".join(demographic_failures),
+                args.output,
+            )
+            sys.exit(1)
+
         logger.info("All evaluations complete.")
 
     except (ValueError, FileNotFoundError, RuntimeError) as e:
@@ -322,7 +337,15 @@ def run_multi_speaker(args):
 
 
 def run_demographic_analysis(results_csv, dataset_dir, output_dir):
-    """Generate demographic analysis plots."""
+    """Generate demographic analysis plots. Returns True on success.
+
+    Failures are logged once here (with traceback) and reported through the
+    return value rather than an exception: by the time this optional stage
+    runs, the evaluation has already completed and written its artifacts, so
+    a failure here must not surface as ``Evaluation failed`` — nor be logged
+    twice by the re-raise reaching the subcommand's top-level handler
+    (issue #234).
+    """
     from psdn_sonar.analysis.demographic_analyzer import DemographicAnalyzer
 
     results_csv = Path(results_csv)
@@ -332,13 +355,18 @@ def run_demographic_analysis(results_csv, dataset_dir, output_dir):
     model_name = results_csv.stem.replace("asr_eval_results_", "").replace("_manifest", "")
 
     try:
-        DemographicAnalyzer.run_full_analysis(
+        wrote_outputs = DemographicAnalyzer.run_full_analysis(
             results_csv=results_csv, dataset_dir=dataset_dir, output_dir=output_dir, model_name=model_name
         )
-        logger.info("Demographic analysis complete: %s/demographic_plots/%s/", output_dir, model_name)
+        if wrote_outputs:
+            logger.info("Demographic analysis complete: %s/demographic_plots/%s/", output_dir, model_name)
+        # A metadata-less skip logs its own warning inside run_full_analysis
+        # and is not a failure: the run asked for an optional analysis whose
+        # documented behavior on missing metadata is NA columns / skipping.
+        return True
     except Exception as e:
-        logger.error(f"Demographic analysis failed: {e}", exc_info=True)
-        raise
+        logger.error(f"Demographic analysis failed for {model_name}: {e}", exc_info=True)
+        return False
 
 
 def display_aggregate_stats(results_csv, model_name):
@@ -901,9 +929,23 @@ Examples:
             "only for ablation studies."
         ),
     )
-    multi_parser.add_argument("--demographics", action="store_true", help="Generate demographic analysis plots")
     multi_parser.add_argument(
-        "--dataset-dir", help="Dataset directory (required if --demographics or --report is used)"
+        "--demographics",
+        action="store_true",
+        help=(
+            "Generate demographic analysis plots from per-recording speaker metadata "
+            "(see --dataset-dir for the expected layout); recordings without metadata "
+            "are skipped with a warning"
+        ),
+    )
+    multi_parser.add_argument(
+        "--dataset-dir",
+        help=(
+            "Directory with one subdirectory per recording (audio_id), where demographic "
+            "metadata is read from <dataset-dir>/<audio_id>/metadata.json — 'speaker_a'/"
+            "'speaker_b' objects with 'age', 'gender' and 'region' keys. Required if "
+            "--demographics or --report is used"
+        ),
     )
     multi_parser.add_argument(
         "--report", action="store_true", help="Generate comprehensive report with benchmark comparisons"
