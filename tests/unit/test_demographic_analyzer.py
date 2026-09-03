@@ -153,8 +153,9 @@ class TestRunFullAnalysis:
         )
         output_dir = tmp_path / "out"
 
-        DemographicAnalyzer.run_full_analysis(results_csv, dataset_dir, output_dir)
+        wrote = DemographicAnalyzer.run_full_analysis(results_csv, dataset_dir, output_dir)
 
+        assert wrote is True
         plots_dir = output_dir / "demographic_plots" / "mymodel"
         stats_dir = output_dir / "demographic_stats" / "mymodel"
         for demographic in ("age", "gender", "region"):
@@ -163,6 +164,63 @@ class TestRunFullAnalysis:
         # Only wer_conv is present, so no other metric outputs.
         assert not (plots_dir / "gender_cer_conv.png").exists()
         assert (output_dir / "demographic_summary_mymodel.txt").exists()
+
+    def test_no_metadata_skips_with_warning_instead_of_crashing(self, tmp_path, caplog):
+        """Issue #234: the shipped example has no metadata.json, and the
+        all-NA demographic columns used to reach plotnine's axis expansion,
+        which died on ``int > None`` — an error naming neither the metadata
+        nor where it is looked up. Now the analysis is skipped with a
+        warning naming the expected layout, and nothing is written."""
+        import logging
+
+        dataset_dir = tmp_path / "dataset"
+        dataset_dir.mkdir()
+        results_csv = tmp_path / "results_mymodel_manifest.csv"
+        _write_results_csv(
+            results_csv,
+            _results_rows([0.1, 0.2], speaker="A") + _results_rows([0.3, 0.4], speaker="B"),
+        )
+        output_dir = tmp_path / "out"
+
+        with caplog.at_level(logging.WARNING):
+            wrote = DemographicAnalyzer.run_full_analysis(results_csv, dataset_dir, output_dir)
+
+        assert wrote is False
+        warning = "\n".join(r.message for r in caplog.records)
+        assert "metadata.json" in warning
+        assert str(dataset_dir) in warning
+        assert "speaker_a" in warning
+        # Nothing written, no empty directory skeletons left behind (the
+        # reported run left demographic_plots/ and demographic_stats/ empty).
+        assert not output_dir.exists()
+
+    def test_partial_metadata_covers_only_dimensions_with_data(self, tmp_path):
+        """A recording whose metadata carries only some attributes gets
+        outputs for those and a silent skip for the all-NA rest."""
+        dataset_dir = tmp_path / "dataset"
+        _write_metadata(dataset_dir, "rec1", speaker_a={"gender": "female"})
+        results_csv = tmp_path / "results_mymodel_manifest.csv"
+        _write_results_csv(results_csv, _results_rows([0.1, 0.3], speaker="A"))
+        output_dir = tmp_path / "out"
+
+        wrote = DemographicAnalyzer.run_full_analysis(results_csv, dataset_dir, output_dir)
+
+        assert wrote is True
+        plots_dir = output_dir / "demographic_plots" / "mymodel"
+        assert (plots_dir / "gender_wer_conv.png").exists()
+        assert not (plots_dir / "age_wer_conv.png").exists()
+        assert not (plots_dir / "region_wer_conv.png").exists()
+
+
+class TestCreateViolinPlot:
+    def test_all_na_input_raises_a_named_error(self, tmp_path):
+        """Direct callers with an all-NA frame get a ValueError naming the
+        columns, not plotnine's ``'>' not supported between instances of
+        'int' and 'NoneType'`` from axis expansion (issue #234)."""
+        df = pd.DataFrame({"gender": [None, None], "wer_conv": [0.1, 0.2]})
+
+        with pytest.raises(ValueError, match="nothing to plot"):
+            DemographicAnalyzer.create_violin_plot(df, "gender", "wer_conv", tmp_path / "plot.png")
 
 
 class TestOverallBenchmark:

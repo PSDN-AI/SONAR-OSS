@@ -55,11 +55,14 @@ def main():
     logger.info("Demographic analysis: results=%s dataset=%s model=%s", results_csv, dataset_dir, model_name)
 
     try:
-        DemographicAnalyzer.run_full_analysis(
+        wrote_outputs = DemographicAnalyzer.run_full_analysis(
             results_csv=results_csv, dataset_dir=dataset_dir, output_dir=output_dir, model_name=model_name
         )
-        logger.info("Plots saved to: %s/demographic_plots/%s/", output_dir, model_name)
-        logger.info("Statistics saved to: %s/demographic_stats/%s/", output_dir, model_name)
+        if wrote_outputs:
+            logger.info("Plots saved to: %s/demographic_plots/%s/", output_dir, model_name)
+            logger.info("Statistics saved to: %s/demographic_stats/%s/", output_dir, model_name)
+        # A metadata-less skip already logged a warning naming the expected
+        # <dataset_dir>/<audio_id>/metadata.json layout (issue #234).
     except Exception as e:
         logger.error(f"Analysis failed: {e}", exc_info=True)
         sys.exit(1)
