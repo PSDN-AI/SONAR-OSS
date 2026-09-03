@@ -43,6 +43,22 @@ review_by = "2026-10-15"
 removal_condition = "Remove when the transformers pin is raised to >=5."
 
 [[exception]]
+id = "GHSA-xrqw-3rrv-vx5w"
+package = "transformers"
+owner = "RN0311"
+rationale = "Path traversal via chat_template keys in save_pretrained() of PreTrainedTokenizerBase/ProcessorMixin (CVE-2026-9856). psdn-sonar never calls save_pretrained — models, tokenizers and processors are loaded for inference only — so the vulnerable write path is not reachable. Fixed only in transformers 5.10.0; the toolkit pins <5.0.0 because 5.x is a breaking major upgrade for the ASR adapters."
+review_by = "2026-10-15"
+removal_condition = "Remove when the transformers pin is raised to >=5.10.0."
+
+[[exception]]
+id = "GHSA-8mgp-746c-j5xp"
+package = "nltk"
+owner = "RN0311"
+rationale = "Path-traversal sandbox bypass in nltk model-artifact APIs (TransitionParser, AveragedPerceptron, PerceptronTagger.save_to_json, save_maxent_params; CVE-2026-81726). No patched release is published. nltk is a transitive dependency (bnlp tokenizer data, sentence-transformers); psdn-sonar touches only nltk.data.find/nltk.download through utils/bnlp_compat.py and never the affected model save/load APIs, so the vulnerable path is not reachable."
+review_by = "2026-10-15"
+removal_condition = "Remove when nltk publishes a fixed release and the lock is updated to it."
+
+[[exception]]
 id = "PYSEC-2026-3716"
 package = "datasets"
 owner = "RN0311"
