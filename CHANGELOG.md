@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Skipping a per-clip preprocessing method names the capability it actually
+  requires (#239). `core.py`'s prefilter hardcoded `supports_diarization`
+  for the whole per-clip set, while the package's own
+  `PER_CLIP_REQUIRED_CAPABILITY` map says `pyannote_diarize` requires
+  `supports_word_timestamps` — so the skip pointed users at the wrong
+  capability, the selector's precise message (naming the requirement, the
+  one registered adapter with word timestamps, and a per-channel
+  alternative) was never reached because the prefilter runs first, and an
+  adapter with word timestamps but no diarization was refused despite
+  satisfying the real requirement. The prefilter now consults the map
+  through the selector's message builder
+  (`preprocessing_selector.unsupported_capability_error`, made public with
+  an optional display name so the warning shows the registry model name),
+  giving both gates one source of truth. `scribe_diarize`'s skip still
+  names `supports_diarization`, which it genuinely requires.
 - POSEIDON weight validation rejects negative weights instead of only
   checking the sum (#238). A set like `-0.5/0.75/0.75` sums to 1.0 and was
   accepted silently at every validation site, inverting the composite so a
@@ -39,6 +54,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `create_violin_plot` raises a named `ValueError` on all-NA input instead of
   plotnine's opaque `TypeError`, and the `--demographics`/`--dataset-dir` help
   now states the metadata contract the flags need.
+- `scripts/download_data.py --help` no longer dies on a boto3 traceback
+  without the `[cloud]` extra (#240). The top-level `boto3`/`botocore`
+  imports in `data_downloader.py` are guarded, so the module and both
+  scripts that import it load without the extra, and `DataDownloader`
+  raises an actionable `ImportError` naming
+  `pip install "psdn-sonar[cloud]"` — the same shape the other extras use.
+- `custom` runs now write the same `scores_<model>.json` a `single` run
+  writes (#241). A completed custom evaluation carried no provenance record
+  at all (package version, model snapshot, language code, seed, protocol,
+  git sha, device) and was invisible to `psdn-sonar leaderboard` — exactly
+  on the path for languages the package ships no processor for.
+  `docs/USAGE.md` now names `custom` alongside `single` as an artifact
+  writer.
+- Report image links use forward slashes on every platform (#242).
+  `_plot_entry` interpolated a `Path`, so on Windows every image link in a
+  generated report carried a backslash — which Markdown does not treat as a
+  path separator — and all report images rendered broken. The link target
+  is now built with `as_posix()` at the single site where image links are
+  made, matching what the test suite already asserted.
+- The absolute silence floor is a minimum reference level, not a whole-file
+  verdict (#243). "Loudest RMS frame below 1e-3 (~ -60 dBFS)" was equated
+  with "the file is silent", so a quiet copy of an utterance was reported
+  as 100% silence while transcribing at the identical WER and measuring the
+  identical SNR. Frames are now measured against max(own loudest frame,
+  floor): digital silence still scores 1.0 (issue #105's regressions pass
+  unchanged) and quiet-but-intelligible audio keeps its real ratio.
+- `cli.py` delivers user-input errors consistently (#244). A `ValueError`
+  from custom-run config validation arrived with a full traceback while
+  `single` and `multi` deliver the same class as one clean ERROR line —
+  `run_custom` now has the same two-tier shape. And `--split-ratio 0.5`
+  raised inside `int()` one line before the length check, so the guidance
+  message written for malformed input was unreachable for non-integer
+  input; both input classes now reach it.
+- A MOS scorer failure records why the column is empty (#245). A UTMOS
+  fetch failure was swallowed inside `score_utmos`, bypassing the
+  `mos_metrics_unavailable` marker one layer above, so the CSV showed an
+  empty `utmos` column with empty `quality_warnings` and the only trace was
+  one terminal WARNING. Each family (DNSMOS, UTMOS, SQUIM) now records its
+  failure reason at load and scoring time, and per-family
+  `<family>_unavailable: <reason>` markers land in `quality_warnings`.
+- Multi-run summaries surface quality-flagged rows (#246). A silent
+  speaker channel was detected and written to the per-row CSV, then
+  dropped from the console and the `.txt` summary, so the combined WER —
+  composed over a channel at WER 1.0 — read as a clean model result. The
+  console now logs one WARNING with the flagged-row count and an example,
+  and the `.txt` lists each flagged row under
+  "Rows with quality warnings: N".
+- The artifact encoding is documented (#247): every text artifact (results
+  CSV, `.txt` summary, `scores_<model>.json`, Markdown reports) is UTF-8
+  on every platform — on a non-UTF-8 host default (e.g. cp936), Bengali,
+  Hindi and Korean results raised `UnicodeDecodeError` without an explicit
+  encoding, and no shipped document said so. All write sites were audited;
+  the one text write without an explicit encoding (a non-artifact HF
+  config patch) now passes `encoding="utf-8"` too.
+- The dependency-audit gate matches exceptions against advisory aliases
+  (#248). It keyed on the one id pip-audit reports as primary, and
+  different pip-audit versions promote different ids of the same advisory
+  — one unchanged lockfile and exceptions file passed under the CI pin and
+  reported four false failures under a newer scanner, two of them
+  instructions to delete the exceptions keeping CI green. An exception now
+  matches the reported id or any alias.
+- The documented install is loud on Python 3.13 (#249). `pip install
+  psdn-sonar` there silently resolves to the outdated 0.1.0 (the only
+  release predating the `Requires-Python <3.13` bound); the README now
+  documents `pip install "psdn-sonar>=0.1.1"`, which makes pip name the
+  restriction and install nothing, and `docs/RELEASING.md` records 0.1.0
+  as a yank candidate with the reason text. Yanking itself needs a PyPI
+  project owner.
+- The installed-package gate is line-ending tolerant and text files are
+  pinned to LF (#250). The gate compared wheel resources against the
+  checkout byte-for-byte, so on a `core.autocrlf=true` host it failed a
+  clean tree over one `\r` per line. Both comparison sites (YAML configs
+  and loanword-cache JSON) now normalise CRLF before comparing, and a new
+  `.gitattributes` (`* text=auto eol=lf`) keeps working trees identical to
+  the wheel everywhere.
+- `test_data_downloader` compares filenames portably (#251). The
+  skip-existing assertion split a platform-native path on `/`, which finds
+  no separator on Windows, so the test failed there; it now uses
+  `PurePath(p).name`. Test-only — the downloader's paths were correct.
+- The `Makefile` declares `SHELL := /bin/sh` (#252). Without it, GNU Make
+  on a Windows host with no Unix shell resolved falls back to `cmd`, which
+  cannot run `make check-internal-refs` (a bash script). The recipe also
+  invokes bash explicitly, and the README notes the make targets need a
+  Unix-style shell (Git Bash) on Windows.
+- The Windows setup steps work as written (#253). `Activate.ps1` is
+  refused under the `Restricted` execution policy Windows client editions
+  default to — with the error on stderr and exit 0, so the install landed
+  outside the venv silently. The PowerShell block now sets a process-scoped
+  policy first and verifies activation via `sys.executable`; the
+  contributor section gains a Windows form that runs the `uv sync`
+  commands behind `make setup`/`make setup-ml` directly.
+- Windows has a documented, working ffmpeg route — including pyannote
+  (#254). The missing-ffmpeg guidance named only apt-get and brew; it and
+  the README now add `winget install Gyan.FFmpeg`. And pyannote
+  diarization failed even with ffmpeg installed: torchcodec needs the
+  ffmpeg shared libraries, and Windows does not consult `PATH` for a
+  native extension's dependent DLLs — the package now registers the ffmpeg
+  directory via `os.add_dll_directory` before importing pyannote, so the
+  documented `winget install Gyan.FFmpeg.Shared` works as written.
+- One Windows machine records one operating system in `scores.json`
+  regardless of the interpreter (#255). CPython below 3.12 reports any
+  Windows 11 build as `Windows-10`, so `submission.os_platform` for one
+  machine flipped between `Windows-10-…` and `Windows-11-…` with the
+  Python version. The release is now normalised from
+  `sys.getwindowsversion().build` (22000 is the first Windows 11 build),
+  converging older interpreters on the value 3.12 already writes.
 
 ## [0.1.2] - 2026-09-01
 
