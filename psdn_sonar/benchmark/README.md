@@ -128,6 +128,12 @@ in effect (including `POSEIDON_*_WEIGHT` / `SIMILARITY_MODEL` env overrides),
 plus `os_platform`, `python_version`, and `device`. Callers supply
 run-specific fields (`provider`, `model_snapshot`, `region`, `protocol`, etc.).
 
+`os_platform` is `platform.platform()` with one normalisation: on Windows the
+release is derived from the build number (22000 is the first Windows 11
+build), because CPython below 3.12 reports any Windows 11 build as
+`Windows-10` and one machine would otherwise record two different operating
+systems depending on the interpreter (issue #255).
+
 `git_sha` identifies the psdn-sonar checkout the package ran from: it is
 resolved against the package's own directory (never the caller's working
 directory) and only when the package files are tracked by that repository.

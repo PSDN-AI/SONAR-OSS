@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -93,6 +94,29 @@ def _resolve_device() -> Optional[str]:
         return None
 
 
+def _resolve_os_platform() -> str:
+    """``platform.platform()`` with the Windows release derived from the build.
+
+    CPython gained Windows 11 detection only in 3.12: ``platform.win32_ver()``
+    reports release ``10`` for any build on 3.10 and 3.11, so one Windows 11
+    machine recorded ``Windows-10-10.0.26200-SP0`` under two supported
+    interpreters and ``Windows-11-10.0.26200-SP0`` under the third — one
+    machine, two operating systems in the provenance record (issue #255).
+    22000 is the first Windows 11 build and ``sys.getwindowsversion().build``
+    is interpreter-independent, so the release is normalised from it. The
+    3.12 form is the accurate one; older interpreters now converge on it.
+    """
+    value = platform.platform()
+    if sys.platform == "win32" and value.startswith("Windows-10-"):
+        try:
+            build = sys.getwindowsversion().build
+        except (AttributeError, OSError):  # pragma: no cover - defensive
+            return value
+        if build >= 22000:
+            return value.replace("Windows-10-", "Windows-11-", 1)
+    return value
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -145,7 +169,14 @@ class SubmissionConfig(BaseModel):
         default=None,
         description="Semantic-similarity model id in effect, including the SIMILARITY_MODEL env override.",
     )
-    os_platform: Optional[str] = Field(default=None, description="OS identification (platform.platform()).")
+    os_platform: Optional[str] = Field(
+        default=None,
+        description=(
+            "OS identification (platform.platform(), with the Windows release "
+            "normalised from the build number so all supported interpreters "
+            "record the same OS for one machine — issue #255)."
+        ),
+    )
     python_version: Optional[str] = Field(default=None, description="Python version the run executed under.")
     device: Optional[str] = Field(
         default=None,
@@ -196,7 +227,7 @@ class SubmissionConfig(BaseModel):
             timestamp_utc=_utc_now_iso(),
             poseidon_weights=_resolve_poseidon_weights(),
             similarity_model=_resolve_similarity_model(),
-            os_platform=platform.platform(),
+            os_platform=_resolve_os_platform(),
             python_version=platform.python_version(),
             device=_resolve_device(),
         )
