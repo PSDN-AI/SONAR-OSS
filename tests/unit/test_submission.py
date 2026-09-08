@@ -566,21 +566,15 @@ class TestOsPlatformNormalisation:
 
     def test_old_interpreter_on_windows_11_normalised(self, monkeypatch):
         # The issue's exact values: 3.10/3.11 on build 26200.
-        result = self._simulate_windows(
-            monkeypatch, platform_string="Windows-10-10.0.26200-SP0", build=26200
-        )
+        result = self._simulate_windows(monkeypatch, platform_string="Windows-10-10.0.26200-SP0", build=26200)
         assert result == "Windows-11-10.0.26200-SP0"
 
     def test_real_windows_10_untouched(self, monkeypatch):
-        result = self._simulate_windows(
-            monkeypatch, platform_string="Windows-10-10.0.19045-SP0", build=19045
-        )
+        result = self._simulate_windows(monkeypatch, platform_string="Windows-10-10.0.19045-SP0", build=19045)
         assert result == "Windows-10-10.0.19045-SP0"
 
     def test_312_form_already_correct_passes_through(self, monkeypatch):
-        result = self._simulate_windows(
-            monkeypatch, platform_string="Windows-11-10.0.26200-SP0", build=26200
-        )
+        result = self._simulate_windows(monkeypatch, platform_string="Windows-11-10.0.26200-SP0", build=26200)
         assert result == "Windows-11-10.0.26200-SP0"
 
     def test_non_windows_platform_untouched(self, monkeypatch):
