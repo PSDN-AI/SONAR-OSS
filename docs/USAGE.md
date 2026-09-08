@@ -11,7 +11,9 @@ score.
 ## Install
 
 New users: follow the package install in [`README.md`](../README.md)
-(`pip install "psdn-sonar[ml]"`, or the source steps listed there).
+(`pip install "psdn-sonar[ml]>=0.1.1"`, or the source steps listed there —
+the lower bound keeps pip from silently falling back to the outdated,
+unbounded 0.1.0 on unsupported interpreters, see the README).
 
 From a clone, the contributor install that includes local-model extras is:
 
