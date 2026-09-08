@@ -270,6 +270,10 @@ make pre-commit-install
 make check-internal-refs
 ```
 
+On Windows, run these from a Unix-style shell such as Git Bash (bundled with
+[Git for Windows](https://gitforwindows.org/)): the recipes are POSIX shell,
+and GNU Make falls back to `cmd` when no Unix shell is on `PATH`.
+
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contributor guide,
 including PR title conventions and the import gate.
 
