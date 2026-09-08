@@ -128,10 +128,10 @@ and are skipped from language defaults when the keys are unset.
 ## 4. Compare completed runs: the leaderboard
 
 Every single-speaker evaluation run (`psdn-sonar single` or `run_evaluation`)
-writes a `scores_<model>.json` artifact into its output directory; `multi`
-writes per-clip CSV/TXT results but no scores artifact, so its runs do not
-appear here. `psdn-sonar leaderboard` scans one or more directories for those
-artifacts and renders a comparison table:
+and every `psdn-sonar custom` run writes a `scores_<model>.json` artifact into
+its output directory; `multi` writes per-clip CSV/TXT results but no scores
+artifact, so its runs do not appear here. `psdn-sonar leaderboard` scans one
+or more directories for those artifacts and renders a comparison table:
 
 ```bash
 psdn-sonar leaderboard --runs results/ --language bn
