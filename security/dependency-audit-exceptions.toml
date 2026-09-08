@@ -73,3 +73,11 @@ owner = "RN0311"
 rationale = "Advisory's fixed version is CalVer 2022.6.15, which version-compares above the current SemVer 2.x line, so every modern lightning release is flagged. The advisory targets the deprecated 2022-era package layout; lightning is a transitive dependency of the optional [pyannote] extra only."
 review_by = "2026-10-15"
 removal_condition = "Remove when the advisory metadata is corrected upstream or pyannote.audio drops the lightning dependency."
+
+[[exception]]
+id = "GHSA-4j2p-28q2-5m79"
+package = "accelerate"
+owner = "RN0311"
+rationale = "Path traversal / named-pipe DoS in accelerate's load_checkpoint_in_model and load_checkpoint_and_dispatch via unsanitized weight_map entries in sharded checkpoint indexes (CVE-2026-69112). No fixed release is published (fix PRs huggingface/accelerate#4070/#4138 are unreleased). accelerate is a transitive dependency of peft only; psdn-sonar never imports accelerate and never calls the affected checkpoint-dispatch functions — PEFT adapters are loaded from registry-pinned Hub IDs — so the vulnerable path is not reachable."
+review_by = "2026-10-15"
+removal_condition = "Remove when accelerate publishes a release containing the weight_map sanitization fix and the lock is updated to it."
