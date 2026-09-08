@@ -1,6 +1,7 @@
 """Tests for psdn_sonar.quality_models — reference-free speech quality scorers."""
 
 import numpy as np
+import pytest
 
 from psdn_sonar.quality_models import (
     _EMPTY_MOS,
@@ -200,7 +201,7 @@ class TestMosFailureReasonsRecorded:
     def test_loader_failure_records_the_reason(self, monkeypatch):
         """The issue's deterministic repro: torch.hub.load raising during the
         UTMOS fetch."""
-        import torch
+        torch = pytest.importorskip("torch")
 
         import psdn_sonar.quality_models as qm
 

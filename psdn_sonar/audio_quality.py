@@ -274,12 +274,11 @@ def compute_audio_quality_metrics(audio_path: str, include_mos: bool = True) -> 
             # Per-family failure markers (e.g. a UTMOS fetch failure that
             # score_utmos swallowed and returned None for) land in the
             # artifact instead of only in the terminal (issue #245).
-            mos_markers = mos.pop("mos_warnings", []) or []
+            popped = mos.pop("mos_warnings", None)
+            mos_markers = popped if isinstance(popped, list) else []
             result.update(mos)
             if mos_markers:
-                result["quality_warnings"] = "; ".join(
-                    x for x in [result.get("quality_warnings"), *mos_markers] if x
-                )
+                result["quality_warnings"] = "; ".join(x for x in [result.get("quality_warnings"), *mos_markers] if x)
         except Exception as exc:
             logger.warning("MOS metrics failed for %s: %s", audio_path, exc)
             result.update(_EMPTY_MOS)

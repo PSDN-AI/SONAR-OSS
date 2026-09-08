@@ -225,7 +225,7 @@ _EMPTY_MOS: Dict[str, "float | str | None"] = {
 def compute_mos_metrics(
     audio_or_path,
     sr: int = SAMPLE_RATE,
-) -> Dict[str, "float | str | None"]:
+) -> Dict[str, "float | str | list[str] | None"]:
     """Compute all reference-free quality scores.
 
     Parameters
@@ -274,7 +274,7 @@ def compute_mos_metrics(
         if all(scores.get(key) is None for key in keys) and error:
             mos_warnings.append(f"{family}_unavailable: {error}")
 
-    result: Dict[str, "float | str | None"] = dict(scores)
+    result: Dict[str, "float | str | list[str] | None"] = dict(scores)
     result["mos_tier"] = assign_mos_tier(scores.get("dnsmos_ovrl"))
-    result["mos_warnings"] = mos_warnings  # type: ignore[assignment]
+    result["mos_warnings"] = mos_warnings
     return result
