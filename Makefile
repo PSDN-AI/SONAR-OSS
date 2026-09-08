@@ -1,3 +1,9 @@
+# Recipes are POSIX shell (check-internal-refs runs a bash script, clean uses
+# find). Without this, GNU Make on a Windows host with no Unix shell on PATH
+# falls back to cmd, which cannot run them (issue #252). Under Git for
+# Windows / MSYS2, sh resolves to their bundled shell and the recipes work.
+SHELL := /bin/sh
+
 .PHONY: help setup setup-ml install test clean lint format typecheck pre-commit-install pre-commit-run check-internal-refs
 
 help:
@@ -69,4 +75,4 @@ pre-commit-run:
 	pre-commit run --all-files
 
 check-internal-refs:
-	./scripts/check_internal_refs.sh
+	bash scripts/check_internal_refs.sh
