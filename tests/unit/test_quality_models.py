@@ -1,6 +1,7 @@
 """Tests for psdn_sonar.quality_models — reference-free speech quality scorers."""
 
 import numpy as np
+import pytest
 
 from psdn_sonar.quality_models import (
     _EMPTY_MOS,
@@ -96,9 +97,13 @@ class TestComputeMosMetrics:
         for key in _EMPTY_MOS:
             assert key in result, f"Missing key: {key}"
 
-    def test_invalid_path_returns_empty(self):
+    def test_invalid_path_returns_empty_with_reason(self):
         result = compute_mos_metrics("/nonexistent/path.wav")
-        assert result == _EMPTY_MOS
+        for key, value in _EMPTY_MOS.items():
+            assert result[key] == value
+        # Issue #245: the reason the columns are empty must be reported.
+        assert len(result["mos_warnings"]) == 1
+        assert result["mos_warnings"][0].startswith("mos_metrics_unavailable:")
 
     def test_mos_tier_assigned(self, tmp_path):
         import soundfile as sf
@@ -149,3 +154,64 @@ class TestComputeAudioQualityMetricsWithMos:
         result = compute_audio_quality_metrics(wav_path, include_mos=False)
         assert "snr_db" in result
         assert "dnsmos_ovrl" not in result
+
+
+class TestMosFailureReasonsRecorded:
+    """Issue #245: a family that produced no value must say why via
+    ``mos_warnings`` instead of leaving an empty column whose only trace is
+    one terminal WARNING line."""
+
+    @staticmethod
+    def _stub_families(monkeypatch, *, utmos_value):
+        import psdn_sonar.quality_models as qm
+
+        monkeypatch.setattr(
+            qm, "score_dnsmos", lambda audio, sr=16000: {"dnsmos_ovrl": 2.6, "dnsmos_sig": 3.0, "dnsmos_bak": 3.1}
+        )
+        monkeypatch.setattr(
+            qm, "score_squim", lambda audio, sr=16000: {"squim_pesq": 2.4, "squim_stoi": 0.9, "squim_si_sdr": 18.0}
+        )
+        monkeypatch.setattr(qm, "score_utmos", lambda audio, sr=16000: {"utmos": utmos_value})
+
+    def test_utmos_fetch_failure_lands_in_mos_warnings(self, monkeypatch):
+        import psdn_sonar.quality_models as qm
+
+        self._stub_families(monkeypatch, utmos_value=None)
+        monkeypatch.setattr(qm, "_utmos_error", "'Authorization'")
+
+        result = compute_mos_metrics(np.zeros(16000, dtype=np.float32))
+
+        assert result["utmos"] is None
+        assert result["dnsmos_ovrl"] == 2.6  # siblings still populated
+        assert result["mos_warnings"] == ["utmos_unavailable: 'Authorization'"]
+
+    def test_successful_scores_produce_no_warnings(self, monkeypatch):
+        import psdn_sonar.quality_models as qm
+
+        self._stub_families(monkeypatch, utmos_value=4.1)
+        # Even a stale error from an earlier clip must not fire once the
+        # family produces a value again.
+        monkeypatch.setattr(qm, "_utmos_error", "'Authorization'")
+
+        result = compute_mos_metrics(np.zeros(16000, dtype=np.float32))
+
+        assert result["utmos"] == 4.1
+        assert result["mos_warnings"] == []
+
+    def test_loader_failure_records_the_reason(self, monkeypatch):
+        """The issue's deterministic repro: torch.hub.load raising during the
+        UTMOS fetch."""
+        torch = pytest.importorskip("torch")
+
+        import psdn_sonar.quality_models as qm
+
+        def boom(*args, **kwargs):
+            raise KeyError("Authorization")
+
+        monkeypatch.setattr(torch.hub, "load", boom)
+        monkeypatch.setattr(qm, "_utmos_predictor", None)
+        monkeypatch.setattr(qm, "_utmos_available", None)
+        monkeypatch.setattr(qm, "_utmos_error", None)
+
+        assert score_utmos(np.zeros(16000, dtype=np.float32)) == {"utmos": None}
+        assert qm._utmos_error == "'Authorization'"
