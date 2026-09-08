@@ -476,6 +476,11 @@ def process_manifest_with_asr(
     processed_count = 0
     failed_count = 0
     acc: Dict[str, list] = {k: [] for k in _METRIC_KEYS}
+    # Rows whose audio carried quality warnings (e.g. a silent speaker
+    # channel). The CSV records them per row; the console and .txt summary
+    # must not present a combined WER composed over them as a clean model
+    # result (issue #246).
+    quality_flagged: List[tuple] = []
 
     with (
         open(output_csv, "w", newline="", encoding="utf-8") as outfile,
@@ -503,6 +508,8 @@ def process_manifest_with_asr(
             """
             nonlocal failed_count
             failed_count += 1
+            if aq.get("quality_warnings"):
+                quality_flagged.append((f"{clip_id}/{speaker}", aq["quality_warnings"]))
             writer.writerow(
                 create_output_row(
                     audio_id=clip_id,
@@ -662,6 +669,8 @@ def process_manifest_with_asr(
                         s = r.get("similarity") if r.get("similarity") is not None else 0.0
                         method_scores[r.get("method", "unknown")] = round(((1 - c) + (1 - w) + s) / 3, 4)
 
+                if aq.get("quality_warnings"):
+                    quality_flagged.append((f"{clip_id}/{speaker}", aq["quality_warnings"]))
                 writer.writerow(
                     create_output_row(
                         audio_id=clip_id,
@@ -707,6 +716,14 @@ def process_manifest_with_asr(
         m_wer_c, _ = _mean_std(acc["wer_c"])
         logger.info(f"[Combined] CER: {m_cer_c:.4f}, WER: {m_wer_c:.4f}")
 
+        if quality_flagged:
+            example_id, example_warning = quality_flagged[0]
+            logger.warning(
+                f"{len(quality_flagged)} of {processed_count + failed_count} rows carry audio "
+                f"quality warnings (e.g. {example_id}: {example_warning}). The combined CER/WER "
+                f"averages over those rows — see the quality_warnings column of {output_csv}."
+            )
+
         stats_file = output_csv.rsplit(".", 1)[0] + ".txt"
         with open(stats_file, "w", encoding="utf-8") as f:
             f.write(f"Multi-Speaker ASR Evaluation Results\n{'=' * 40}\n")
@@ -722,8 +739,16 @@ def process_manifest_with_asr(
                 mode_str = f"fixed:{method}"
             else:
                 mode_str = f"auto ({', '.join(active_methods)})"
-            f.write(f"Mode: {mode_str}\nSamples: {processed_count}\nFailed: {failed_count}\n\n")
-            f.write("--- Combined ---\n")
+            f.write(f"Mode: {mode_str}\nSamples: {processed_count}\nFailed: {failed_count}\n")
+            # The .txt outlives the terminal: a combined WER composed over
+            # rows the quality detector flagged (e.g. a silent speaker
+            # channel at wer 1.0) must not read as a clean model result
+            # (issue #246).
+            if quality_flagged:
+                f.write(f"Rows with quality warnings: {len(quality_flagged)}\n")
+                for row_id, row_warning in quality_flagged:
+                    f.write(f"  {row_id}: {row_warning}\n")
+            f.write("\n--- Combined ---\n")
             f.write("\n".join(_stats_lines(acc, "c")) + "\n")
 
         logger.info(f"Stats saved to: {stats_file}")
