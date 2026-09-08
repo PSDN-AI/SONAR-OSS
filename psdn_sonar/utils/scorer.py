@@ -2,9 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-import numpy as np
-
-from ..config import config
+from ..config import config, validate_poseidon_weights
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +57,10 @@ class PoseidonScorer:
         self.model_name = model_name or config.similarity_model
         self._model = None
 
-        total_weight = self.wer_weight + self.cer_weight + self.semantic_weight
-        if not np.isclose(total_weight, 1.0):
-            raise ValueError(f"Weights must sum to 1.0, got {total_weight}")
+        # Shared validator so this class accepts and rejects exactly the
+        # same weight sets as Config and calculate_poseidon_score — the sum
+        # check alone let negative weights through silently (issue #238).
+        validate_poseidon_weights(self.wer_weight, self.cer_weight, self.semantic_weight)
 
     @property
     def model(self):

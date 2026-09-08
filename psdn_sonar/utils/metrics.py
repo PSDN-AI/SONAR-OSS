@@ -5,7 +5,7 @@ from typing import Dict, Iterable, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..config import config
+from ..config import config, validate_poseidon_weights
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,8 @@ def calculate_poseidon_score(
 
     When called without explicit weights, the global defaults from config are
     used (WER=0.35, CER=0.20, Similarity=0.45, configurable via env vars).
-    Supply all three weights to override; they must sum to 1.0.
+    Supply all three weights to override; they must be non-negative and sum
+    to 1.0.
 
     Raises:
         TypeError: If ``cer``, ``wer``, or ``similarity`` is ``None``. The
@@ -116,7 +117,9 @@ def calculate_poseidon_score(
             :func:`compute_semantic_similarity`) return ``None`` when a
             metric could not be computed; the error message names the likely
             cause and fix instead of failing on an opaque comparison.
-        ValueError: If explicit weights do not sum to 1.0.
+        ValueError: If explicit weights are negative or do not sum to 1.0
+            (a negative weight passing the sum check used to invert the
+            composite silently — issue #238).
     """
     if similarity is None:
         raise TypeError(
@@ -137,9 +140,7 @@ def calculate_poseidon_score(
     w_sem = semantic_weight if semantic_weight is not None else config.semantic_weight
 
     if wer_weight is not None or cer_weight is not None or semantic_weight is not None:
-        total = w_wer + w_cer + w_sem
-        if abs(total - 1.0) > 0.001:
-            raise ValueError(f"POSEIDON weights must sum to 1.0, got {total}")
+        validate_poseidon_weights(w_wer, w_cer, w_sem)
 
     cer_capped = min(max(cer, 0.0), 1.0)
     wer_capped = min(max(wer, 0.0), 1.0)

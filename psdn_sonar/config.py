@@ -42,13 +42,40 @@ def _safe_float(env_var: str, default: str) -> float:
         return float(default)
 
 
+def validate_poseidon_weights(wer_weight: float, cer_weight: float, semantic_weight: float) -> None:
+    """Reject a malformed POSEIDON weight set: negative entries or a sum away from 1.0.
+
+    The single validator behind every site that accepts weights (the env-var
+    ``Config``, the per-call override of ``calculate_poseidon_score``, and
+    ``PoseidonScorer``), so they accept and reject identically. The sign
+    check exists because the sum check alone let a negative weight through
+    silently — e.g. ``-0.5/0.75/0.75`` sums to 1.0 and inverts the
+    composite, ranking a worse transcript higher (issue #238).
+    """
+    weights = {
+        "wer_weight": wer_weight,
+        "cer_weight": cer_weight,
+        "semantic_weight": semantic_weight,
+    }
+    negative = {name: value for name, value in weights.items() if value < 0}
+    if negative:
+        named = ", ".join(f"{name}={value}" for name, value in negative.items())
+        raise ValueError(
+            f"POSEIDON weights must be non-negative, got {named}. A negative weight "
+            "inverts the composite score, ranking worse transcripts higher."
+        )
+    total = wer_weight + cer_weight + semantic_weight
+    if abs(total - 1.0) > 0.001:
+        raise ValueError(f"POSEIDON weights must sum to 1.0, got {total}")
+
+
 @dataclass
 class Config:
     """POSEIDON scoring configuration.
 
     Field defaults are read from environment variables at construction time
     (``POSEIDON_*_WEIGHT``, ``SIMILARITY_MODEL``); pass explicit values to
-    override. Weights must sum to 1.0.
+    override. Weights must be non-negative and sum to 1.0.
     """
 
     wer_weight: float = field(default_factory=lambda: _safe_float("POSEIDON_WER_WEIGHT", "0.35"))
@@ -65,9 +92,7 @@ class Config:
         self.validate()
 
     def validate(self) -> None:
-        weight_sum = self.wer_weight + self.cer_weight + self.semantic_weight
-        if abs(weight_sum - 1.0) > 0.001:
-            raise ValueError(f"Poseidon weights must sum to 1.0, got {weight_sum}")
+        validate_poseidon_weights(self.wer_weight, self.cer_weight, self.semantic_weight)
 
 
 _config: Config | None = None

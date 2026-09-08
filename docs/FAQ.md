@@ -259,7 +259,7 @@ synced locally with `scripts/download_data.py --config your_sync.yaml` — see
 | **CER** | Character-level transcription accuracy | < 0.15 |
 | **WER** | Word-level transcription accuracy | < 0.25 |
 | **Semantic Similarity** | Meaning preservation (cosine similarity of sentence embeddings) | > 0.85 |
-| **POSEIDON** | Weighted composite: `w_wer×(1−WER) + w_cer×(1−CER) + w_sem×Similarity` (defaults: 0.35 / 0.20 / 0.45, configurable per-call or via env vars) | > 0.75 |
+| **POSEIDON** | Weighted composite: `w_wer×(1−WER) + w_cer×(1−CER) + w_sem×Similarity` (defaults: 0.35 / 0.20 / 0.45, configurable per-call or via env vars; weights must be non-negative and sum to 1.0) | > 0.75 |
 
 ### Secondary metrics
 

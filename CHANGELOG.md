@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- POSEIDON weight validation rejects negative weights instead of only
+  checking the sum (#238). A set like `-0.5/0.75/0.75` sums to 1.0 and was
+  accepted silently at every validation site, inverting the composite so a
+  transcript with nine times the WER scored higher on identical CER and
+  similarity — a full run completed with exit 0 and a healthy-looking
+  scorecard ranked backwards. All three sites that accept weights (the
+  `POSEIDON_*_WEIGHT` env-var `Config`, the per-call override of
+  `calculate_poseidon_score`, and `PoseidonScorer`) now share one validator
+  (`psdn_sonar.config.validate_poseidon_weights`) that rejects negative
+  entries with an error naming the offending weight and keeps the existing
+  sum-to-1.0 check. Zero weights remain allowed — they disable a component
+  without inverting anything. The FAQ metric table, `.env.example`, and the
+  docstrings now state the non-negativity requirement alongside the sum.
 - `--demographics` on a dataset without per-recording metadata no longer
   crashes after a successful evaluation (#234). The shipped example carries no
   `metadata.json`, the demographic join produced all-NA columns as documented,
