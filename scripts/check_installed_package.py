@@ -1,4 +1,12 @@
-"""Verify that an installed psdn-sonar wheel contains its runtime resources."""
+"""Verify that an installed psdn-sonar wheel contains its runtime resources.
+
+Content comparisons are line-ending tolerant: git may check the source tree
+out with CRLF (e.g. ``core.autocrlf=true`` on Windows) while the wheel keeps
+the LF it was built with, and a raw byte comparison failed a clean tree over
+a difference that is not one (issue #250). ``.gitattributes`` now pins these
+files to LF as well; the normalisation here keeps the gate working on
+checkouts that predate it.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +21,12 @@ import psdn_sonar
 from psdn_sonar.config_loader import ConfigManager
 from psdn_sonar.preprocessing import load_multi_speaker_config
 from psdn_sonar.utils.loanword import get_cache_path, load_cache
+
+
+def _content_bytes(path: Path) -> bytes:
+    """File bytes with CRLF normalised to LF, so identical content compares
+    equal regardless of how git checked the working tree out (issue #250)."""
+    return path.read_bytes().replace(b"\r\n", b"\n")
 
 
 def main() -> None:
@@ -44,7 +58,7 @@ def main() -> None:
         installed_config = package_root / relative_path
         if not installed_config.is_file():
             raise RuntimeError(f"Installed wheel is missing configuration: {relative_path}")
-        if installed_config.read_bytes() != source_config.read_bytes():
+        if _content_bytes(installed_config) != _content_bytes(source_config):
             raise RuntimeError(f"Installed configuration differs from source: {relative_path}")
         if not isinstance(yaml.safe_load(installed_config.read_text(encoding="utf-8")), dict):
             raise RuntimeError(f"Installed configuration is not a YAML mapping: {relative_path}")
@@ -59,7 +73,7 @@ def main() -> None:
         installed_cache = package_root / "resources" / "language" / language / "loanword_cache.json"
         if not installed_cache.is_file():
             raise RuntimeError(f"Installed wheel is missing the {language} loanword cache")
-        if installed_cache.read_bytes() != source_cache.read_bytes():
+        if _content_bytes(installed_cache) != _content_bytes(source_cache):
             raise RuntimeError(f"Installed {language} loanword cache differs from source")
         cache = json.loads(installed_cache.read_text(encoding="utf-8"))
         if not isinstance(cache, dict) or not cache or not all(isinstance(value, str) for value in cache.values()):
