@@ -40,18 +40,25 @@ def _exc_reason(exc: Exception) -> str:
     return str(exc) or type(exc).__name__
 
 
-def _unsupported_capability_error(method_name: str, asr_model) -> Optional[str]:
+def unsupported_capability_error(method_name: str, asr_model, model_name: Optional[str] = None) -> Optional[str]:
     """Why *asr_model* cannot run *method_name*, or ``None`` when it can.
 
     The capability properties existed but nothing read them, so an
     unsupported model reached the strategy and failed on a bare
     ``NotImplementedError`` (issue #189).
+
+    The single source of the per-clip capability message: ``core.py``'s
+    method prefilter calls this too, instead of hardcoding
+    ``supports_diarization`` for the whole per-clip set — which told users
+    ``pyannote_diarize`` needs diarization when the map requires
+    ``supports_word_timestamps``, and refused the method for adapters that
+    actually satisfy it (issue #239).
     """
     capability = PER_CLIP_REQUIRED_CAPABILITY.get(method_name)
     if capability is None or getattr(asr_model, capability, False):
         return None
     return (
-        f"{type(asr_model).__name__} does not support {method_name}: it requires "
+        f"{model_name or type(asr_model).__name__} does not support {method_name}: it requires "
         f"{capability}, which this adapter does not implement. Use a model that does "
         "(elevenlabs_api is the only registered adapter with word timestamps), or pick "
         "a per-channel method such as --method timestamp_trim."
@@ -237,7 +244,7 @@ def run_single_method(
 
     if method_name in PER_CLIP_METHODS or (not per_channel and per_clip):
         clip_method = method_name if method_name in PER_CLIP_METHODS else per_clip[0]
-        capability_error = _unsupported_capability_error(clip_method, asr_model)
+        capability_error = unsupported_capability_error(clip_method, asr_model)
         if capability_error is not None:
             logger.warning(f"Skipping {clip_method} for {entry.audio_id}: {capability_error}")
             for speaker in ("A", "B"):
@@ -399,7 +406,7 @@ def run_sweep(
             # needs the model's diarization, pyannote_diarize needs word
             # timestamps. Checking only the former let a model without word
             # timestamps through to a bare NotImplementedError (issue #189).
-            capability_error = _unsupported_capability_error(method_name, asr_model)
+            capability_error = unsupported_capability_error(method_name, asr_model)
             if capability_error is not None:
                 logger.warning(f"Skipping {method_name}: {capability_error}")
                 continue
