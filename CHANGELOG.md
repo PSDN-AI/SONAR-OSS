@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Skipping a per-clip preprocessing method names the capability it actually
+  requires (#239). `core.py`'s prefilter hardcoded `supports_diarization`
+  for the whole per-clip set, while the package's own
+  `PER_CLIP_REQUIRED_CAPABILITY` map says `pyannote_diarize` requires
+  `supports_word_timestamps` — so the skip pointed users at the wrong
+  capability, the selector's precise message (naming the requirement, the
+  one registered adapter with word timestamps, and a per-channel
+  alternative) was never reached because the prefilter runs first, and an
+  adapter with word timestamps but no diarization was refused despite
+  satisfying the real requirement. The prefilter now consults the map
+  through the selector's message builder
+  (`preprocessing_selector.unsupported_capability_error`, made public with
+  an optional display name so the warning shows the registry model name),
+  giving both gates one source of truth. `scribe_diarize`'s skip still
+  names `supports_diarization`, which it genuinely requires.
 - POSEIDON weight validation rejects negative weights instead of only
   checking the sum (#238). A set like `-0.5/0.75/0.75` sums to 1.0 and was
   accepted silently at every validation site, inverting the composite so a
