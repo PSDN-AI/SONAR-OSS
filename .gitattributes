@@ -1,0 +1,15 @@
+# Line-ending policy (issue #250).
+#
+# The wheel ships every text resource with LF, and
+# scripts/check_installed_package.py compares installed files against the
+# checkout. Without attributes, a host with core.autocrlf=true checks the
+# working tree out CRLF and the release-verification gate failed a clean
+# tree over a 1-byte-per-line difference that is not one. Pinning text to
+# LF keeps working trees identical to the wheel on every platform, and
+# keeps CRLF copies out of wheels built on such hosts.
+
+* text=auto eol=lf
+
+# Binary content: never subject to line-ending conversion.
+*.png binary
+*.wav binary
