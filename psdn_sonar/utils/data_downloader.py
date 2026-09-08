@@ -25,7 +25,7 @@ try:
     import boto3
     from botocore.exceptions import ClientError, NoCredentialsError
 except ImportError:
-    boto3 = None
+    boto3 = None  # ty: ignore[invalid-assignment]
 
     class ClientError(Exception):  # type: ignore[no-redef]
         """Placeholder so except clauses bind when boto3 is absent."""
