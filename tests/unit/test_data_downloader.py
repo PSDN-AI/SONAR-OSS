@@ -1,5 +1,7 @@
 """Tests for the config-driven cloud sync in psdn_sonar.utils.data_downloader."""
 
+from pathlib import PurePath
+
 import pytest
 
 pytest.importorskip("boto3")
@@ -216,7 +218,11 @@ class TestDownloadFolderSkipExisting:
 
         fetched = downloader.download_folder("b", "audio/", str(local_dir), skip_existing=True)
 
-        assert [p.split("/")[-1] for p in fetched] == ["b.wav"]
+        # PurePath(...).name, not split("/"): the downloader returns a
+        # platform-native path, and splitting a Windows path on "/" finds no
+        # separator, so the whole path survived and the comparison failed
+        # there (issue #251).
+        assert [PurePath(p).name for p in fetched] == ["b.wav"]
 
     def test_size_mismatch_redownloaded(self, tmp_path):
         objects = [{"Key": "audio/a.wav", "Size": 5}]
