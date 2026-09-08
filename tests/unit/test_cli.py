@@ -601,6 +601,57 @@ class TestCustomDispatch:
         mock_config.assert_called_once_with(str(config_file))
         assert mock_run.call_args[1]["generate_report"] is True
 
+    def test_config_value_error_is_clean_like_single_and_multi(self, tmp_path, caplog):
+        """Issue #244 item 1: a ValueError from config validation used to
+        reach the user with a traceback in `custom` while `single` and
+        `multi` deliver the same exception class as one clean ERROR line."""
+        config_file = tmp_path / "eval.yaml"
+        config_file.write_text("language:\n  code: pt\n")
+
+        with patch(
+            "psdn_sonar.custom_eval.CustomEvalConfig",
+            side_effect=ValueError("Config must specify at least one model under 'models'"),
+        ):
+            with caplog.at_level("ERROR"):
+                with pytest.raises(SystemExit) as exc_info:
+                    run_cli("custom", "--config", str(config_file))
+
+        assert exc_info.value.code == 1
+        assert "Config must specify at least one model under 'models'" in caplog.text
+        assert all(record.exc_info is None for record in caplog.records), "no traceback for user input errors"
+
+    def test_unexpected_errors_stay_loud(self, tmp_path, caplog):
+        config_file = tmp_path / "eval.yaml"
+        config_file.write_text("language:\n  code: pt\n")
+
+        with patch("psdn_sonar.custom_eval.CustomEvalConfig", side_effect=TypeError("a real bug")):
+            with caplog.at_level("ERROR"):
+                with pytest.raises(SystemExit) as exc_info:
+                    run_cli("custom", "--config", str(config_file))
+
+        assert exc_info.value.code == 1
+        assert any(record.exc_info for record in caplog.records), "bugs keep their traceback"
+
+
+class TestSplitRatioValidation:
+    """Issue #244 item 2: `--split-ratio 0.5` used to raise inside int() one
+    line before the length check, so the guidance message written for
+    malformed input was unreachable for non-integer input."""
+
+    @pytest.mark.parametrize("bad", ["0.5", "80,10", "a,b,c", "80;10;10"])
+    def test_malformed_ratio_reaches_the_guidance(self, bad, caplog):
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli("discover", "--language", "en", "--split-ratio", bad, "--dry-run")
+        assert exc_info.value.code == 1
+        assert "--split-ratio must have exactly 3 comma-separated integers" in caplog.text
+        assert all(record.exc_info is None for record in caplog.records)
+
+    def test_valid_ratio_accepted(self):
+        with pytest.raises(SystemExit) as exc_info:
+            run_cli("discover", "--language", "en", "--datasets", "fleurs", "--split-ratio", "80,10,10", "--dry-run")
+        assert exc_info.value.code == 0
+
 
 class TestEntrypointExitStability:
     """Issue #139: the console script must always deliver the exit code the
