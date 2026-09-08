@@ -157,3 +157,11 @@ short of deleting it, and it is the correct one.
   breaks every pinned install and buys nothing.
 - **Afterwards.** Release a fixed patch version, record the yank and its reason in `CHANGELOG.md`, mark
   the corresponding GitHub Release so the two do not disagree, and note the cause on the tracking issue.
+
+**Known candidate: 0.1.0 on Python 3.13 (issue #249).** 0.1.0 predates the
+`requires-python = ">=3.10,<3.13"` bound, so on CPython 3.13 — where 0.1.1 and 0.1.2 are correctly
+excluded — a bare `pip install psdn-sonar` silently resolves to 0.1.0 and `pip index versions` reports
+it as the only version. Yanking 0.1.0 (reason: "predates the Requires-Python <3.13 bound; silently
+selected on unsupported interpreters") removes it from resolution while an explicit `==0.1.0` pin keeps
+working, which is exactly the PEP 592 semantics wanted here. Do **not** relax the `<3.13` bound instead:
+the releases that carry it are the ones behaving correctly.
