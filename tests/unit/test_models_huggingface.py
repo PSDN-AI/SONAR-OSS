@@ -109,6 +109,11 @@ class TestFfmpegPreflight:
         assert "ffmpeg" in message
         assert "WAV" in message
         assert "install ffmpeg" in message.lower()
+        # Issue #254: the guidance must name every supported platform, not
+        # only the two the reader might not be on.
+        assert "apt-get" in message
+        assert "brew" in message
+        assert "winget install Gyan.FFmpeg" in message
 
     def test_require_ffmpeg_noop_when_present(self, monkeypatch):
         import psdn_sonar.models.huggingface as hf
