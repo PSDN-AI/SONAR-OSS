@@ -146,6 +146,26 @@ multiple runs show the mean of their per-run aggregates and the run count,
 and rows whose runs recorded configuration warnings in `scores.json` (such as
 a reference-script/`--language` mismatch) are marked with `!`.
 
+## 5. Artifact encoding
+
+Every text artifact this package writes — the per-utterance results CSV, the
+`.txt` summary, `scores_<model>.json`, and the generated Markdown reports —
+is **UTF-8**, on every platform. When reading them from your own code, pass
+the encoding explicitly rather than relying on the platform default, which is
+not UTF-8 everywhere (for example, a zh-CN Windows host defaults to cp936 and
+raises `UnicodeDecodeError` on Bengali, Hindi, or Korean results):
+
+```python
+import pandas as pd
+
+df = pd.read_csv("results/asr_detailed_wav2vec2_bengali.csv", encoding="utf-8")
+text = open("results/scores_wav2vec2_bengali.json", encoding="utf-8").read()
+```
+
+Input TSV/JSONL manifests are read as UTF-8 as well (the single-speaker TSV
+additionally tolerates the UTF-8 BOM Excel writes), so author them in UTF-8
+too.
+
 ---
 
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) to contribute, and the module

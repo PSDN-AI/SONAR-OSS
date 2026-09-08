@@ -334,7 +334,7 @@ class Wav2Vec2BengaliModel(ASRModel):
                     import os
 
                     fixed_config_path = os.path.join(temp_dir, "tokenizer_config.json")
-                    with open(fixed_config_path, "w") as f:
+                    with open(fixed_config_path, "w", encoding="utf-8") as f:
                         json.dump(config, f)
                     vocab_file = hf_hub_download(repo_id=model_id, filename="vocab.json")
                     tokenizer = Wav2Vec2CTCTokenizer(
