@@ -10,6 +10,15 @@ Exit is non-zero when any of the following holds, so the check fails closed:
 - an exception entry matches no reported vulnerability (obsolete entry);
 - an exception entry's ``review_by`` date has passed (stale entry).
 
+An exception matches a finding when its id equals the finding's reported id
+**or any of the finding's aliases**. Different pip-audit versions promote
+different ids of the same advisory to primary (e.g. GHSA-8mgp-746c-j5xp
+vs. its alias PYSEC-2026-3740), so an exact-id match made the gate's verdict
+depend on the scanner version — one unchanged lockfile and exceptions file
+passed under the CI pin and reported four false failures under a newer
+pip-audit, two of them instructions to delete the exceptions keeping CI
+green (issue #248).
+
 Usage: pip-audit -r <requirements> --format json | python scripts/dependency_audit.py
 """
 
@@ -26,17 +35,27 @@ except ImportError:  # Python 3.10: tomllib landed in 3.11
 EXCEPTIONS_PATH = pathlib.Path(__file__).resolve().parent.parent / "security" / "dependency-audit-exceptions.toml"
 
 
-def load_findings(stream) -> dict:
-    """Map advisory ID -> {package, version, fix_versions} from pip-audit JSON."""
+def load_findings(stream) -> list:
+    """List of findings from pip-audit JSON.
+
+    Each finding carries ``ids`` — the reported id plus every alias — so a
+    reviewed exception keyed on any of the advisory's ids keeps matching
+    regardless of which id the scanner version reports as primary.
+    """
     report = json.load(stream)
-    findings = {}
+    findings = []
     for dep in report.get("dependencies", []):
         for vuln in dep.get("vulns", []):
-            findings[vuln["id"]] = {
-                "package": dep["name"],
-                "version": dep["version"],
-                "fix_versions": vuln.get("fix_versions", []),
-            }
+            aliases = [alias for alias in (vuln.get("aliases") or []) if alias]
+            findings.append(
+                {
+                    "id": vuln["id"],
+                    "ids": {vuln["id"], *aliases},
+                    "package": dep["name"],
+                    "version": dep["version"],
+                    "fix_versions": vuln.get("fix_versions", []),
+                }
+            )
     return findings
 
 
@@ -58,23 +77,29 @@ def main() -> int:
     exceptions = load_exceptions()
     today = datetime.date.today()
     failures = []
+    matched_exception_ids = set()
 
-    for advisory_id, finding in sorted(findings.items()):
-        entry = exceptions.get(advisory_id)
-        if entry is None:
+    for finding in sorted(findings, key=lambda f: (f["package"], f["id"])):
+        # An exception counts if it names the reported id or any alias.
+        matches = [eid for eid in sorted(finding["ids"]) if eid in exceptions]
+        matched_exception_ids.update(matches)
+        if not matches:
             fixes = ", ".join(finding["fix_versions"]) or "none published"
             failures.append(
-                f"NEW: {advisory_id} in {finding['package']} {finding['version']} "
+                f"NEW: {finding['id']} in {finding['package']} {finding['version']} "
                 f"(fix: {fixes}) has no reviewed exception"
             )
-        elif entry["package"].lower() != finding["package"].lower():
-            failures.append(
-                f"MISMATCH: exception {advisory_id} names package {entry['package']!r} "
-                f"but the finding is in {finding['package']!r}"
-            )
+            continue
+        for eid in matches:
+            entry = exceptions[eid]
+            if entry["package"].lower() != finding["package"].lower():
+                failures.append(
+                    f"MISMATCH: exception {eid} names package {entry['package']!r} "
+                    f"but the finding is in {finding['package']!r}"
+                )
 
     for advisory_id, entry in sorted(exceptions.items()):
-        if advisory_id not in findings:
+        if advisory_id not in matched_exception_ids:
             failures.append(
                 f"OBSOLETE: exception {advisory_id} ({entry['package']}) matches no current finding — remove it"
             )
@@ -86,7 +111,7 @@ def main() -> int:
                 f"{review_by} — re-review or remove (owner: {entry['owner']})"
             )
 
-    excepted = sorted(set(findings) & set(exceptions))
+    excepted = sorted(matched_exception_ids)
     print(f"Findings: {len(findings)} | reviewed exceptions applied: {len(excepted)} | failures: {len(failures)}")
     for advisory_id in excepted:
         entry = exceptions[advisory_id]
