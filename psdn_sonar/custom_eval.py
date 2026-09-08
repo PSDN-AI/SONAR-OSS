@@ -168,7 +168,13 @@ def _evaluate_model_on_dataset(
     max_samples: int,
     language_code: str,
 ) -> Optional[str]:
-    """Evaluate one model on the dataset; return the results CSV path or None on failure."""
+    """Evaluate one model on the dataset; return the results CSV path or None on failure.
+
+    Besides the per-utterance CSV, this writes the same ``scores_<model>.json``
+    artifact a ``single`` run writes (issue #241): a custom run used to carry
+    no provenance record at all — no package version, model snapshot, seed,
+    protocol or git sha — and was invisible to ``psdn-sonar leaderboard``.
+    """
     from psdn_sonar.evaluators.single_speaker import SingleSpeakerEvaluator
 
     try:
@@ -190,6 +196,32 @@ def _evaluate_model_on_dataset(
             writer.writerows(result["results"])
 
         logger.info("Results saved: %s", results_csv)
+
+        # Provenance artifact, built by the same helpers `single` uses so a
+        # custom run is citeable and reaches the leaderboard (issue #241).
+        from psdn_sonar.benchmark.scores import build_run_scores, scores_json_path, write_scores_json
+        from psdn_sonar.evaluators.single_speaker import _default_submission_for_model, _run_lineage
+        from psdn_sonar.language.script_check import hypothesis_script_mismatch_warning
+
+        hyp_warning = hypothesis_script_mismatch_warning(
+            (row.get("prediction") or "" for row in result["results"]),
+            language_code,
+            model_name,
+        )
+        if hyp_warning:
+            logger.warning(hyp_warning)
+
+        submission = _default_submission_for_model(model, model_name, language=language_code)
+        artifact = build_run_scores(
+            submission,
+            result,
+            compute_sem=True,
+            lineage=_run_lineage(model, language_code),
+            run_warnings=[w for w in (hyp_warning,) if w],
+        )
+        scores_path = write_scores_json(scores_json_path(output_dir, model_name), artifact)
+        logger.info("Scores saved to %s", scores_path)
+
         return str(results_csv)
     except Exception as e:
         logger.error("Evaluation failed for %s: %s", model_name, e, exc_info=True)
