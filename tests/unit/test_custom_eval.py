@@ -1,6 +1,7 @@
 """Tests for the custom evaluation pipeline."""
 
 import csv
+import json
 import sys
 import types
 
@@ -169,6 +170,74 @@ class TestEvaluateModelOnDataset:
         with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         assert rows == [{"wer": "0.1", "cer": "0.05"}]
+
+    def test_writes_scores_artifact_with_provenance(self, tmp_path, monkeypatch):
+        """A custom run writes the same scores_<model>.json a `single` run
+        writes, so it carries a provenance record and reaches the
+        leaderboard (issue #241)."""
+        evaluator = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator"
+        monkeypatch.setattr(f"{evaluator}.load_data", staticmethod(lambda path: [{"audio_path": "a"}]))
+        monkeypatch.setattr(
+            f"{evaluator}.evaluate_one",
+            staticmethod(
+                lambda **kw: {
+                    "model_name": "m1",
+                    "results": [{"wer": 0.1, "cer": 0.05, "prediction": "ola mundo"}],
+                    "summary": {"avg_wer": 0.1, "avg_cer": 0.05, "total_samples": 1, "successful": 1, "failed": 0},
+                }
+            ),
+        )
+
+        csv_path = _evaluate_model_on_dataset(
+            model=object(),
+            tsv_path="in.tsv",
+            model_name="m1",
+            output_dir=str(tmp_path),
+            max_samples=0,
+            language_code="pt",
+        )
+        assert csv_path is not None
+
+        scores_path = tmp_path / "scores_m1.json"
+        assert scores_path.exists(), "custom run must write scores_<model>.json (issue #241)"
+        artifact = json.loads(scores_path.read_text(encoding="utf-8"))
+        assert artifact["model_name"] == "m1"
+        assert artifact["aggregate"]["wer_mean"] == 0.1
+        assert artifact["aggregate"]["total_samples"] == 1
+        # The provenance fields the issue calls out must be present.
+        submission = artifact["submission"]
+        assert submission["package_version"]
+        assert submission["inference_params"] == {"language_code": "pt"}
+        assert submission["protocol"] in ("batch", "streaming")
+
+    def test_custom_scores_visible_to_leaderboard(self, tmp_path, monkeypatch):
+        """The leaderboard scan picks the artifact up (the issue's final repro step)."""
+        evaluator = "psdn_sonar.evaluators.single_speaker.SingleSpeakerEvaluator"
+        monkeypatch.setattr(f"{evaluator}.load_data", staticmethod(lambda path: [{"audio_path": "a"}]))
+        monkeypatch.setattr(
+            f"{evaluator}.evaluate_one",
+            staticmethod(
+                lambda **kw: {
+                    "model_name": "m1",
+                    "results": [{"wer": 0.1}],
+                    "summary": {"avg_wer": 0.1, "total_samples": 1, "successful": 1, "failed": 0},
+                }
+            ),
+        )
+        _evaluate_model_on_dataset(
+            model=object(),
+            tsv_path="in.tsv",
+            model_name="m1",
+            output_dir=str(tmp_path),
+            max_samples=0,
+            language_code="pt",
+        )
+
+        from psdn_sonar.benchmark.leaderboard import collect_scores
+
+        loaded, errors = collect_scores([tmp_path])
+        assert errors == []
+        assert [run.artifact.model_name for run in loaded] == ["m1"]
 
     def test_failure_returns_none(self, tmp_path, monkeypatch):
         def boom(path):
