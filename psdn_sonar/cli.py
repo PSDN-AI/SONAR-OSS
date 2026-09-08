@@ -572,7 +572,14 @@ def run_discover(args):
 
     split_ratio = (80, 10, 10)
     if args.split_ratio:
-        parts = [int(x.strip()) for x in args.split_ratio.split(",")]
+        # Convert inside a try so non-integer input (e.g. `0.5`) reaches the
+        # same guidance as a wrong count; int() used to raise one line before
+        # the check, making this message unreachable for the input that most
+        # needs it (issue #244).
+        try:
+            parts = [int(x.strip()) for x in args.split_ratio.split(",")]
+        except ValueError:
+            parts = []
         if len(parts) != 3:
             logger.error("--split-ratio must have exactly 3 comma-separated integers (e.g. 80,10,10)")
             sys.exit(1)
@@ -720,6 +727,13 @@ def run_custom(args):
             if Path(csv_path).exists():
                 display_aggregate_stats(csv_path, model_name)
 
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
+        # Expected input/configuration failures (config missing `models:`,
+        # missing file, dataset preparation errors): clean actionable
+        # message, non-zero exit, no traceback noise — the same delivery
+        # `single` and `multi` already give these classes (issue #244).
+        logger.error(f"Custom evaluation failed: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Custom evaluation failed: {e}", exc_info=True)
         sys.exit(1)
