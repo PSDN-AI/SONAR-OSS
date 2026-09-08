@@ -276,6 +276,97 @@ def _write_manifest_dataset(tmp_path, ref_a="hello world", ref_b="good morning")
     return manifest
 
 
+class TestPerClipCapabilityGate:
+    """core.py's method prefilter after issue #239.
+
+    The prefilter hardcoded ``supports_diarization`` for every per-clip
+    method, but ``PER_CLIP_REQUIRED_CAPABILITY`` says ``pyannote_diarize``
+    requires ``supports_word_timestamps``. Users were pointed at the wrong
+    capability, the selector's correct message was never reached, and an
+    adapter satisfying the real requirement was refused. The gate now
+    consults the map through the selector's message builder.
+    """
+
+    def test_pyannote_diarize_skip_names_word_timestamps(self, tmp_path, caplog, monkeypatch):
+        """The issue's present-tense symptom: a model without word timestamps
+        must be told about supports_word_timestamps (and which adapter has
+        it), not about diarization."""
+        from psdn_sonar.preprocessing import pyannote_utils
+
+        monkeypatch.setattr(pyannote_utils, "PYANNOTE_AVAILABLE", True)
+        manifest = _write_manifest_dataset(tmp_path)
+
+        with caplog.at_level("WARNING"):
+            with pytest.raises(ValueError, match="No valid preprocessing methods"):
+                process_manifest_with_asr(
+                    str(manifest),
+                    _StubModel(),
+                    str(tmp_path / "out.csv"),
+                    language="en",
+                    methods=["pyannote_diarize"],
+                )
+
+        assert "supports_word_timestamps" in caplog.text
+        assert "elevenlabs_api" in caplog.text
+        assert "does not support diarization" not in caplog.text
+
+    def test_scribe_diarize_skip_names_diarization(self, tmp_path, caplog):
+        """scribe_diarize genuinely requires supports_diarization; its skip
+        message must keep saying so."""
+        manifest = _write_manifest_dataset(tmp_path)
+
+        with caplog.at_level("WARNING"):
+            with pytest.raises(ValueError, match="No valid preprocessing methods"):
+                process_manifest_with_asr(
+                    str(manifest),
+                    _StubModel(),
+                    str(tmp_path / "out.csv"),
+                    language="en",
+                    methods=["scribe_diarize"],
+                )
+
+        assert "supports_diarization" in caplog.text
+        assert "supports_word_timestamps" not in caplog.text
+
+    def test_word_timestamp_adapter_is_no_longer_refused(self, tmp_path, caplog, monkeypatch):
+        """The issue's latent wrong refusal: an adapter with word timestamps
+        but no diarization satisfies pyannote_diarize's mapped requirement
+        and must pass the prefilter and run."""
+        from psdn_sonar.preprocessing import pyannote_utils
+        from psdn_sonar.preprocessing.methods import PER_CLIP_STRATEGIES
+
+        monkeypatch.setattr(pyannote_utils, "PYANNOTE_AVAILABLE", True)
+        monkeypatch.setitem(
+            PER_CLIP_STRATEGIES,
+            "pyannote_diarize",
+            lambda combined_audio, asr_model: {"speaker_0": "hello world", "speaker_1": "good morning"},
+        )
+
+        class _WordTimestampStub:
+            supports_diarization = False
+            supports_word_timestamps = True
+
+            def transcribe(self, audio_path):
+                return "hello world"
+
+        manifest = _write_manifest_dataset(tmp_path)
+        _write_wav(tmp_path / "audio" / "conv_001_Combined_Audio.wav")
+
+        with caplog.at_level("WARNING"):
+            process_manifest_with_asr(
+                str(manifest),
+                _WordTimestampStub(),
+                str(tmp_path / "out.csv"),
+                language="en",
+                methods=["pyannote_diarize"],
+            )
+
+        assert "Skipping pyannote_diarize" not in caplog.text
+        with open(tmp_path / "out.csv", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert [r["best_method"] for r in rows] == ["pyannote_diarize", "pyannote_diarize"]
+
+
 class TestProcessManifestWithASR:
     def test_no_valid_methods_raises(self, tmp_path):
         manifest = _write_manifest_dataset(tmp_path)
