@@ -11,7 +11,9 @@ cannot import against the modern torchaudio the ``[ml]`` extra locks
 """
 
 import logging
+import os
 import re
+import shutil
 from pathlib import Path
 from typing import NoReturn, Optional
 
@@ -81,11 +83,37 @@ def _raise_load_error(model_id: str, exc: Exception) -> NoReturn:
     raise exc
 
 
+def _register_ffmpeg_dll_directory() -> None:
+    """On Windows, register the ffmpeg directory for native DLL resolution.
+
+    pyannote.audio 4.x decodes through torchcodec, which loads the ffmpeg
+    *shared libraries* at runtime — and since Python 3.8 Windows does not
+    consult ``PATH`` when resolving a native extension's dependent DLLs. A
+    full-shared ffmpeg build sitting on ``PATH`` therefore still failed with
+    "Could not find module 'libtorchcodec_core9.dll' (or one of its
+    dependencies)" until its directory was registered via
+    ``os.add_dll_directory`` (issue #254). Registering the directory that
+    holds ``ffmpeg.exe`` makes the documented install
+    (``winget install Gyan.FFmpeg.Shared``) work as written. A static build
+    has no DLLs there, so registering its directory changes nothing.
+    """
+    if os.name != "nt":
+        return
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return
+    try:
+        os.add_dll_directory(os.path.dirname(os.path.abspath(ffmpeg)))
+    except (OSError, AttributeError):  # pragma: no cover - defensive
+        logger.debug("Could not register the ffmpeg DLL directory", exc_info=True)
+
+
 def _import_pyannote() -> bool:
     """Import ``pyannote.audio``, working around PyTorch 2.6's ``weights_only=True``
     default that breaks pyannote/lightning checkpoint loading. ``torch.load`` is
     restored after import; the lightning loader stays patched for lazy loads.
     """
+    _register_ffmpeg_dll_directory()
     try:
         import torch
     except ImportError:

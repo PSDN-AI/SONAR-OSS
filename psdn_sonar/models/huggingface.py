@@ -40,9 +40,10 @@ def _require_ffmpeg(adapter_name: str) -> None:
             f"{adapter_name} decodes audio files with the ffmpeg binary "
             "before handing them to the transformers ASR pipeline — "
             "including WAV. Install ffmpeg (Debian/Ubuntu: sudo apt-get "
-            "install ffmpeg; macOS: brew install ffmpeg) or pick an adapter "
-            "that decodes audio itself (the wav2vec2_* models and the "
-            "non-pipeline Whisper fine-tunes)."
+            "install ffmpeg; macOS: brew install ffmpeg; Windows: winget "
+            "install Gyan.FFmpeg) or pick an adapter that decodes audio "
+            "itself (the wav2vec2_* models and the non-pipeline Whisper "
+            "fine-tunes)."
         )
 
 

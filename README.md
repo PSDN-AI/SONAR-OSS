@@ -82,9 +82,17 @@ helps other voice-AI teams find it and tells us where to invest.
   and MP3, with the libsndfile ≥ 1.1 that current `soundfile` wheels bundle —
   without `ffmpeg`; formats libsndfile cannot read (M4A/AAC) and `pydub`
   silence-trimming of non-WAV input still need it. Install: `sudo apt-get
-  install ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS). The
-  `[pyannote]` extra needs `ffmpeg` too: pyannote.audio 4.x decodes audio
-  through torchcodec, which loads the system ffmpeg libraries at runtime
+  install ffmpeg` (Debian/Ubuntu), `brew install ffmpeg` (macOS), or
+  `winget install Gyan.FFmpeg` (Windows). The `[pyannote]` extra needs
+  `ffmpeg` too, and needs more than the binary: pyannote.audio 4.x decodes
+  audio through torchcodec, which loads the ffmpeg **shared libraries** at
+  runtime. On Windows that means the full-shared build —
+  `winget install Gyan.FFmpeg.Shared` — because the default `Gyan.FFmpeg`
+  build ships only `ffmpeg.exe` and no DLLs; the package registers the
+  ffmpeg directory for DLL resolution itself (Python ≥ 3.8 does not consult
+  `PATH` for a native extension's dependent DLLs). Linux and macOS package
+  managers install the shared libraries alongside the binary, so no extra
+  step is needed there.
 
 **Supported environments.** CI validates Linux x86_64 with CPython 3.10, 3.11,
 and 3.12, plus macOS arm64 with CPython 3.12 and the `[ml]` extra installed
