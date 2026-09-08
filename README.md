@@ -145,8 +145,19 @@ Requires Python 3.10, 3.11, or 3.12.
    ```powershell
    py -3.12 --version
    py -3.12 -m venv sonar-env
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
    .\sonar-env\Scripts\Activate.ps1
+   python -c "import sys; print(sys.executable)"   # must print ...\sonar-env\Scripts\python.exe
    ```
+
+   The `Set-ExecutionPolicy` line matters: Windows client editions default
+   to the `Restricted` policy, which refuses `Activate.ps1` with an error on
+   stderr **while the shell continues with exit 0** — so without it,
+   `python` still points at the previous interpreter and step 2 silently
+   installs outside the environment. `-Scope Process` changes the policy
+   for this PowerShell session only. The `sys.executable` check confirms
+   activation actually took. From `cmd.exe`, use
+   `sonar-env\Scripts\activate.bat` instead, which needs no policy change.
 
 2. Install the package:
 
@@ -169,7 +180,9 @@ Then follow [`docs/USAGE.md`](docs/USAGE.md) for runnable examples.
 
 ### Contributor install (from source)
 
-Contributors install the frozen, locked environment (exactly what CI runs):
+Contributors install the frozen, locked environment (exactly what CI runs).
+
+macOS or Linux (bash/zsh):
 
 ```bash
 git clone https://github.com/PSDN-AI/SONAR-OSS.git
@@ -179,6 +192,25 @@ make setup            # uv sync --frozen with dev extras — does NOT include [m
 make setup-ml         # dev + [ml] extras, ~1.5 GB on disk
 source .venv/bin/activate
 ```
+
+Windows (`make` is not present on a stock host; the two targets are single
+`uv` commands, so run them directly — [`uv`](https://docs.astral.sh/uv/)
+provisions the pinned CPython itself):
+
+```powershell
+git clone https://github.com/PSDN-AI/SONAR-OSS.git
+cd SONAR-OSS
+uv sync --frozen --extra dev              # what `make setup` runs
+# or, for the docs/USAGE.md examples:
+uv sync --frozen --extra dev --extra ml   # what `make setup-ml` runs
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+.\.venv\Scripts\Activate.ps1
+```
+
+(The execution-policy line is the same silent-refusal guard explained in the
+PyPI section; from `cmd.exe` use `.venv\Scripts\activate.bat`. The `make`
+targets themselves run on Windows from a Unix-style shell such as Git Bash,
+bundled with [Git for Windows](https://gitforwindows.org/).)
 
 Or with plain pip (editable, freshly resolved). **Create and activate a
 virtual environment first** — exactly as in step 1 of the PyPI install
