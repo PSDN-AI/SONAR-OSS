@@ -15,9 +15,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Union
 
-import boto3
 import pandas as pd
-from botocore.exceptions import ClientError, NoCredentialsError
+
+# Guarded so the module (and the scripts that import it) can load without the
+# [cloud] extra: an unguarded top-level import made `download_data.py --help`
+# die on a boto3 traceback that never named the extra (issue #240). The
+# requirement is enforced where it starts to matter, in DataDownloader.
+try:
+    import boto3
+    from botocore.exceptions import ClientError, NoCredentialsError
+except ImportError:
+    boto3 = None
+
+    class ClientError(Exception):  # type: ignore[no-redef]
+        """Placeholder so except clauses bind when boto3 is absent."""
+
+    class NoCredentialsError(Exception):  # type: ignore[no-redef]
+        """Placeholder so except clauses bind when boto3 is absent."""
+
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +56,16 @@ class DataDownloader:
                 standard boto3 credential chain (env vars, profile, role).
             aws_secret_access_key: Secret key; same fallback as above.
             region_name: Bucket region ("auto" for R2-style endpoints).
+
+        Raises:
+            ImportError: When boto3 is not installed, naming the extra —
+                the same shape as the other optional-dependency errors.
         """
+        if boto3 is None:
+            raise ImportError(
+                "boto3 package is required for DataDownloader. "
+                'Install with: pip install "psdn-sonar[cloud]"'
+            )
         self.s3_client = boto3.client(
             "s3",
             endpoint_url=endpoint_url,
