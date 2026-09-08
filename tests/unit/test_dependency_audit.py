@@ -17,6 +17,11 @@ from pathlib import Path
 
 import pytest
 
+# The audited script hard-requires tomllib (stdlib from 3.11; CI runs the
+# gate on 3.12) and exits at import time on 3.10 — skip the module there
+# rather than dying at collection.
+pytest.importorskip("tomllib", reason="dependency_audit requires Python >= 3.11")
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _spec = importlib.util.spec_from_file_location("dependency_audit", REPO_ROOT / "scripts" / "dependency_audit.py")
@@ -83,11 +88,7 @@ class TestAliasAwareMatching:
 
     def test_unreviewed_finding_still_fails(self, monkeypatch, tmp_path, capsys):
         report = json.dumps(
-            {
-                "dependencies": [
-                    {"name": "leftpad", "version": "1.0", "vulns": [{"id": "GHSA-zzzz", "aliases": []}]}
-                ]
-            }
+            {"dependencies": [{"name": "leftpad", "version": "1.0", "vulns": [{"id": "GHSA-zzzz", "aliases": []}]}]}
         )
         exit_code = _run_gate(monkeypatch, tmp_path, report)
         out = capsys.readouterr()
