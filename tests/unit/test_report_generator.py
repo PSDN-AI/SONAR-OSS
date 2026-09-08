@@ -288,3 +288,44 @@ class TestBenchmarkClaimGating:
         assert "public Korean benchmark curves" in text
         # Cross-dataset evaluations are still absent, so that claim stays gated.
         assert "the plots contain your dataset only" in text
+
+
+class TestImageLinksUseForwardSlashes:
+    """Report image links must use '/' on every platform (issue #242).
+
+    ``_relative_to`` used to return a Path that was interpolated verbatim,
+    so on Windows every image link carried a backslash — which Markdown does
+    not treat as a path separator — and all report images rendered broken.
+    ``PureWindowsPath`` lets the Windows behaviour be pinned from any OS.
+    """
+
+    def test_windows_paths_produce_posix_links(self):
+        from pathlib import PureWindowsPath
+
+        from psdn_sonar.reporting.generators.report_generator import _relative_to
+
+        link = _relative_to(
+            PureWindowsPath("results/demo"),
+            PureWindowsPath("results/demo/cross-dataset-analysis/cer_by_dataset_model.png"),
+        )
+        assert link == "cross-dataset-analysis/cer_by_dataset_model.png"
+        assert isinstance(link, str)
+
+    def test_windows_fallback_for_unrelated_paths_is_posix_too(self):
+        from pathlib import PureWindowsPath
+
+        from psdn_sonar.reporting.generators.report_generator import _relative_to
+
+        link = _relative_to(PureWindowsPath("elsewhere"), PureWindowsPath("plots/latency_boxplot.png"))
+        assert link == "plots/latency_boxplot.png"
+
+    def test_posix_paths_unchanged(self):
+        from pathlib import PurePosixPath
+
+        from psdn_sonar.reporting.generators.report_generator import _relative_to
+
+        link = _relative_to(
+            PurePosixPath("results/demo"),
+            PurePosixPath("results/demo/latency-analysis/latency_boxplot.png"),
+        )
+        assert link == "latency-analysis/latency_boxplot.png"
