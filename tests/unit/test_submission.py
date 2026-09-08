@@ -540,3 +540,68 @@ def test_run_evaluation_preserves_caller_submission_snapshot(tmp_path: Path, mon
     payload = json.loads(scores_path.read_text(encoding="utf-8"))
     assert payload["submission"]["model_snapshot"] == "whisper-1@2024-06-01"
     assert payload["model_name"] == "whisper_api"
+
+
+class TestOsPlatformNormalisation:
+    """Issue #255: CPython below 3.12 reports any Windows 11 build as
+    Windows-10, so one machine recorded two operating systems depending on
+    the interpreter. The release is now derived from the build number
+    (22000 = first Windows 11 build), which is interpreter-independent."""
+
+    @staticmethod
+    def _simulate_windows(monkeypatch, *, platform_string, build):
+        from types import SimpleNamespace
+
+        import psdn_sonar.benchmark.submission as submission_module
+
+        monkeypatch.setattr(submission_module.platform, "platform", lambda: platform_string)
+        monkeypatch.setattr(submission_module.sys, "platform", "win32")
+        monkeypatch.setattr(
+            submission_module.sys,
+            "getwindowsversion",
+            lambda: SimpleNamespace(build=build),
+            raising=False,
+        )
+        return submission_module._resolve_os_platform()
+
+    def test_old_interpreter_on_windows_11_normalised(self, monkeypatch):
+        # The issue's exact values: 3.10/3.11 on build 26200.
+        result = self._simulate_windows(
+            monkeypatch, platform_string="Windows-10-10.0.26200-SP0", build=26200
+        )
+        assert result == "Windows-11-10.0.26200-SP0"
+
+    def test_real_windows_10_untouched(self, monkeypatch):
+        result = self._simulate_windows(
+            monkeypatch, platform_string="Windows-10-10.0.19045-SP0", build=19045
+        )
+        assert result == "Windows-10-10.0.19045-SP0"
+
+    def test_312_form_already_correct_passes_through(self, monkeypatch):
+        result = self._simulate_windows(
+            monkeypatch, platform_string="Windows-11-10.0.26200-SP0", build=26200
+        )
+        assert result == "Windows-11-10.0.26200-SP0"
+
+    def test_non_windows_platform_untouched(self, monkeypatch):
+        import psdn_sonar.benchmark.submission as submission_module
+
+        value = "Linux-6.8.0-57-generic-x86_64-with-glibc2.39"
+        monkeypatch.setattr(submission_module.platform, "platform", lambda: value)
+        assert submission_module._resolve_os_platform() == value
+
+    def test_from_env_uses_the_normalised_value(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import psdn_sonar.benchmark.submission as submission_module
+
+        monkeypatch.setattr(submission_module.platform, "platform", lambda: "Windows-10-10.0.26200-SP0")
+        monkeypatch.setattr(submission_module.sys, "platform", "win32")
+        monkeypatch.setattr(
+            submission_module.sys,
+            "getwindowsversion",
+            lambda: SimpleNamespace(build=26200),
+            raising=False,
+        )
+        cfg = submission_module.SubmissionConfig.from_env(provider="local", model_snapshot="m")
+        assert cfg.os_platform == "Windows-11-10.0.26200-SP0"
