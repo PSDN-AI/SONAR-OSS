@@ -194,6 +194,31 @@ class TestComputeAudioQualityMetrics:
             decimals = len(snr_str.split(".")[1])
             assert decimals <= 2
 
+    def test_utmos_failure_marker_reaches_quality_warnings(self, wav_file, monkeypatch):
+        """End-to-end for issue #245: a swallowed UTMOS failure must land in
+        the artifact's quality_warnings, not only in the terminal, and the
+        internal mos_warnings key must not leak into the CSV columns."""
+        import psdn_sonar.quality_models as qm
+
+        monkeypatch.setattr(
+            qm,
+            "compute_mos_metrics",
+            lambda audio, sr=16000: {
+                **qm._EMPTY_MOS,
+                "dnsmos_ovrl": 2.641,
+                "squim_pesq": 2.466,
+                "mos_tier": "Medium",
+                "mos_warnings": ["utmos_unavailable: 'Authorization'"],
+            },
+        )
+
+        result = compute_audio_quality_metrics(wav_file)
+
+        assert result["utmos"] is None
+        assert result["dnsmos_ovrl"] == 2.641
+        assert "utmos_unavailable: 'Authorization'" in result["quality_warnings"]
+        assert "mos_warnings" not in result
+
     def test_silent_file_flagged_not_clean(self, tmp_path):
         # End-to-end regression for issue #105: an all-zero WAV used to
         # report silence_ratio=0.0, snr_db=inf, snr_tier=High, no warnings.

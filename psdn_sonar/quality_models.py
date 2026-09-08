@@ -2,7 +2,12 @@
 Reference-free speech quality models: DNSMOS, UTMOS, SQUIM.
 
 Each scorer is lazily loaded on first use and cached for the session.
-All public functions return ``None`` on failure so evaluation is never blocked.
+All public functions return ``None`` on failure so evaluation is never
+blocked — but the reason is not lost: each family records why it failed,
+and :func:`compute_mos_metrics` surfaces those reasons under the
+``mos_warnings`` key so the caller can put them in the artifact. A UTMOS
+fetch failure used to empty the column for the rest of the process with a
+single terminal WARNING as the only trace (issue #245).
 """
 
 import logging
@@ -36,11 +41,12 @@ def assign_mos_tier(mos: Optional[float]) -> Optional[str]:
 
 _dnsmos_model = None
 _dnsmos_available: Optional[bool] = None
+_dnsmos_error: Optional[str] = None
 _dnsmos_lock = threading.Lock()
 
 
 def _get_dnsmos():
-    global _dnsmos_model, _dnsmos_available
+    global _dnsmos_model, _dnsmos_available, _dnsmos_error
     if _dnsmos_available is not None:
         return _dnsmos_model
     with _dnsmos_lock:
@@ -55,6 +61,7 @@ def _get_dnsmos():
         except Exception as exc:
             logger.warning("DNSMOS unavailable: %s", exc)
             _dnsmos_available = False
+            _dnsmos_error = str(exc)
     return _dnsmos_model
 
 
@@ -73,6 +80,8 @@ def score_dnsmos(audio: np.ndarray, sr: int = SAMPLE_RATE) -> Dict[str, Optional
         }
     except Exception as exc:
         logger.debug("DNSMOS scoring failed: %s", exc)
+        global _dnsmos_error
+        _dnsmos_error = str(exc)
         return empty
 
 
@@ -82,11 +91,12 @@ def score_dnsmos(audio: np.ndarray, sr: int = SAMPLE_RATE) -> Dict[str, Optional
 
 _utmos_predictor = None
 _utmos_available: Optional[bool] = None
+_utmos_error: Optional[str] = None
 _utmos_lock = threading.Lock()
 
 
 def _get_utmos():
-    global _utmos_predictor, _utmos_available
+    global _utmos_predictor, _utmos_available, _utmos_error
     if _utmos_available is not None:
         return _utmos_predictor
     with _utmos_lock:
@@ -114,6 +124,7 @@ def _get_utmos():
         except Exception as exc:
             logger.warning("UTMOS unavailable: %s", exc)
             _utmos_available = False
+            _utmos_error = str(exc)
     return _utmos_predictor
 
 
@@ -131,6 +142,8 @@ def score_utmos(audio: np.ndarray, sr: int = SAMPLE_RATE) -> Dict[str, Optional[
         return {"utmos": round(float(score.item()), 3)}
     except Exception as exc:
         logger.debug("UTMOS scoring failed: %s", exc)
+        global _utmos_error
+        _utmos_error = str(exc)
         return empty
 
 
@@ -140,12 +153,13 @@ def score_utmos(audio: np.ndarray, sr: int = SAMPLE_RATE) -> Dict[str, Optional[
 
 _squim_model = None
 _squim_available: Optional[bool] = None
+_squim_error: Optional[str] = None
 _squim_sr: int = SAMPLE_RATE
 _squim_lock = threading.Lock()
 
 
 def _get_squim():
-    global _squim_model, _squim_available, _squim_sr
+    global _squim_model, _squim_available, _squim_sr, _squim_error
     if _squim_available is not None:
         return _squim_model
     with _squim_lock:
@@ -161,6 +175,7 @@ def _get_squim():
         except Exception as exc:
             logger.warning("SQUIM unavailable: %s", exc)
             _squim_available = False
+            _squim_error = str(exc)
     return _squim_model
 
 
@@ -186,6 +201,8 @@ def score_squim(audio: np.ndarray, sr: int = SAMPLE_RATE) -> Dict[str, Optional[
         }
     except Exception as exc:
         logger.debug("SQUIM scoring failed: %s", exc)
+        global _squim_error
+        _squim_error = str(exc)
         return empty
 
 
@@ -208,7 +225,7 @@ _EMPTY_MOS: Dict[str, "float | str | None"] = {
 def compute_mos_metrics(
     audio_or_path,
     sr: int = SAMPLE_RATE,
-) -> Dict[str, "float | str | None"]:
+) -> Dict[str, "float | str | list[str] | None"]:
     """Compute all reference-free quality scores.
 
     Parameters
@@ -225,7 +242,11 @@ def compute_mos_metrics(
     Returns
     -------
     dict with keys: dnsmos_ovrl, dnsmos_sig, dnsmos_bak,
-    utmos, squim_pesq, squim_stoi, squim_si_sdr, mos_tier.
+    utmos, squim_pesq, squim_stoi, squim_si_sdr, mos_tier — plus
+    ``mos_warnings``, a list of ``<family>_unavailable: <reason>`` markers
+    for each score family that produced no value. Callers writing artifacts
+    should pop ``mos_warnings`` and record it (issue #245: a UTMOS fetch
+    failure emptied the column with nothing in the artifact saying why).
     """
     if isinstance(audio_or_path, np.ndarray):
         audio = audio_or_path
@@ -237,13 +258,23 @@ def compute_mos_metrics(
             sr = SAMPLE_RATE
         except Exception as exc:
             logger.debug("Failed to load audio for MOS metrics %s: %s", audio_or_path, exc)
-            return dict(_EMPTY_MOS)
+            return {**_EMPTY_MOS, "mos_warnings": [f"mos_metrics_unavailable: {exc}"]}
 
     scores: Dict[str, Optional[float]] = {}
     scores.update(score_dnsmos(audio, sr))
     scores.update(score_utmos(audio, sr))
     scores.update(score_squim(audio, sr))
 
-    result: Dict[str, "float | str | None"] = dict(scores)
+    mos_warnings: list[str] = []
+    for family, keys, error in (
+        ("dnsmos", ("dnsmos_ovrl", "dnsmos_sig", "dnsmos_bak"), _dnsmos_error),
+        ("utmos", ("utmos",), _utmos_error),
+        ("squim", ("squim_pesq", "squim_stoi", "squim_si_sdr"), _squim_error),
+    ):
+        if all(scores.get(key) is None for key in keys) and error:
+            mos_warnings.append(f"{family}_unavailable: {error}")
+
+    result: Dict[str, "float | str | list[str] | None"] = dict(scores)
     result["mos_tier"] = assign_mos_tier(scores.get("dnsmos_ovrl"))
+    result["mos_warnings"] = mos_warnings
     return result
