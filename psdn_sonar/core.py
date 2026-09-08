@@ -334,7 +334,11 @@ def process_manifest_with_asr(
     from .preprocessing.audio_utils import get_combined_audio_path
     from .preprocessing.config_loader import DEFAULT_METHODS
     from .preprocessing.methods import PER_CLIP_METHODS, PYANNOTE_METHODS
-    from .preprocessing.preprocessing_selector import run_single_method, run_sweep
+    from .preprocessing.preprocessing_selector import (
+        run_single_method,
+        run_sweep,
+        unsupported_capability_error,
+    )
     from .preprocessing.pyannote_utils import PYANNOTE_AVAILABLE
 
     if method is not None:
@@ -378,9 +382,17 @@ def process_manifest_with_asr(
                 f"Skipping {m}: pyannote.audio not installed. Install with: pip install 'psdn-sonar[pyannote]'"
             )
             continue
-        if m in PER_CLIP_METHODS and not getattr(asr_model, "supports_diarization", False):
-            logger.warning(f"Skipping {m}: {asr_model_name or type(asr_model).__name__} does not support diarization")
-            continue
+        if m in PER_CLIP_METHODS:
+            # Per-method capability from PER_CLIP_REQUIRED_CAPABILITY, not a
+            # hardcoded supports_diarization for the whole per-clip set: that
+            # told users pyannote_diarize needs diarization when it needs
+            # supports_word_timestamps, and refused it for adapters that
+            # satisfy the real requirement — while the selector's correct
+            # message sat one layer down, unreached (issue #239).
+            reason = unsupported_capability_error(m, asr_model, model_name=asr_model_name)
+            if reason is not None:
+                logger.warning(f"Skipping {m}: {reason}")
+                continue
         active_methods.append(m)
 
     if duplicates:
