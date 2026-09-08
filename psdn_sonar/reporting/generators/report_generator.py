@@ -85,11 +85,18 @@ def load_dataset_stats(dataset_path) -> dict:
     return _token_stats(transcripts, len(df))
 
 
-def _relative_to(report_dir: Path, plot_path: Path):
+def _relative_to(report_dir: Path, plot_path: Path) -> str:
+    """Markdown-ready link target: relative to the report dir, forward slashes.
+
+    Returns a string, not a Path: interpolating a Path put the OS separator
+    into the link, and on Windows a backslash is not a Markdown path
+    separator, so every image in a generated report rendered broken
+    (issue #242). ``as_posix()`` keeps the links identical on every platform.
+    """
     try:
-        return plot_path.relative_to(report_dir)
+        return plot_path.relative_to(report_dir).as_posix()
     except ValueError:
-        return plot_path
+        return plot_path.as_posix()
 
 
 def _plot_entry(report_dir: Path, plot_path: Path, title: str, caption: str = "", level: str = "###") -> list:
