@@ -93,3 +93,9 @@ class TestPipelineConsistency:
     def test_weights_must_sum_to_one(self):
         with pytest.raises(ValueError, match="sum to 1.0"):
             PoseidonScorer(wer_weight=0.5, cer_weight=0.5, semantic_weight=0.5)
+
+    def test_negative_weights_rejected_even_when_summing_to_one(self):
+        """Issue #238: -0.5/0.75/0.75 sums to 1.0 and used to be accepted,
+        inverting the composite so a worse transcript scored higher."""
+        with pytest.raises(ValueError, match=r"non-negative.*wer_weight=-0\.5"):
+            PoseidonScorer(wer_weight=-0.5, cer_weight=0.75, semantic_weight=0.75)
