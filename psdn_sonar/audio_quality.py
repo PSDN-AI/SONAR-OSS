@@ -23,9 +23,12 @@ _DEFAULT_SILENCE_THRESH_DB = -40.0
 _DEFAULT_MAX_SILENCE_RATIO = 0.60
 _DEFAULT_MAX_CLIPPING_RATIO = 0.001
 _DEFAULT_MIN_SNR_DB = 10.0
-# Absolute RMS amplitude below which a frame is unconditionally silent
-# (~ -60 dBFS). Guards the relative silence measurement against uniformly
-# quiet files, where "relative to the file's own loudest frame" is undefined.
+# Minimum reference level (~ -60 dBFS) for the relative silence measurement.
+# Guards it against uniformly quiet files — where "relative to the file's own
+# loudest frame" is undefined — without declaring merely quiet audio silent:
+# frames are measured against max(own loudest frame, this floor), so digital
+# silence still scores 1.0 while a quiet-but-intelligible recording keeps its
+# real speech/silence ratio (issue #243).
 _DEFAULT_SILENCE_FLOOR_AMPLITUDE = 1e-3
 # Upper bound for reported SNR. Noise-free audio (synthetic or digitally
 # denoised) would otherwise report inf, which poisons numeric columns.
@@ -147,9 +150,16 @@ def calculate_silence_ratio(audio: np.ndarray, thresh_db: float | None = None) -
     undefined for uniformly quiet audio: every frame of an all-zero file
     sits at 0 dB relative to itself, so a fully silent recording used to
     score 0.0 — the same as all-speech — and pass the ``max_silence_ratio``
-    gate (issue #105). When the loudest frame is itself below the absolute
-    silence floor (``silence_floor_amplitude``, default 1e-3 ≈ -60 dBFS),
-    the whole file is silent and the ratio is 1.0.
+    gate (issue #105). The reference is therefore floored at the absolute
+    silence floor (``silence_floor_amplitude``, default 1e-3 ≈ -60 dBFS):
+    digital silence measures far below any threshold and scores 1.0.
+
+    The floor is a minimum reference level, not a whole-file verdict.
+    Equating "loudest frame under the floor" with "the file is silent"
+    reported a quiet copy of an utterance as 100% silence while it
+    transcribed at the identical WER and measured the identical SNR
+    (issue #243); measured against the floored reference, quiet but
+    intelligible audio keeps its real speech/silence ratio instead.
 
     Note: the multi-speaker preprocessing selector computes a differently
     defined, VAD-based silence ratio for its internal method scoring; that
@@ -161,9 +171,10 @@ def calculate_silence_ratio(audio: np.ndarray, thresh_db: float | None = None) -
     rms = librosa.feature.rms(y=audio, frame_length=2048, hop_length=512)[0]
     if len(rms) == 0:
         return 0.0
-    if float(np.max(rms)) < cfg.silence_floor_amplitude:
-        return 1.0
-    rms_db = librosa.amplitude_to_db(rms, ref=np.max)
+    ref = max(float(np.max(rms)), cfg.silence_floor_amplitude)
+    # amin well below the floor so all-zero frames measure far under any
+    # usable threshold instead of clamping to exactly -40 dB.
+    rms_db = librosa.amplitude_to_db(rms, ref=ref, amin=1e-10)
     return float(np.mean(rms_db < thresh_db))
 
 

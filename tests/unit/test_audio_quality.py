@@ -99,6 +99,36 @@ class TestCalculateSilenceRatio:
         ratio = calculate_silence_ratio(sine_wave_audio)
         assert ratio < 0.5
 
+    def test_quiet_copy_keeps_its_silence_ratio(self):
+        # Regression for issue #243: a 0.001x copy of mixed speech/silence
+        # pushed the loudest RMS frame under the absolute floor and the whole
+        # file was declared 100% silence, while it transcribed at the
+        # identical WER and measured the identical SNR. The floor is now the
+        # minimum reference level, so the quiet copy keeps its real ratio.
+        rng = np.random.default_rng(42)
+        speech = np.concatenate(
+            [
+                rng.normal(0, 0.2, 8_000),
+                np.zeros(4_000),
+                rng.normal(0, 0.2, 4_000),
+            ]
+        ).astype(np.float32)
+        original = calculate_silence_ratio(speech)
+        quiet = calculate_silence_ratio((speech * 0.001).astype(np.float32))
+
+        assert quiet < 1.0, "quiet-but-intelligible audio must not be reported as all silence"
+        assert abs(quiet - original) < 0.1
+
+    def test_quiet_copy_snr_still_gain_invariant(self):
+        # The issue's cross-check: SNR tracked the gain change correctly
+        # (+0.00 dB); pin that it stays that way alongside the silence fix.
+        rng = np.random.default_rng(7)
+        speech = np.concatenate([rng.normal(0, 0.2, 8_000), np.zeros(8_000)]).astype(np.float32)
+        snr_orig = calculate_snr(speech)
+        snr_quiet = calculate_snr((speech * 0.001).astype(np.float32))
+        assert snr_orig is not None and snr_quiet is not None
+        assert abs(snr_orig - snr_quiet) < 0.1
+
     def test_returns_between_zero_and_one(self, sine_wave_audio):
         ratio = calculate_silence_ratio(sine_wave_audio)
         assert 0.0 <= ratio <= 1.0
