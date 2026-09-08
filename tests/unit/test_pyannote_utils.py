@@ -4,6 +4,8 @@ The gated-model error wrapping (issue #171) is pure exception inspection, so
 it is exercised here without the [pyannote] extra installed.
 """
 
+import os
+
 import pytest
 
 from psdn_sonar.preprocessing.pyannote_utils import GATED_MODEL_HINT, _raise_load_error, _refused_repo
@@ -111,3 +113,56 @@ class TestRefusedDependencyInHeadline:
     def test_trailing_sentence_punctuation_is_stripped(self):
         text = "Cannot access repo pyannote/speaker-diarization-community-1."
         assert _refused_repo(text, "pyannote/speaker-diarization-3.1") == "pyannote/speaker-diarization-community-1"
+
+
+class TestFfmpegDllRegistration:
+    """Issue #254: torchcodec loads the ffmpeg shared libraries at runtime,
+    and since Python 3.8 Windows does not consult PATH when resolving a
+    native extension's dependent DLLs — so a full-shared ffmpeg on PATH
+    still failed at decoder construction until its directory was registered
+    via os.add_dll_directory."""
+
+    def test_registers_ffmpeg_directory_on_windows(self, monkeypatch, tmp_path):
+        import os as os_module
+
+        from psdn_sonar.preprocessing import pyannote_utils
+
+        ffmpeg = tmp_path / "ffmpeg-shared" / "bin" / "ffmpeg.exe"
+        ffmpeg.parent.mkdir(parents=True)
+        ffmpeg.write_bytes(b"")
+
+        registered = []
+        monkeypatch.setattr(os_module, "name", "nt")
+        monkeypatch.setattr(os_module, "add_dll_directory", registered.append, raising=False)
+        monkeypatch.setattr(pyannote_utils.shutil, "which", lambda name: str(ffmpeg))
+
+        pyannote_utils._register_ffmpeg_dll_directory()
+
+        assert registered == [os.path.dirname(os.path.abspath(str(ffmpeg)))]
+
+    def test_noop_without_ffmpeg_on_path(self, monkeypatch):
+        import os as os_module
+
+        from psdn_sonar.preprocessing import pyannote_utils
+
+        registered = []
+        monkeypatch.setattr(os_module, "name", "nt")
+        monkeypatch.setattr(os_module, "add_dll_directory", registered.append, raising=False)
+        monkeypatch.setattr(pyannote_utils.shutil, "which", lambda name: None)
+
+        pyannote_utils._register_ffmpeg_dll_directory()
+
+        assert registered == []
+
+    def test_noop_on_posix(self, monkeypatch):
+        import os as os_module
+
+        from psdn_sonar.preprocessing import pyannote_utils
+
+        registered = []
+        monkeypatch.setattr(os_module, "add_dll_directory", registered.append, raising=False)
+        monkeypatch.setattr(pyannote_utils.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+        pyannote_utils._register_ffmpeg_dll_directory()
+
+        assert registered == []
