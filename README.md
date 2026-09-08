@@ -151,12 +151,20 @@ Requires Python 3.10, 3.11, or 3.12.
 2. Install the package:
 
    ```bash
-   python -m pip install psdn-sonar
+   python -m pip install "psdn-sonar>=0.1.1"
    ```
 
    To install an optional extra, name it in brackets — for example
-   `python -m pip install "psdn-sonar[ml]"` for the local-model backends.
-   [`CONTRIBUTING.md`](CONTRIBUTING.md) lists every extra and what it pulls in.
+   `python -m pip install "psdn-sonar[ml]>=0.1.1"` for the local-model
+   backends. [`CONTRIBUTING.md`](CONTRIBUTING.md) lists every extra and what
+   it pulls in.
+
+   The `>=0.1.1` lower bound makes an unsupported interpreter fail loudly:
+   releases from 0.1.1 declare `Requires-Python >=3.10,<3.13`, but 0.1.0
+   predates that bound, so on Python 3.13 a bare `pip install psdn-sonar`
+   silently falls back to the outdated 0.1.0 — two releases behind, with no
+   warning — instead of reporting that 3.13 is unsupported. With the bound,
+   pip names the `Requires-Python` restriction and installs nothing.
 
 3. Verify the install:
 
