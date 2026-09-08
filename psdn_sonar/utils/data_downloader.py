@@ -63,8 +63,7 @@ class DataDownloader:
         """
         if boto3 is None:
             raise ImportError(
-                "boto3 package is required for DataDownloader. "
-                'Install with: pip install "psdn-sonar[cloud]"'
+                'boto3 package is required for DataDownloader. Install with: pip install "psdn-sonar[cloud]"'
             )
         self.s3_client = boto3.client(
             "s3",
