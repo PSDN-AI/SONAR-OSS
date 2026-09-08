@@ -402,6 +402,78 @@ class TestProcessManifestWithASR:
         assert "Mode: fixed" not in stats_text  # auto-selection was used
         assert "Samples: 2" in stats_text
 
+    def test_silent_channel_surfaces_in_console_and_txt(self, tmp_path, monkeypatch, caplog):
+        """Issue #246: a silent speaker channel was detected and recorded in
+        the per-row CSV, then dropped from the console and the .txt summary,
+        so the combined WER read as a clean model result."""
+        manifest = _write_manifest_dataset(tmp_path, ref_a="hello world", ref_b="good morning")
+        output = tmp_path / "results" / "out.csv"
+
+        def fake_aq(path, include_mos=True):
+            if str(path).endswith("b.wav"):
+                return {
+                    "snr_db": None,
+                    "clipping_ratio": 0.0,
+                    "silence_ratio": 1.0,
+                    "snr_tier": None,
+                    "quality_warnings": "high_silence:100.00%_max_60%",
+                }
+            return {
+                "snr_db": 16.71,
+                "clipping_ratio": 0.0,
+                "silence_ratio": 0.0,
+                "snr_tier": "Medium",
+                "quality_warnings": "",
+            }
+
+        monkeypatch.setattr(core, "compute_audio_quality_metrics", fake_aq)
+
+        with caplog.at_level("WARNING"):
+            process_manifest_with_asr(
+                str(manifest),
+                _StubModel("hello world"),
+                str(output),
+                asr_model_name="stub-model",
+                language="en",
+                methods=["no_trim"],
+            )
+
+        stats_text = output.with_suffix(".txt").read_text(encoding="utf-8")
+        assert "Rows with quality warnings: 1" in stats_text
+        assert "conv_001/B: high_silence:100.00%_max_60%" in stats_text
+        assert "1 of 2 rows carry audio quality warnings" in caplog.text
+        assert "high_silence:100.00%_max_60%" in caplog.text
+
+    def test_clean_run_summary_stays_clean(self, tmp_path, monkeypatch, caplog):
+        manifest = _write_manifest_dataset(tmp_path, ref_a="hello world", ref_b="good morning")
+        output = tmp_path / "results" / "out.csv"
+
+        monkeypatch.setattr(
+            core,
+            "compute_audio_quality_metrics",
+            lambda path, include_mos=True: {
+                "snr_db": 20.0,
+                "clipping_ratio": 0.0,
+                "silence_ratio": 0.0,
+                "snr_tier": "High",
+                "quality_warnings": "",
+            },
+        )
+
+        with caplog.at_level("WARNING"):
+            process_manifest_with_asr(
+                str(manifest),
+                _StubModel("hello world"),
+                str(output),
+                asr_model_name="stub-model",
+                language="en",
+                methods=["no_trim"],
+            )
+
+        stats_text = output.with_suffix(".txt").read_text(encoding="utf-8")
+        assert "Rows with quality warnings" not in stats_text
+        assert "carry audio quality warnings" not in caplog.text
+
     def test_sweep_perfect_transcription_scores_top(self, tmp_path):
         """A perfect transcription (CER/WER == 0.0) must score top, not fall to falsy defaults."""
         manifest = _write_manifest_dataset(tmp_path, ref_a="hello world", ref_b="hello world")
