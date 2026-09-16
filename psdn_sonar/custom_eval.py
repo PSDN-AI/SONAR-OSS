@@ -25,6 +25,21 @@ _API_KEY_MAP = {
 }
 
 
+def _section(raw: dict, key: str) -> dict:
+    """An optional mapping section of the config.
+
+    A key that is present but bare (``dataset:`` with no value) parses to
+    None, which ``raw.get(key, {})`` passes through — so the AttributeError
+    one line later masked the validation message written for the missing
+    data source (issue #277). Absent and bare now read the same, and a
+    section that is some other scalar is named instead of crashing.
+    """
+    value = raw.get(key) or {}
+    if not isinstance(value, dict):
+        raise ValueError(f"Config section '{key}' must be a mapping of keys to values, got: {value!r}")
+    return value
+
+
 class CustomEvalConfig:
     """Parsed representation of a custom evaluation YAML config."""
 
@@ -33,29 +48,42 @@ class CustomEvalConfig:
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
+        # A malformed file is a configuration problem, not an internal error:
+        # deliver it as the ValueError the CLI's clean first tier names
+        # (issue #277), the way data/catalog.py already converts YAMLError.
         with open(path, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f)
+            try:
+                raw = yaml.safe_load(f)
+            except yaml.YAMLError as exc:
+                raise ValueError(f"Config file {config_path} is not valid YAML: {exc}") from exc
 
-        lang = raw.get("language", {})
+        if raw is None:
+            raw = {}
+        if not isinstance(raw, dict):
+            raise ValueError(f"Config file {config_path} must be a YAML mapping of sections, got: {type(raw).__name__}")
+
+        lang = _section(raw, "language")
         self.language_code = lang.get("code", "custom")
         self.language_name = lang.get("name", self.language_code.title())
 
-        models_raw = raw.get("models", [])
+        models_raw = raw.get("models") or []
         if not models_raw:
             raise ValueError("Config must specify at least one model under 'models'")
         self.models: List[Dict] = [{"hf_model_id": m} if isinstance(m, str) else m for m in models_raw]
 
-        ds = raw.get("dataset", {})
+        ds = _section(raw, "dataset")
         self.tsv_path = ds.get("tsv_path")
         self.hf_dataset_id = ds.get("hf_dataset_id")
         self.hf_subset = ds.get("hf_subset")
-        self.hf_split = ds.get("hf_split", "test")
-        self.text_column = ds.get("text_column", "sentence")
-        self.audio_column = ds.get("audio_column", "audio")
+        # `or` rather than a .get() default so a key written bare
+        # (`hf_split:` -> None) reads as absent too, like the sections.
+        self.hf_split = ds.get("hf_split") or "test"
+        self.text_column = ds.get("text_column") or "sentence"
+        self.audio_column = ds.get("audio_column") or "audio"
         if not self.tsv_path and not self.hf_dataset_id:
             raise ValueError("Config must specify either dataset.tsv_path or dataset.hf_dataset_id")
 
-        api = raw.get("api_models", {})
+        api = _section(raw, "api_models")
         self.include_api_models = api.get("enabled", True)
         self.api_models_list = api.get("include", ["whisper_api", "elevenlabs_api", "assemblyai_api"])
 
@@ -88,7 +116,9 @@ def prepare_dataset(config: CustomEvalConfig, output_dir: str, max_samples: int 
     )
     from datasets import load_dataset
 
-    load_args = [config.hf_dataset_id]
+    # Non-None here: the config validated tsv_path-or-hf_dataset_id, and the
+    # tsv_path branch returned above.
+    load_args = [cast("str", config.hf_dataset_id)]
     if config.hf_subset:
         load_args.append(config.hf_subset)
 
