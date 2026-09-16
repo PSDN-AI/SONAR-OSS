@@ -10,6 +10,7 @@ cannot import against the modern torchaudio the ``[ml]`` extra locks
 — the same binary the pipeline-based ASR adapters already require.
 """
 
+import glob
 import logging
 import os
 import re
@@ -83,8 +84,31 @@ def _raise_load_error(model_id: str, exc: Exception) -> NoReturn:
     raise exc
 
 
+def _ffmpeg_directories_on_path() -> list:
+    """Every distinct directory on ``PATH`` holding an ffmpeg executable.
+
+    ``shutil.which`` alone returns only the first match, which on a host with
+    both a static and a shared ffmpeg build installed is not necessarily the
+    one carrying the shared libraries (issue #279).
+    """
+    directories = []
+    seen = set()
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        found = shutil.which("ffmpeg", path=entry)
+        if not found:
+            continue
+        directory = os.path.dirname(os.path.abspath(found))
+        key = os.path.normcase(directory)
+        if key not in seen:
+            seen.add(key)
+            directories.append(directory)
+    return directories
+
+
 def _register_ffmpeg_dll_directory() -> None:
-    """On Windows, register the ffmpeg directory for native DLL resolution.
+    """On Windows, register the ffmpeg shared-library directories for DLL resolution.
 
     pyannote.audio 4.x decodes through torchcodec, which loads the ffmpeg
     *shared libraries* at runtime — and since Python 3.8 Windows does not
@@ -92,20 +116,36 @@ def _register_ffmpeg_dll_directory() -> None:
     full-shared ffmpeg build sitting on ``PATH`` therefore still failed with
     "Could not find module 'libtorchcodec_core9.dll' (or one of its
     dependencies)" until its directory was registered via
-    ``os.add_dll_directory`` (issue #254). Registering the directory that
-    holds ``ffmpeg.exe`` makes the documented install
-    (``winget install Gyan.FFmpeg.Shared``) work as written. A static build
-    has no DLLs there, so registering its directory changes nothing.
+    ``os.add_dll_directory`` (issue #254).
+
+    The first match on ``PATH`` is not enough: the README names two winget
+    builds (``Gyan.FFmpeg`` for the pipeline adapters, ``Gyan.FFmpeg.Shared``
+    for ``[pyannote]``), and when the static build lands first, its directory
+    has no DLLs to offer (issue #279). So every ffmpeg directory on ``PATH``
+    is inspected, the ones actually carrying the ``av*.dll`` shared libraries
+    are registered, and a host where no ffmpeg directory carries them gets a
+    warning naming the fix instead of a bare DLL-loading error later.
     """
     if os.name != "nt":
         return
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
+    candidates = _ffmpeg_directories_on_path()
+    if not candidates:
         return
-    try:
-        os.add_dll_directory(os.path.dirname(os.path.abspath(ffmpeg)))
-    except (OSError, AttributeError):  # pragma: no cover - defensive
-        logger.debug("Could not register the ffmpeg DLL directory", exc_info=True)
+    with_dlls = [d for d in candidates if glob.glob(os.path.join(d, "av*.dll"))]
+    if not with_dlls:
+        logger.warning(
+            "An ffmpeg was found on PATH (%s) but no ffmpeg directory carries the av*.dll "
+            "shared libraries torchcodec loads at runtime — this looks like a static build. "
+            "pyannote decoding needs a shared build, e.g. winget install Gyan.FFmpeg.Shared "
+            "(issue #279).",
+            "; ".join(candidates),
+        )
+    for directory in with_dlls or candidates:
+        try:
+            os.add_dll_directory(directory)
+            logger.debug("Registered ffmpeg DLL directory: %s", directory)
+        except (OSError, AttributeError):  # pragma: no cover - defensive
+            logger.debug("Could not register the ffmpeg DLL directory %s", directory, exc_info=True)
 
 
 def _import_pyannote() -> bool:
