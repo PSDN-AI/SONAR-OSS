@@ -188,6 +188,18 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 
+[tool.uv]
+# onnxruntime stopped publishing cp310 wheels with the 1.24 line (no sdist
+# either), but its metadata still admits Python 3.10 — so an unconstrained
+# lock selects an uninstallable version for the < 3.11 fork of the [ml]
+# resolution and `uv sync --frozen --extra ml` exits 2 on 3.10, the lowest
+# interpreter requires-python names (issue #281). Pin that fork to the 1.23
+# line, the last with cp310 wheels; pip already lands there on 3.10 by wheel
+# availability, so this only brings the lock in line.
+constraint-dependencies = [
+    "onnxruntime<1.24 ; python_full_version < '3.11'",
+]
+
 [tool.ty.rules]
 # Optional deps behind try/except that ty can't resolve
 unresolved-import = "ignore"
