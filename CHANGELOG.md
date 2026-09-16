@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The locked `[ml]` install resolves on Python 3.10 again (#281).
+  onnxruntime stopped publishing cp310 wheels with its 1.24 line while its
+  metadata still admitted 3.10, so `uv.lock` selected 1.24.3 for the < 3.11
+  fork and `uv sync --frozen --extra ml` — the documented contributor path —
+  exited 2 on the lowest interpreter `requires-python` names. A uv
+  constraint pins that fork to the 1.23 line (1.23.2, the last release with
+  cp310 wheels; pip already lands there by wheel availability), and the CI
+  test matrix gains a `--dry-run` resolution check of all locked extras on
+  every supported interpreter, closing the coverage gap that let the lock
+  drift unnoticed.
+
 - Skipping a per-clip preprocessing method names the capability it actually
   requires (#239). `core.py`'s prefilter hardcoded `supports_diarization`
   for the whole per-clip set, while the package's own
