@@ -19,6 +19,15 @@ passed under the CI pin and reported four false failures under a newer
 pip-audit, two of them instructions to delete the exceptions keeping CI
 green (issue #248).
 
+Exceptions are bound to a package as well as an advisory, and one advisory
+can reach the lockfile under several distribution names (lightning and
+pytorch-lightning ship the same code and the same advisory; issue #276).
+A finding is therefore excepted when *some* id-matching exception also
+names its package; a MISMATCH is reported only when every id-matching
+exception is bound to a different package — the typo case the check
+exists for — rather than for each such exception individually, which
+failed the second package even when its own exception was present.
+
 Usage: pip-audit -r <requirements> --format json | python scripts/dependency_audit.py
 """
 
@@ -82,7 +91,6 @@ def main() -> int:
     for finding in sorted(findings, key=lambda f: (f["package"], f["id"])):
         # An exception counts if it names the reported id or any alias.
         matches = [eid for eid in sorted(finding["ids"]) if eid in exceptions]
-        matched_exception_ids.update(matches)
         if not matches:
             fixes = ", ".join(finding["fix_versions"]) or "none published"
             failures.append(
@@ -90,13 +98,19 @@ def main() -> int:
                 f"(fix: {fixes}) has no reviewed exception"
             )
             continue
-        for eid in matches:
-            entry = exceptions[eid]
-            if entry["package"].lower() != finding["package"].lower():
-                failures.append(
-                    f"MISMATCH: exception {eid} names package {entry['package']!r} "
-                    f"but the finding is in {finding['package']!r}"
-                )
+        # One advisory can land under several distribution names (issue
+        # #276): the finding is excepted when some id-matching exception
+        # also names its package. Only package-matching exceptions are
+        # credited, so a wrong-package match cannot keep an entry alive.
+        package_matches = [eid for eid in matches if exceptions[eid]["package"].lower() == finding["package"].lower()]
+        if package_matches:
+            matched_exception_ids.update(package_matches)
+            continue
+        candidates = ", ".join(f"{eid} ({exceptions[eid]['package']!r})" for eid in matches)
+        failures.append(
+            f"MISMATCH: finding {finding['id']} is in {finding['package']!r} but its only "
+            f"id-matching exceptions are bound to other packages: {candidates}"
+        )
 
     for advisory_id, entry in sorted(exceptions.items()):
         if advisory_id not in matched_exception_ids:

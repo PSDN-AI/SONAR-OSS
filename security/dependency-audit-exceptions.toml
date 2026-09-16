@@ -67,6 +67,14 @@ review_by = "2026-10-15"
 removal_condition = "Remove when the datasets pin is raised to >=5.0.1 (blocked on the torchcodec audio-decoding migration), or if a fixed 3.x backport is published."
 
 [[exception]]
+id = "PYSEC-2026-3967"
+package = "pytorch-lightning"
+owner = "RN0311"
+rationale = "The same advisory as PYSEC-2026-3624 below (shared aliases GHSA-qqmf-gpg7-g8gw / CVE-2026-58659), reaching the lockfile a second time because pytorch-lightning ships alongside lightning at the same version in the optional [pyannote] extra's dependency tree (issue #276). Same review as the lightning entry: the advisory's fixed version is CalVer 2022.6.15, which version-compares above the current SemVer 2.x line, so every modern release is flagged; the deprecated 2022-era package layout it targets is not what ships."
+review_by = "2026-10-15"
+removal_condition = "Remove alongside the lightning entry when the advisory metadata is corrected upstream or pyannote.audio drops the lightning dependency."
+
+[[exception]]
 id = "PYSEC-2026-3624"
 package = "lightning"
 owner = "RN0311"
