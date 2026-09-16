@@ -89,10 +89,13 @@ helps other voice-AI teams find it and tells us where to invest.
   runtime. On Windows that means the full-shared build —
   `winget install Gyan.FFmpeg.Shared` — because the default `Gyan.FFmpeg`
   build ships only `ffmpeg.exe` and no DLLs; the package registers the
-  ffmpeg directory for DLL resolution itself (Python ≥ 3.8 does not consult
-  `PATH` for a native extension's dependent DLLs). Linux and macOS package
-  managers install the shared libraries alongside the binary, so no extra
-  step is needed there.
+  DLL-carrying ffmpeg directories for resolution itself (Python ≥ 3.8 does
+  not consult `PATH` for a native extension's dependent DLLs). Both builds
+  can be installed side by side in either `PATH` order: every ffmpeg
+  directory on `PATH` is inspected and the ones holding the shared
+  libraries are registered, so the static build shadowing the shared one
+  does not matter. Linux and macOS package managers install the shared
+  libraries alongside the binary, so no extra step is needed there.
 
 **Supported environments.** CI validates Linux x86_64 with CPython 3.10, 3.11,
 and 3.12, plus macOS arm64 with CPython 3.12 and the `[ml]` extra installed
