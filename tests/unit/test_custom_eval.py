@@ -69,6 +69,64 @@ class TestCustomEvalConfig:
         assert config.include_api_models is False
 
 
+class TestConfigProblemsArriveAsValueErrors:
+    """Issue #277: every configuration failure in the user's file must raise
+    the class the CLI's clean first tier names (ValueError), not escape as
+    yaml.parser.ParserError or AttributeError with a traceback."""
+
+    def test_malformed_yaml_is_a_named_value_error(self, tmp_path):
+        # The issue's exact reproduction.
+        bad = tmp_path / "bad.yaml"
+        bad.write_text("language: {code: en\nmodels: [\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="not valid YAML"):
+            CustomEvalConfig(str(bad))
+
+    def test_bare_dataset_key_reaches_the_data_source_message(self, tmp_path):
+        # `dataset:` with no value parses to None; the intent is identical to
+        # the key being absent and must reach the same message.
+        cfg = tmp_path / "bare.yaml"
+        cfg.write_text(
+            'language:\n  code: "en"\nmodels:\n  - "org/m"\ndataset:\napi_models:\n  enabled: false\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="tsv_path or dataset.hf_dataset_id"):
+            CustomEvalConfig(str(cfg))
+
+    @pytest.mark.parametrize("section", ["language", "api_models"])
+    def test_other_bare_sections_read_as_absent(self, tmp_path, section):
+        cfg = tmp_path / "bare-section.yaml"
+        cfg.write_text(
+            f'{section}:\nmodels:\n  - "org/m"\ndataset:\n  tsv_path: d.tsv\n',
+            encoding="utf-8",
+        )
+        config = CustomEvalConfig(str(cfg))
+        assert config.tsv_path == "d.tsv"
+
+    def test_scalar_section_is_named(self, tmp_path):
+        cfg = tmp_path / "scalar.yaml"
+        cfg.write_text('models:\n  - "org/m"\ndataset: 7\n', encoding="utf-8")
+        with pytest.raises(ValueError, match="section 'dataset' must be a mapping"):
+            CustomEvalConfig(str(cfg))
+
+    def test_bare_models_key_reaches_the_models_message(self, tmp_path):
+        cfg = tmp_path / "bare-models.yaml"
+        cfg.write_text("models:\ndataset:\n  tsv_path: d.tsv\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="at least one model"):
+            CustomEvalConfig(str(cfg))
+
+    def test_empty_file_reaches_the_models_message(self, tmp_path):
+        cfg = tmp_path / "empty.yaml"
+        cfg.write_text("", encoding="utf-8")
+        with pytest.raises(ValueError, match="at least one model"):
+            CustomEvalConfig(str(cfg))
+
+    def test_non_mapping_document_is_named(self, tmp_path):
+        cfg = tmp_path / "list.yaml"
+        cfg.write_text("- just\n- a\n- list\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="must be a YAML mapping"):
+            CustomEvalConfig(str(cfg))
+
+
 class TestPrepareDataset:
     def test_local_tsv_used_as_is(self, tmp_path):
         tsv = tmp_path / "data.tsv"

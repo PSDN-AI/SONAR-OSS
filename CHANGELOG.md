@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test matrix gains a `--dry-run` resolution check of all locked extras on
   every supported interpreter, closing the coverage gap that let the lock
   drift unnoticed.
+- The dependency gate passes on a clean `main` again (#276). The lightning
+  advisory reaches the lockfile under two distribution names — `lightning`
+  and `pytorch-lightning` ship the same code at the same version — with
+  primary ids that alias each other, and the reviewed exception was bound
+  to one package. The alias matching from #248 found the exception for the
+  second package's finding and then refused it on the package name. A
+  finding is now excepted when *some* id-matching exception also names its
+  package, with MISMATCH reserved for findings whose id-matching exceptions
+  are all bound to other packages (the typo case the check exists for), and
+  only package-matching exceptions count against OBSOLETE. A reviewed
+  `pytorch-lightning` exception entry covers the second name, with the same
+  rationale and removal condition as the `lightning` entry. Verified with
+  the issue's repro under pip-audit 2.9.0 (the workflow pin) and 2.10.1:
+  both exit 0 with all exceptions applied.
 
 - Skipping a per-clip preprocessing method names the capability it actually
   requires (#239). `core.py`'s prefilter hardcoded `supports_diarization`

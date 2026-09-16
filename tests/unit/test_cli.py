@@ -620,6 +620,38 @@ class TestCustomDispatch:
         assert "Config must specify at least one model under 'models'" in caplog.text
         assert all(record.exc_info is None for record in caplog.records), "no traceback for user input errors"
 
+    def test_malformed_yaml_arrives_clean_end_to_end(self, tmp_path, caplog):
+        """Issue #277 item 1: a YAML parse error escaped as
+        yaml.parser.ParserError with a full traceback. Unmocked: the real
+        config loader must convert it to the clean first tier."""
+        config_file = tmp_path / "bad.yaml"
+        config_file.write_text("language: {code: en\nmodels: [\n", encoding="utf-8")
+
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli("custom", "--config", str(config_file))
+
+        assert exc_info.value.code == 1
+        assert "not valid YAML" in caplog.text
+        assert all(record.exc_info is None for record in caplog.records), "no traceback for user input errors"
+
+    def test_bare_dataset_key_arrives_clean_end_to_end(self, tmp_path, caplog):
+        """Issue #277 item 2: `dataset:` with no value crashed with
+        AttributeError one line before the message written for it."""
+        config_file = tmp_path / "bare.yaml"
+        config_file.write_text(
+            'language:\n  code: "en"\nmodels:\n  - "org/m"\ndataset:\napi_models:\n  enabled: false\n',
+            encoding="utf-8",
+        )
+
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as exc_info:
+                run_cli("custom", "--config", str(config_file))
+
+        assert exc_info.value.code == 1
+        assert "dataset.tsv_path or dataset.hf_dataset_id" in caplog.text
+        assert all(record.exc_info is None for record in caplog.records), "no traceback for user input errors"
+
     def test_unexpected_errors_stay_loud(self, tmp_path, caplog):
         config_file = tmp_path / "eval.yaml"
         config_file.write_text("language:\n  code: pt\n")
