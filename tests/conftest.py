@@ -1,7 +1,25 @@
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
 import soundfile as sf
+
+# Pin a headless matplotlib backend for the whole suite. Nothing in the
+# repository set one, so the plot tests used whatever the host resolved to —
+# and on a host with an interactive default (tkagg on Windows) one plot test
+# per full run failed on the display connection, a different one each time,
+# while each passed alone (issue #280). Agg keeps the suite independent of
+# whether the host can open a display. The env var covers subprocesses the
+# tests spawn; use(force=True) covers this process even if matplotlib was
+# already imported by a plugin.
+os.environ.setdefault("MPLBACKEND", "Agg")
+try:
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+except ImportError:  # matplotlib comes with the [ml] extra; core-only is fine
+    pass
 
 
 @pytest.fixture
