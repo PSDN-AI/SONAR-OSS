@@ -160,6 +160,12 @@ class TestFfmpegDllRegistration:
         from psdn_sonar.preprocessing import pyannote_utils
 
         registered = []
+        # Pin the platform like the two siblings do: this test asserts the
+        # POSIX behaviour of the function, not the behaviour on whatever
+        # host happens to run the suite (issue #278 — on Windows the early
+        # return was not taken and the unconditional which() stub supplied
+        # a directory to register).
+        monkeypatch.setattr(os_module, "name", "posix")
         monkeypatch.setattr(os_module, "add_dll_directory", registered.append, raising=False)
         monkeypatch.setattr(pyannote_utils.shutil, "which", lambda name: "/usr/bin/ffmpeg")
 
