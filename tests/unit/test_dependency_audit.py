@@ -124,7 +124,8 @@ class TestAliasAwareMatching:
         exit_code = _run_gate(monkeypatch, tmp_path, report, exceptions_toml=exceptions)
         out = capsys.readouterr()
         assert exit_code == 1
-        assert "MISMATCH: exception GHSA-8mgp-746c-j5xp names package 'nltk'" in out.err
+        assert "MISMATCH: finding PYSEC-2026-3740 is in 'requests'" in out.err
+        assert "GHSA-8mgp-746c-j5xp ('nltk')" in out.err
 
     def test_missing_aliases_field_tolerated(self, monkeypatch, tmp_path):
         report = json.dumps(
@@ -136,3 +137,93 @@ class TestAliasAwareMatching:
             }
         )
         assert _run_gate(monkeypatch, tmp_path, report) == 0
+
+
+class TestSameAdvisoryUnderTwoPackages:
+    """Issue #276: lightning and pytorch-lightning carry the same advisory
+    under different primary ids that alias each other. The gate must accept
+    the pair when each package has its own exception, and must not fail a
+    finding over an alias match against the *other* package's exception."""
+
+    LIGHTNING_REPORT = json.dumps(
+        {
+            "dependencies": [
+                {
+                    "name": "lightning",
+                    "version": "2.6.5",
+                    "vulns": [{"id": "PYSEC-2026-3624", "aliases": ["GHSA-qqmf-gpg7-g8gw", "CVE-2026-58659"]}],
+                },
+                {
+                    "name": "pytorch-lightning",
+                    "version": "2.6.5",
+                    "vulns": [
+                        {
+                            "id": "PYSEC-2026-3967",
+                            "aliases": ["GHSA-qqmf-gpg7-g8gw", "CVE-2026-58659", "PYSEC-2026-3624"],
+                        }
+                    ],
+                },
+            ]
+        }
+    )
+
+    BOTH_EXCEPTIONS = f"""
+[[exception]]
+id = "PYSEC-2026-3624"
+package = "lightning"
+owner = "RN0311"
+rationale = "reviewed"
+review_by = {FUTURE}
+removal_condition = "fixed upstream"
+
+[[exception]]
+id = "PYSEC-2026-3967"
+package = "pytorch-lightning"
+owner = "RN0311"
+rationale = "reviewed"
+review_by = {FUTURE}
+removal_condition = "fixed upstream"
+"""
+
+    def test_one_exception_per_package_passes(self, monkeypatch, tmp_path, capsys):
+        exit_code = _run_gate(monkeypatch, tmp_path, self.LIGHTNING_REPORT, exceptions_toml=self.BOTH_EXCEPTIONS)
+        out = capsys.readouterr()
+        assert exit_code == 0, out.err
+        assert "reviewed exceptions applied: 2" in out.out
+        assert "MISMATCH" not in out.err
+
+    def test_missing_second_entry_reports_one_actionable_mismatch(self, monkeypatch, tmp_path, capsys):
+        # The issue's exact pre-fix state: only the lightning entry exists.
+        lightning_only = self.BOTH_EXCEPTIONS.split('[[exception]]\nid = "PYSEC-2026-3967"')[0]
+        exit_code = _run_gate(monkeypatch, tmp_path, self.LIGHTNING_REPORT, exceptions_toml=lightning_only)
+        out = capsys.readouterr()
+        assert exit_code == 1
+        assert "MISMATCH: finding PYSEC-2026-3967 is in 'pytorch-lightning'" in out.err
+        assert "PYSEC-2026-3624 ('lightning')" in out.err
+        # The lightning finding itself is excepted; only the second package fails.
+        assert out.err.count("MISMATCH") == 1
+
+    def test_wrong_package_match_does_not_keep_an_exception_alive(self, monkeypatch, tmp_path, capsys):
+        # An exception whose only id match is a finding in another package is
+        # OBSOLETE, not silently credited by the alias overlap.
+        report = json.dumps(
+            {
+                "dependencies": [
+                    {
+                        "name": "pytorch-lightning",
+                        "version": "2.6.5",
+                        "vulns": [
+                            {
+                                "id": "PYSEC-2026-3967",
+                                "aliases": ["GHSA-qqmf-gpg7-g8gw", "PYSEC-2026-3624"],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        exit_code = _run_gate(monkeypatch, tmp_path, report, exceptions_toml=self.BOTH_EXCEPTIONS)
+        out = capsys.readouterr()
+        assert exit_code == 1
+        assert "OBSOLETE: exception PYSEC-2026-3624 (lightning)" in out.err
+        assert "MISMATCH" not in out.err
