@@ -772,8 +772,15 @@ class SingleSpeakerEvaluator:
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        # Pre-warm DNSMOS/UTMOS/SQUIM in background while the first ASR model loads.
-        # Quality models are module-level singletons so this is a one-time cost.
+        # Pre-warm DNSMOS/UTMOS/SQUIM in the background. Quality models are
+        # module-level singletons so this is a one-time cost. The thread is
+        # joined *before* the first ASR model constructs: transformers
+        # implements from_pretrained(low_cpu_mem_usage=True) by opening
+        # init_empty_weights(), which patches nn.Module.register_parameter on
+        # the class — process-wide, not per thread — so a quality model still
+        # constructing inside that window lands its parameters on the meta
+        # device, loads real weights as a silent no-op, and then fails every
+        # score, leaving e.g. the utmos column empty (issue #288).
         import threading
 
         def _prewarm_quality_models():
@@ -793,6 +800,11 @@ class SingleSpeakerEvaluator:
             logger.info(f"Evaluating model: {model_name}")
             logger.info(f"{'=' * 60}")
 
+            # The prewarm constructions must not overlap the factory's
+            # init_empty_weights() window (issue #288, see the comment at the
+            # thread start). Joining an already-finished thread is a no-op,
+            # so later iterations pass straight through.
+            _prewarm_thread.join()
             try:
                 model = _model_factory(
                     model_name,
@@ -828,7 +840,6 @@ class SingleSpeakerEvaluator:
                     lineage.hf_revision or "<unknown revision>",
                 )
 
-            _prewarm_thread.join()  # ensure quality models are loaded before AQ computation starts
             result = cls.evaluate_one(
                 model,
                 data,
