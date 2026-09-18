@@ -35,6 +35,34 @@ def assign_mos_tier(mos: Optional[float]) -> Optional[str]:
     return "Low"
 
 
+def _reject_meta_parameters(module, family: str) -> None:
+    """Refuse a model whose parameters were registered on the meta device.
+
+    transformers implements ``from_pretrained(low_cpu_mem_usage=True)`` by
+    opening ``init_empty_weights()``, which patches
+    ``nn.Module.register_parameter`` on the class — process-wide, not per
+    thread. A quality model constructed by any thread while that window is
+    open gets parameters that carry shapes and no values; loading real
+    weights into them is a silent no-op, so the loader used to report a
+    healthy predictor whose every score then failed and was discarded
+    (issue #288). The evaluator now joins the prewarm thread before the ASR
+    factory runs; this check is the backstop for any other construction
+    route — a predictor that cannot score is reported as unavailable, not
+    as loaded.
+    """
+    parameters = getattr(module, "parameters", None)
+    if not callable(parameters):
+        return
+    if any(p.device.type == "meta" for p in parameters()):
+        raise RuntimeError(
+            f"{family} was constructed on the meta device — its parameters hold "
+            "shapes but no values, so every score would fail. A concurrent "
+            "transformers init_empty_weights() window (opened by "
+            "from_pretrained(low_cpu_mem_usage=True) on another thread) was "
+            "likely open during construction (issue #288)."
+        )
+
+
 # ---------------------------------------------------------------------------
 # DNSMOS  (speechmos / ONNX)
 # ---------------------------------------------------------------------------
@@ -114,6 +142,7 @@ def _get_utmos():
             }
             try:
                 _utmos_predictor = torch.hub.load("tarepan/SpeechMOS:v1.2.0", "utmos22_strong", trust_repo=True)
+                _reject_meta_parameters(_utmos_predictor, "UTMOS")
                 _utmos_available = True
                 logger.debug("UTMOS model loaded (torch.hub)")
             finally:
@@ -123,6 +152,7 @@ def _get_utmos():
                 sys.modules.update(_saved)
         except Exception as exc:
             logger.warning("UTMOS unavailable: %s", exc)
+            _utmos_predictor = None  # may hold a meta-device model the guard refused
             _utmos_available = False
             _utmos_error = str(exc)
     return _utmos_predictor
@@ -169,11 +199,13 @@ def _get_squim():
             from torchaudio.pipelines import SQUIM_OBJECTIVE
 
             _squim_model = SQUIM_OBJECTIVE.get_model()
+            _reject_meta_parameters(_squim_model, "SQUIM")
             _squim_sr = SQUIM_OBJECTIVE.sample_rate
             _squim_available = True
             logger.debug("SQUIM Objective model loaded (torchaudio)")
         except Exception as exc:
             logger.warning("SQUIM unavailable: %s", exc)
+            _squim_model = None  # may hold a meta-device model the guard refused
             _squim_available = False
             _squim_error = str(exc)
     return _squim_model
