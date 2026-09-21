@@ -215,3 +215,178 @@ class TestMosFailureReasonsRecorded:
 
         assert score_utmos(np.zeros(16000, dtype=np.float32)) == {"utmos": None}
         assert qm._utmos_error == "'Authorization'"
+
+
+class TestMetaDevicePredictorRefused:
+    """Issue #288: a predictor constructed while a concurrent
+    init_empty_weights() window was open has parameters on the meta device —
+    shapes and no values. The loader used to report it healthy; every score
+    then failed and was discarded, emptying the column. A meta-device model
+    must be reported as unavailable, with the reason recorded."""
+
+    @staticmethod
+    def _meta_module():
+        torch = pytest.importorskip("torch")
+        import torch.nn as nn
+
+        with torch.device("meta"):
+            return nn.Linear(4, 4)
+
+    def test_reject_helper_names_the_family_and_the_window(self):
+        import psdn_sonar.quality_models as qm
+
+        with pytest.raises(RuntimeError, match="UTMOS was constructed on the meta device"):
+            qm._reject_meta_parameters(self._meta_module(), "UTMOS")
+
+    def test_cpu_module_passes_the_guard(self):
+        torch = pytest.importorskip("torch")
+        import torch.nn as nn
+
+        import psdn_sonar.quality_models as qm
+
+        qm._reject_meta_parameters(nn.Linear(4, 4), "UTMOS")
+        assert torch is not None  # importorskip guard
+
+    def test_object_without_parameters_is_tolerated(self):
+        import psdn_sonar.quality_models as qm
+
+        qm._reject_meta_parameters(object(), "DNSMOS")
+
+    def test_meta_utmos_is_unavailable_not_loaded(self, monkeypatch):
+        """The issue's product state: _get_utmos returned normally, the
+        predictor was a real UTMOS22Strong on meta, and _utmos_error was
+        None. Now the loader refuses it and records why."""
+        torch = pytest.importorskip("torch")
+
+        import psdn_sonar.quality_models as qm
+
+        broken = self._meta_module()
+        monkeypatch.setattr(torch.hub, "load", lambda *a, **k: broken)
+        monkeypatch.setattr(qm, "_utmos_predictor", None)
+        monkeypatch.setattr(qm, "_utmos_available", None)
+        monkeypatch.setattr(qm, "_utmos_error", None)
+
+        assert qm._get_utmos() is None
+        assert qm._utmos_available is False
+        assert "meta device" in qm._utmos_error
+        assert "issue #288" in qm._utmos_error
+        assert score_utmos(np.zeros(16000, dtype=np.float32)) == {"utmos": None}
+
+    def test_meta_squim_is_unavailable_not_loaded(self, monkeypatch):
+        """The issue lists SQUIM as structurally identical and untested."""
+        pytest.importorskip("torch")
+        import sys
+        from types import SimpleNamespace
+
+        import psdn_sonar.quality_models as qm
+
+        broken = self._meta_module()
+        fake_pipelines = SimpleNamespace(SQUIM_OBJECTIVE=SimpleNamespace(get_model=lambda: broken, sample_rate=16000))
+        monkeypatch.setitem(sys.modules, "torchaudio.pipelines", fake_pipelines)
+        monkeypatch.setattr(qm, "_squim_model", None)
+        monkeypatch.setattr(qm, "_squim_available", None)
+        monkeypatch.setattr(qm, "_squim_error", None)
+
+        assert qm._get_squim() is None
+        assert qm._squim_available is False
+        assert "meta device" in qm._squim_error
+
+    def test_meta_failure_reaches_mos_warnings(self, monkeypatch):
+        """End to end through compute_mos_metrics: the refusal must arrive in
+        the artifact-bound mos_warnings, not just a debug line."""
+        torch = pytest.importorskip("torch")
+
+        import psdn_sonar.quality_models as qm
+
+        broken = self._meta_module()
+        monkeypatch.setattr(torch.hub, "load", lambda *a, **k: broken)
+        monkeypatch.setattr(qm, "_utmos_predictor", None)
+        monkeypatch.setattr(qm, "_utmos_available", None)
+        monkeypatch.setattr(qm, "_utmos_error", None)
+        monkeypatch.setattr(
+            qm, "score_dnsmos", lambda audio, sr=16000: {"dnsmos_ovrl": 2.6, "dnsmos_sig": 3.0, "dnsmos_bak": 3.1}
+        )
+        monkeypatch.setattr(
+            qm, "score_squim", lambda audio, sr=16000: {"squim_pesq": 2.4, "squim_stoi": 0.9, "squim_si_sdr": 18.0}
+        )
+
+        result = compute_mos_metrics(np.zeros(16000, dtype=np.float32))
+
+        assert result["utmos"] is None
+        assert len(result["mos_warnings"]) == 1
+        assert result["mos_warnings"][0].startswith("utmos_unavailable:")
+        assert "meta device" in result["mos_warnings"][0]
+
+
+class TestPrewarmJoinsBeforeTheModelFactory:
+    """Issue #288, the race itself: the prewarm thread's constructions must
+    finish before the ASR factory can open transformers'
+    init_empty_weights() window."""
+
+    def test_quality_models_finish_loading_before_the_factory_runs(self, tmp_path, monkeypatch):
+        import threading
+        import time
+        from types import SimpleNamespace
+
+        import psdn_sonar.quality_models as qm
+        from psdn_sonar.evaluators.single_speaker import SingleSpeakerEvaluator
+
+        events = []
+        lock = threading.Lock()
+
+        def record(name, delay=0.0):
+            time.sleep(delay)
+            with lock:
+                events.append(name)
+
+        # The prewarm thread runs these three; give the first one enough
+        # delay that, without the join, the factory would win the race.
+        monkeypatch.setattr(qm, "_get_dnsmos", lambda: record("prewarm_dnsmos", delay=0.3))
+        monkeypatch.setattr(qm, "_get_utmos", lambda: record("prewarm_utmos"))
+        monkeypatch.setattr(qm, "_get_squim", lambda: record("prewarm_squim"))
+
+        def factory(*args, **kwargs):
+            record("factory")
+            return SimpleNamespace(provider="test", provider_model_id=None)
+
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker.load_env", lambda: None)
+        monkeypatch.setattr(
+            SingleSpeakerEvaluator,
+            "load_data",
+            lambda *a, **k: [{"audio_path": "clip.wav", "ground_truth": "hello world"}],
+        )
+        monkeypatch.setattr("psdn_sonar.evaluators.single_speaker._model_factory", factory)
+        monkeypatch.setattr(
+            SingleSpeakerEvaluator,
+            "evaluate_one",
+            lambda *a, **k: {
+                "model_name": "whisper_base_en",
+                "results": [],
+                "summary": {
+                    "total_samples": 1,
+                    "successful": 1,
+                    "failed": 0,
+                    "avg_wer": 0.1,
+                    "avg_cer": 0.05,
+                    "elapsed_time": 0.1,
+                    "avg_latency_s": None,
+                    "median_latency_s": None,
+                    "p95_latency_s": None,
+                },
+            },
+        )
+
+        SingleSpeakerEvaluator.run_evaluation(
+            tsv_path="eval.tsv",
+            output_dir=str(tmp_path),
+            models=["whisper_base_en"],
+            language="en",
+            write_scores=False,
+            compute_sem=False,
+        )
+
+        assert "factory" in events
+        factory_at = events.index("factory")
+        assert set(events[:factory_at]) == {"prewarm_dnsmos", "prewarm_utmos", "prewarm_squim"}, (
+            f"factory ran before the prewarm finished: {events}"
+        )
