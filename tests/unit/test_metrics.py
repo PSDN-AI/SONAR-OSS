@@ -174,6 +174,68 @@ class TestPoseidonWeightValidation:
         normalized = normalize_text_unified(text)
         assert normalized == "এটি একটি পরীক্ষা"
 
+
+def _documented_poseidon(wer, cer, sim, w_wer=0.35, w_cer=0.20, w_sem=0.45):
+    """The formula exactly as published (docstring, FAQ, benchmark README)."""
+    score = w_wer * (1 - min(max(wer, 0.0), 1.0)) + w_cer * (1 - min(max(cer, 0.0), 1.0)) + w_sem * sim
+    return min(max(score, 0.0), 1.0)
+
+
+class TestPublishedScoreIsCheckable:
+    """Issue #291: WER/CER are capped inside the composite but the columns
+    publish the raw values, and the formula was documented without the caps —
+    so a published poseidon_score could not be arrived at from the wer, cer
+    and semantic_similarity printed beside it. The computation is unchanged
+    (published scores stay comparable); the documented formula now carries
+    the caps, and these tests pin the two to each other."""
+
+    # The issue's exact row: an insertion-heavy transcript, both error rates
+    # far above 1, its own default weights.
+    ISSUE_ROW = {"wer": 6.666666666666667, "cer": 7.769230769230769, "similarity": 0.0738905668258667}
+
+    def test_the_issues_row_recomputes_from_its_published_parts(self):
+        score = calculate_poseidon_score(
+            cer=self.ISSUE_ROW["cer"],
+            wer=self.ISSUE_ROW["wer"],
+            similarity=self.ISSUE_ROW["similarity"],
+            wer_weight=0.35,
+            cer_weight=0.20,
+            semantic_weight=0.45,
+        )
+        # Both capped terms zero out; the semantic term alone remains —
+        # the artifact value the issue observed…
+        assert score == pytest.approx(0.45 * self.ISSUE_ROW["similarity"])
+        # …and the documented formula, applied to the raw published
+        # components, now arrives at exactly the published score.
+        assert score == pytest.approx(
+            _documented_poseidon(self.ISSUE_ROW["wer"], self.ISSUE_ROW["cer"], self.ISSUE_ROW["similarity"])
+        )
+
+    @pytest.mark.parametrize(
+        "wer,cer,sim",
+        [
+            (0.0, 0.0, 1.0),  # perfect row
+            (0.1, 0.05, 0.9),  # ordinary row
+            (1.0, 1.0, 0.0),  # floor without overshoot
+            (1.5, 0.3, 0.5),  # WER overshoots alone
+            (0.3, 2.5, 0.5),  # CER overshoots alone
+            (6.666666666666667, 7.769230769230769, 0.0738905668258667),  # the issue's row
+        ],
+    )
+    def test_computation_matches_the_documented_formula(self, wer, cer, sim):
+        score = calculate_poseidon_score(
+            cer=cer, wer=wer, similarity=sim, wer_weight=0.35, cer_weight=0.20, semantic_weight=0.45
+        )
+        assert score == pytest.approx(_documented_poseidon(wer, cer, sim))
+
+    def test_capping_does_not_change_in_range_rows(self):
+        # For components already in [0, 1] the caps are identity: the fix is
+        # documentation-only and no ordinary score moves.
+        score = calculate_poseidon_score(
+            cer=0.05, wer=0.1, similarity=0.9, wer_weight=0.35, cer_weight=0.20, semantic_weight=0.45
+        )
+        assert score == pytest.approx(0.35 * 0.9 + 0.20 * 0.95 + 0.45 * 0.9)
+
     def test_normalize_text_unified_removes_punctuation(self):
         text = "এটি, একটি! পরীক্ষা?"
         normalized = normalize_text_unified(text)

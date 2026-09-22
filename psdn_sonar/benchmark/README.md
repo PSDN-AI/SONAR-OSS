@@ -52,6 +52,17 @@ One convention applies to every scoring path in the package (issue #107):
   `semantic_similarity_mean` and `poseidon_score_mean` are computed over the
   same range and neither can go negative. A negative raw cosine (unrelated
   texts) reads as `0.0`.
+- **`wer` / `cer` columns publish the raw values; the POSEIDON composite
+  caps each at `1.0` before use.** WER and CER exceed 1.0 through ordinary
+  insertion behaviour, and the raw value is the meaningful one, so the
+  columns and `wer_mean` / `cer_mean` keep it — unlike out-of-range cosine
+  similarity, a WER of 6.67 is a real measurement, not numerical noise.
+  Inside the composite each is capped so one runaway component cannot drive
+  the score below the range of the others. To check a published
+  `poseidon_score` against the components printed beside it, apply the caps
+  (issue #291):
+  `w_wer×(1 − min(wer, 1)) + w_cer×(1 − min(cer, 1)) + w_sem×semantic_similarity`,
+  clamped to `[0, 1]`.
 
 The same convention governs derived artifacts: `ensure_poseidon_score`
 (used by the reporting plots to backfill POSEIDON on legacy CSVs) leaves
