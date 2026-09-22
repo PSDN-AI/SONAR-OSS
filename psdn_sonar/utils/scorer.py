@@ -37,7 +37,9 @@ class PoseidonScorer:
     WER/CER 1.0 and similarity 0.0 for pairs it could not score, inflating
     batch averages relative to the pipelines, which exclude missing
     values). Similarity is cosine clamped to ``[0, 1]``, the range every
-    artifact reports.
+    artifact reports. The composite caps WER/CER at 1.0 before use while
+    the reported metrics stay raw, so recomputing a POSEIDON score from
+    its reported components requires ``min(x, 1)`` on each (issue #291).
 
     Note: an empty *hypothesis* against a non-empty reference IS measurable
     (WER/CER are genuinely 1.0 — every word wrong); only an empty

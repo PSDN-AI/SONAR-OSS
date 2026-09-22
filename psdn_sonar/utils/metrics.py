@@ -104,7 +104,23 @@ def calculate_poseidon_score(
     """
     Calculate POSEIDON score.
 
-    Formula: POSEIDON = wer_weight * (1 - WER) + cer_weight * (1 - CER) + semantic_weight * Similarity
+    Formula::
+
+        POSEIDON = wer_weight * (1 - min(WER, 1))
+                 + cer_weight * (1 - min(CER, 1))
+                 + semantic_weight * Similarity
+        (clamped to [0, 1])
+
+    WER and CER above 1 — ordinary behaviour for insertion-heavy
+    hypotheses — contribute their capped value, so one runaway component
+    cannot drag the composite below the range of the others. The artifact
+    columns keep the *raw* WER/CER (capping them would misreport the
+    metrics themselves and shift ``wer_mean``/``cer_mean``), which is why
+    the caps must appear in every statement of the formula: a published
+    ``poseidon_score`` is recomputable from the published components only
+    with the caps applied (issue #291). Similarity needs no cap here — it
+    is clamped to [0, 1] at the point of computation and stored clamped
+    (issue #107).
 
     When called without explicit weights, the global defaults from config are
     used (WER=0.35, CER=0.20, Similarity=0.45, configurable via env vars).
@@ -142,6 +158,9 @@ def calculate_poseidon_score(
     if wer_weight is not None or cer_weight is not None or semantic_weight is not None:
         validate_poseidon_weights(w_wer, w_cer, w_sem)
 
+    # The caps below are part of the published formula (docstring above,
+    # docs/FAQ.md, benchmark/README.md) — the stored wer/cer columns stay
+    # raw, so readers recompute the score with min(x, 1) (issue #291).
     cer_capped = min(max(cer, 0.0), 1.0)
     wer_capped = min(max(wer, 0.0), 1.0)
     similarity_capped = min(max(similarity, 0.0), 1.0)
