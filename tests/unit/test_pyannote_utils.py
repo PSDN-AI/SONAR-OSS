@@ -115,44 +115,102 @@ class TestRefusedDependencyInHeadline:
         assert _refused_repo(text, "pyannote/speaker-diarization-3.1") == "pyannote/speaker-diarization-community-1"
 
 
+def _ffmpeg_bin_dir(tmp_path, name: str, shared: bool):
+    """A fake winget-style install: bin/ffmpeg.exe, optionally with the av DLLs."""
+    bin_dir = tmp_path / name / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "ffmpeg.exe").write_bytes(b"")
+    if shared:
+        (bin_dir / "avcodec-61.dll").write_bytes(b"")
+        (bin_dir / "avformat-61.dll").write_bytes(b"")
+    return str(bin_dir)
+
+
+def _which_from_path_entries(entries_with_ffmpeg):
+    """A shutil.which stand-in resolving 'ffmpeg' per PATH entry, host-independently
+    (the real one would demand an executable bit on POSIX and PATHEXT on Windows)."""
+
+    def which(name, path=None):
+        if path in entries_with_ffmpeg:
+            return os.path.join(path, "ffmpeg.exe")
+        return None
+
+    return which
+
+
 class TestFfmpegDllRegistration:
     """Issue #254: torchcodec loads the ffmpeg shared libraries at runtime,
     and since Python 3.8 Windows does not consult PATH when resolving a
     native extension's dependent DLLs — so a full-shared ffmpeg on PATH
     still failed at decoder construction until its directory was registered
-    via os.add_dll_directory."""
+    via os.add_dll_directory. Issue #279: the first PATH match is not enough
+    — with both README builds installed the static one can land first, so
+    every ffmpeg directory is inspected and the DLL-carrying ones win."""
+
+    def _run(self, monkeypatch, path_entries, entries_with_ffmpeg):
+        import os as os_module
+
+        from psdn_sonar.preprocessing import pyannote_utils
+
+        registered = []
+        monkeypatch.setattr(os_module, "name", "nt")
+        monkeypatch.setattr(os_module, "add_dll_directory", registered.append, raising=False)
+        monkeypatch.setattr(pyannote_utils.shutil, "which", _which_from_path_entries(set(entries_with_ffmpeg)))
+        monkeypatch.setenv("PATH", os.pathsep.join(path_entries))
+
+        pyannote_utils._register_ffmpeg_dll_directory()
+        return registered
 
     def test_registers_ffmpeg_directory_on_windows(self, monkeypatch, tmp_path):
-        import os as os_module
+        shared = _ffmpeg_bin_dir(tmp_path, "ffmpeg-shared", shared=True)
 
-        from psdn_sonar.preprocessing import pyannote_utils
+        registered = self._run(monkeypatch, [shared], [shared])
 
-        ffmpeg = tmp_path / "ffmpeg-shared" / "bin" / "ffmpeg.exe"
-        ffmpeg.parent.mkdir(parents=True)
-        ffmpeg.write_bytes(b"")
+        assert registered == [shared]
 
-        registered = []
-        monkeypatch.setattr(os_module, "name", "nt")
-        monkeypatch.setattr(os_module, "add_dll_directory", registered.append, raising=False)
-        monkeypatch.setattr(pyannote_utils.shutil, "which", lambda name: str(ffmpeg))
+    def test_noop_without_ffmpeg_on_path(self, monkeypatch, tmp_path):
+        empty = str(tmp_path / "no-ffmpeg-here")
 
-        pyannote_utils._register_ffmpeg_dll_directory()
-
-        assert registered == [os.path.dirname(os.path.abspath(str(ffmpeg)))]
-
-    def test_noop_without_ffmpeg_on_path(self, monkeypatch):
-        import os as os_module
-
-        from psdn_sonar.preprocessing import pyannote_utils
-
-        registered = []
-        monkeypatch.setattr(os_module, "name", "nt")
-        monkeypatch.setattr(os_module, "add_dll_directory", registered.append, raising=False)
-        monkeypatch.setattr(pyannote_utils.shutil, "which", lambda name: None)
-
-        pyannote_utils._register_ffmpeg_dll_directory()
+        registered = self._run(monkeypatch, [empty], [])
 
         assert registered == []
+
+    def test_shared_build_wins_even_when_static_is_first(self, monkeypatch, tmp_path, caplog):
+        """The issue's exact host state: winget put Gyan.FFmpeg (static, no
+        DLLs) ahead of Gyan.FFmpeg.Shared on PATH."""
+        static = _ffmpeg_bin_dir(tmp_path, "ffmpeg-static", shared=False)
+        shared = _ffmpeg_bin_dir(tmp_path, "ffmpeg-shared", shared=True)
+
+        with caplog.at_level("WARNING"):
+            registered = self._run(monkeypatch, [static, shared], [static, shared])
+
+        assert registered == [shared]
+        assert not caplog.records
+
+    def test_static_only_still_registers_but_names_the_shared_build(self, monkeypatch, tmp_path, caplog):
+        static = _ffmpeg_bin_dir(tmp_path, "ffmpeg-static", shared=False)
+
+        with caplog.at_level("WARNING"):
+            registered = self._run(monkeypatch, [static], [static])
+
+        assert registered == [static]
+        assert "Gyan.FFmpeg.Shared" in caplog.text
+        assert static in caplog.text
+
+    def test_two_shared_builds_both_registered(self, monkeypatch, tmp_path):
+        first = _ffmpeg_bin_dir(tmp_path, "ffmpeg-a", shared=True)
+        second = _ffmpeg_bin_dir(tmp_path, "ffmpeg-b", shared=True)
+
+        registered = self._run(monkeypatch, [first, second], [first, second])
+
+        assert registered == [first, second]
+
+    def test_duplicate_path_entries_registered_once(self, monkeypatch, tmp_path):
+        shared = _ffmpeg_bin_dir(tmp_path, "ffmpeg-shared", shared=True)
+
+        registered = self._run(monkeypatch, [shared, shared, ""], [shared])
+
+        assert registered == [shared]
 
     def test_noop_on_posix(self, monkeypatch):
         import os as os_module

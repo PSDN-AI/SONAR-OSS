@@ -23,6 +23,14 @@ since the two share no characters, every row floors at WER 1.0 with empty
 warnings — indistinguishable from a model that transcribed badly.
 :func:`hypothesis_script_mismatch_warning` runs the same scan over a
 model's predictions after evaluation.
+
+Issue #292: the run-level scan divides by the whole batch, while the
+condition it detects happens per transcript — one row returned entirely in
+another writing system stays under the majority threshold when its
+neighbours are correct, and leaves no trace. :func:`hypothesis_row_script_warnings`
+applies the same gates to each transcript alone so such a row is marked in
+the artifact, and :func:`hypothesis_row_mismatch_warning` summarises the
+marked rows at run level when the batch-level check stays silent.
 """
 
 from __future__ import annotations
@@ -173,4 +181,73 @@ def hypothesis_script_mismatch_warning(
         f"actually supports '{language}' (it may be transliterating or "
         "falling back to a related language). This warning is recorded in "
         "scores.json under 'warnings'."
+    )
+
+
+def hypothesis_row_script_warnings(
+    hypotheses: Iterable[str],
+    language: str,
+) -> list:
+    """Per-transcript markers, one entry per hypothesis (``None`` = clean).
+
+    The run-level check divides by the batch total, so a single transcript
+    returned entirely in another writing system stays under the majority
+    threshold when the surrounding rows are correct, and is then scored
+    against a reference it shares no characters with — indistinguishable in
+    the artifact from a merely inaccurate row (issue #292). The same gates
+    as the run-level check, applied to each transcript alone, make the
+    condition per-row: at least ``_MIN_SCRIPT_CHARS`` script-bearing
+    characters in *this* transcript, with a clear majority in a foreign
+    script — so short rows are too small to call and code-switching *within*
+    a transcript still does not trip it.
+    """
+    texts = list(hypotheses)
+    expected = EXPECTED_SCRIPTS.get(language.lower())
+    if expected is None:
+        return [None] * len(texts)
+
+    markers: list = []
+    for text in texts:
+        mismatch = _dominant_foreign_script([text or ""], expected)
+        if mismatch is None:
+            markers.append(None)
+        else:
+            dominant, share_pct = mismatch
+            markers.append(
+                f"foreign_script: {_SCRIPT_DISPLAY[dominant]} "
+                f"({share_pct}% of script-bearing characters; --language "
+                f"'{language}' expects {_SCRIPT_DISPLAY[expected]})"
+            )
+    return markers
+
+
+def hypothesis_row_mismatch_warning(
+    markers: list,
+    language: str,
+    model_name: str,
+    csv_name: str,
+) -> Optional[str]:
+    """Run-level warning summarising the per-row markers (issue #292).
+
+    Complements :func:`hypothesis_script_mismatch_warning` for the case its
+    batch-wide majority cannot see: some transcripts came back in another
+    writing system while the run's own script holds the majority. Returns
+    ``None`` when no row is marked.
+    """
+    flagged = sum(1 for marker in markers if marker)
+    if not flagged:
+        return None
+    expected = EXPECTED_SCRIPTS[language.lower()]
+
+    return (
+        f"Model '{model_name}' returned {flagged} of {len(markers)} "
+        f"transcripts in a different writing system than the "
+        f"{_SCRIPT_DISPLAY[expected]} that --language '{language}' expects. "
+        "Those rows share no characters with their references, so their "
+        "WER/CER measure the script difference, not transcription accuracy — "
+        "and they are averaged into wer_mean/cer_mean with everything else. "
+        f"Each affected row is marked in the script_warning column of "
+        f"{csv_name}. Check the adapter's language configuration and whether "
+        f"the service actually supports '{language}'. This warning is "
+        "recorded in scores.json under 'warnings'."
     )
