@@ -378,6 +378,10 @@ class SingleSpeakerEvaluator:
             "ttft_s": ttft_s,
             "complete_s": complete_s,
             **aq,
+            # Filled after evaluation by the per-transcript script scan: a
+            # single transcript in another writing system is invisible to the
+            # run-level majority check (issue #292).
+            "script_warning": None,
             "error": error,
         }
 
@@ -844,13 +848,30 @@ class SingleSpeakerEvaluator:
             # writing system (observed: Devanagari for --language bn) floors
             # every row at WER 1.0 with nothing in the artifact to separate
             # it from a model that transcribed badly (issue #207).
-            from psdn_sonar.language.script_check import hypothesis_script_mismatch_warning
-
-            hyp_mismatch = hypothesis_script_mismatch_warning(
-                (row.get("prediction") or "" for row in result["results"]),
-                language,
-                model_name,
+            from psdn_sonar.language.script_check import (
+                hypothesis_row_mismatch_warning,
+                hypothesis_row_script_warnings,
+                hypothesis_script_mismatch_warning,
             )
+
+            predictions = [row.get("prediction") or "" for row in result["results"]]
+            hyp_mismatch = hypothesis_script_mismatch_warning(predictions, language, model_name)
+
+            # The run-level majority cannot see a single transcript that came
+            # back entirely in another writing system (issue #292): scan each
+            # transcript alone, mark affected rows in the CSV, and when the
+            # batch-level check stayed silent, summarise the marked rows in
+            # the run warning instead.
+            row_markers = hypothesis_row_script_warnings(predictions, language)
+            for row, marker in zip(result["results"], row_markers):
+                row["script_warning"] = marker
+            if not hyp_mismatch:
+                hyp_mismatch = hypothesis_row_mismatch_warning(
+                    row_markers,
+                    language,
+                    model_name,
+                    f"asr_detailed_{model_name}.csv",
+                )
             if hyp_mismatch:
                 logger.warning(hyp_mismatch)
             result["hypothesis_script_warning"] = hyp_mismatch
