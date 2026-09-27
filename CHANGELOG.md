@@ -7,8 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-27
+
 ### Fixed
 
+- Every published POSEIDON formula states the WER/CER caps (#291).
+  `calculate_poseidon_score` caps WER and CER at 1.0 before combining
+  them, while the artifact columns publish the raw values, and no
+  statement of the formula mentioned the caps — so for a row with WER or
+  CER above 1, recomputing from the published components disagreed with
+  the published score. The computation is unchanged: the `metrics.py` and
+  `PoseidonScorer` docstrings, the `docs/FAQ.md` metric table, and
+  `benchmark/README.md` now give the real formula,
+  `w_wer·(1 − min(WER, 1)) + w_cer·(1 − min(CER, 1)) + w_sem·Similarity`
+  clamped to [0, 1], and state that the `wer`/`cer` columns stay raw.
+- A single transcript in another writing system is recorded (#292). The
+  hypothesis script check from #220 scanned a model's predictions as one
+  batch, so one foreign-script row out of five fell below the majority
+  gate and was scored against a reference it shared no characters with,
+  with no warning anywhere. The same gates now also run per transcript:
+  `asr_detailed_<model>.csv` gains a `script_warning` column naming the
+  detected script, and a run-level warning with the affected count lands
+  in the `scores.json` `warnings` array. Code-switching within one
+  transcript still does not trip the check.
+- Prewarmed quality models stay off the meta device (#288). The
+  background prewarm of DNSMOS/UTMOS/SQUIM could overlap the ASR model
+  load, whose `init_empty_weights()` patch is process-wide, so a UTMOS
+  predictor was built on the meta device and every score failed silently,
+  leaving the `utmos` column empty while the other quality columns
+  populated. The prewarm thread is now joined before the model factory
+  runs, and the UTMOS and SQUIM loaders refuse a meta-device model with
+  the reason recorded in `quality_warnings` (the #245 path).
+- The test suite pins the headless Agg matplotlib backend (#280). With no
+  backend pinned, a Windows host resolved `tkagg` and one plot test per
+  full run failed with `_tkinter.TclError`. `tests/conftest.py` now
+  selects Agg and exports `MPLBACKEND` for subprocesses. Test-only — the
+  backend of real CLI runs is untouched.
+- Windows registers every ffmpeg directory that carries the shared
+  libraries, not the first `PATH` match (#279). With both README builds
+  installed and the static `Gyan.FFmpeg` first on `PATH`, pyannote still
+  failed on `libtorchcodec_core9.dll`. The registration now scans every
+  ffmpeg directory on `PATH` and registers those carrying the `av*.dll`
+  libraries, in either order; when none does, it warns naming the
+  directories inspected and `winget install Gyan.FFmpeg.Shared`.
+- `test_noop_on_posix` pins `os.name` and passes on Windows (#278).
+  Test-only — the DLL registration itself was correct on both platforms.
+- `psdn-sonar custom` delivers config problems as clean errors (#277). A
+  malformed YAML file raised a parser traceback, and a bare `dataset:`
+  key crashed with `AttributeError` before the data-source validation
+  written for it. Both, along with an empty or non-mapping document and
+  bare `models:`/`language:`/`api_models:` keys, now end in one named
+  ERROR line with exit 1; bare `hf_split:`/`text_column:`/`audio_column:`
+  keys take their documented defaults.
 - The locked `[ml]` install resolves on Python 3.10 again (#281).
   onnxruntime stopped publishing cp310 wheels with its 1.24 line while its
   metadata still admitted 3.10, so `uv.lock` selected 1.24.3 for the < 3.11
