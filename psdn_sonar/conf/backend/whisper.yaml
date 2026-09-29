@@ -3,7 +3,7 @@ backend:
   type: api
   api:
     provider: openai
-    model: whisper-1
+    model: gpt-transcribe
     timeout: 300
     max_retries: 3
   preprocessing:

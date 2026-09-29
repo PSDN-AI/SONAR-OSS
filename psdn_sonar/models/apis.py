@@ -65,7 +65,7 @@ class WhisperAPIModel(ASRModel):
 
     provider = "openai"
 
-    def __init__(self, api_key=None, model="whisper-1", language=None):
+    def __init__(self, api_key=None, model="gpt-transcribe", language=None):
         try:
             from openai import OpenAI
         except ImportError:
@@ -84,7 +84,7 @@ class WhisperAPIModel(ASRModel):
             with open(audio_path, "rb") as f:
                 params = {"model": self.model, "file": f}
                 if self.language:
-                    params["language"] = self.language
+                    params["extra_body"] = {"languages": [self.language]}
                 return self.client.audio.transcriptions.create(**params).text
         except Exception as e:
             self._record_transcribe_failure(audio_path, e)
