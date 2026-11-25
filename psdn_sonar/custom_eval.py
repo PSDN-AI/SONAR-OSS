@@ -22,6 +22,7 @@ _API_KEY_MAP = {
     "whisper_api": "OPENAI_API_KEY",
     "assemblyai_api": "ASSEMBLYAI_API_KEY",
     "elevenlabs_api": "ELEVENLABS_API_KEY",
+    "oruk_fourier_2b_api": "ORUK_API_KEY",
 }
 
 
@@ -178,7 +179,7 @@ def prepare_dataset(config: CustomEvalConfig, output_dir: str, max_samples: int 
 
 def _create_api_model(api_name: str, language_code: str):
     """Instantiate a hosted API model with the correct language parameters."""
-    from psdn_sonar.models.apis import AssemblyAIAPIModel, ElevenLabsAPIModel, WhisperAPIModel
+    from psdn_sonar.models.apis import AssemblyAIAPIModel, ElevenLabsAPIModel, OrukAPIModel, WhisperAPIModel
 
     if api_name == "whisper_api":
         return WhisperAPIModel(language=language_code)
@@ -187,6 +188,8 @@ def _create_api_model(api_name: str, language_code: str):
         return ElevenLabsAPIModel(language=language_code)
     if api_name == "assemblyai_api":
         return AssemblyAIAPIModel(language=language_code)
+    if api_name == "oruk_fourier_2b_api":
+        return OrukAPIModel(language=language_code)
     return None
 
 

@@ -26,7 +26,7 @@ class TestEvaluationDomain:
         assert evaluation_domain("kresnik_wav2vec2_large_xlsr_korean", "fleurs") == NOT_DECLARED
 
     def test_hosted_apis_are_unknown(self):
-        for api in ("whisper_api", "elevenlabs_api", "assemblyai_api"):
+        for api in ("whisper_api", "elevenlabs_api", "assemblyai_api", "oruk_fourier_2b_api"):
             assert evaluation_domain(api, "fleurs") == UNKNOWN
             assert evaluation_domain(api, "openslr53") == UNKNOWN
 

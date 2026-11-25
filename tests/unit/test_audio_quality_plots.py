@@ -31,6 +31,7 @@ class TestPrettifyModelName:
     def test_api_names(self):
         assert prettify_model_name("whisper_api") == "Whisper API"
         assert prettify_model_name("elevenlabs_api") == "ElevenLabs API"
+        assert prettify_model_name("oruk_fourier_2b_api") == "Oruk Fourier 2B API"
 
     def test_custom_prefix_joins_org_and_model(self):
         assert prettify_model_name("custom_openai_whisper-large") == "openai/whisper-large"

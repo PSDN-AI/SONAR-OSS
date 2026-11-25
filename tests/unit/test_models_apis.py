@@ -542,3 +542,92 @@ class TestIterPcmFrames:
         total_samples = sum(len(f) // 2 for f in frames)
         # Mono after downmix: 0.5s @ 16 kHz = 8000 samples (not 16000 interleaved).
         assert total_samples == 8000
+
+
+# ---------------------------------------------------------------------------
+# Oruk Speech API (plain HTTP via requests — no SDK extra required)
+# ---------------------------------------------------------------------------
+
+
+def _oruk_with_mock_session(response_json: dict, **kwargs):
+    from psdn_sonar.models.apis import OrukAPIModel
+
+    model = OrukAPIModel(api_key="oruk-test-key", **kwargs)
+    response = MagicMock()
+    response.json.return_value = response_json
+    response.raise_for_status.return_value = None
+    model._session = MagicMock()
+    model._session.post.return_value = response
+    return model
+
+
+class TestOrukAPIModel:
+    def test_missing_api_key_raises(self, monkeypatch):
+        from psdn_sonar.models.apis import OrukAPIModel
+
+        monkeypatch.delenv("ORUK_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="ORUK_API_KEY"):
+            OrukAPIModel()
+
+    def test_provider_and_default_model_metadata(self):
+        from psdn_sonar.models.apis import ORUK_DEFAULT_MODEL, OrukAPIModel
+
+        model = OrukAPIModel(api_key="oruk-test-key")
+        assert model.provider == "oruk"
+        assert model.provider_model_id == ORUK_DEFAULT_MODEL
+        assert model._session.headers["Authorization"] == "Bearer oruk-test-key"
+
+    def test_transcribe_posts_multipart_and_parses_text_and_revision(self, tmp_path):
+        clip = tmp_path / "sample.flac"
+        clip.write_bytes(b"fLaC")
+        model = _oruk_with_mock_session(
+            {"text": "  hello fourier  ", "model_revision": "8c2a8871f1304aa2f634da4fb95e24438c4945b9"},
+            language="en",
+        )
+        assert model.transcribe(str(clip)) == "hello fourier"
+        assert model.model_revision == "8c2a8871f1304aa2f634da4fb95e24438c4945b9"
+        url, kwargs = model._session.post.call_args.args[0], model._session.post.call_args.kwargs
+        assert url == "https://speech-api.oruk.ai/v1/audio/transcriptions"
+        assert kwargs["data"] == {"model": "oruk-fourier-2b", "response_format": "json", "language": "en"}
+        assert kwargs["files"]["file"][0] == "sample.flac"
+        assert kwargs["files"]["file"][2] == "audio/flac"
+
+    def test_api_error_cause_recorded_for_artifacts(self, tmp_path):
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"\x00")
+        model = _oruk_with_mock_session({})
+        response = MagicMock()
+        response.json.return_value = {"error": {"message": "Invalid API key", "code": "invalid_api_key"}}
+        model._session.post.side_effect = requests.HTTPError(response=response)
+
+        assert model.transcribe(str(clip)) is None
+        assert model.last_transcribe_error == "Invalid API key"
+
+    def test_transient_timeout_retries_then_succeeds(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"\x00")
+        model = _oruk_with_mock_session({})
+        ok_response = MagicMock()
+        ok_response.json.return_value = {"text": "recovered"}
+        ok_response.raise_for_status.return_value = None
+        model._session.post.side_effect = [requests.exceptions.Timeout("slow"), ok_response]
+
+        assert model.transcribe(str(clip)) == "recovered"
+        assert model._session.post.call_count == 2
+
+    def test_non_english_language_logs_warning(self, caplog):
+        from psdn_sonar.models.apis import OrukAPIModel
+
+        with caplog.at_level("WARNING"):
+            OrukAPIModel(api_key="oruk-test-key", language="bn")
+        assert "English-only" in caplog.text
+
+    def test_custom_eval_factory_creates_oruk_adapter(self, monkeypatch):
+        from psdn_sonar.custom_eval import _create_api_model
+        from psdn_sonar.models.apis import OrukAPIModel
+
+        monkeypatch.setenv("ORUK_API_KEY", "oruk-test-key")
+        model = _create_api_model("oruk_fourier_2b_api", "en")
+        assert isinstance(model, OrukAPIModel)
+        assert model.language == "en"

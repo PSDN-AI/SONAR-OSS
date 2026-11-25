@@ -64,6 +64,7 @@ _API_PROVIDERS = {
     "elevenlabs_api": "elevenlabs",
     "whisper_api": "openai",
     "assemblyai_api": "assemblyai",
+    "oruk_fourier_2b_api": "oruk",
 }
 
 

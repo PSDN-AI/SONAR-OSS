@@ -228,6 +228,12 @@ class TestApiAdaptersReceiveTheLanguage:
         model = registry.create_model("whisper_api", language="ko", api_key="test-key")
         assert model.language == "ko"
 
+    def test_oruk_fourier_2b_api_language_forwarded(self):
+        model = registry.create_model("oruk_fourier_2b_api", language="en", api_key="test-key")
+        assert model.language == "en"
+        assert model.provider == "oruk"
+        assert model.provider_model_id == "oruk-fourier-2b"
+
 
 # ---------------------------------------------------------------------------
 # scores.json protocol follows the model that ran (ties into #184's contract)

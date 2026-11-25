@@ -45,7 +45,7 @@ _DECLARED_TRAINING_DATASETS: Dict[str, FrozenSet[str]] = {
 
 # Hosted APIs never disclose training data; their domain status is always
 # "unknown" rather than "not-declared".
-_UNDISCLOSED_TRAINING_DATA = frozenset({"whisper_api", "elevenlabs_api", "assemblyai_api"})
+_UNDISCLOSED_TRAINING_DATA = frozenset({"whisper_api", "elevenlabs_api", "assemblyai_api", "oruk_fourier_2b_api"})
 
 IN_DOMAIN = "in-domain"
 NOT_DECLARED = "not-declared"

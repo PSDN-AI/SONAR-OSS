@@ -1,4 +1,4 @@
-"""Hosted ASR vendor API adapters (OpenAI Whisper, ElevenLabs, AssemblyAI).
+"""Hosted ASR vendor API adapters (OpenAI Whisper, ElevenLabs, AssemblyAI, Oruk).
 
 Vendor SDKs (``openai``, ``assemblyai``) are imported lazily inside each
 adapter's ``__init__`` and live behind the ``[apis]`` extra:
@@ -6,8 +6,8 @@ adapter's ``__init__`` and live behind the ``[apis]`` extra:
     pip install "psdn-sonar[apis]"
 
 API keys are read from environment variables (``OPENAI_API_KEY``,
-``ELEVENLABS_API_KEY`` / ``XI_API_KEY``, ``ASSEMBLYAI_API_KEY``) unless
-passed explicitly — never hardcoded and never logged.
+``ELEVENLABS_API_KEY`` / ``XI_API_KEY``, ``ASSEMBLYAI_API_KEY``,
+``ORUK_API_KEY``) unless passed explicitly — never hardcoded and never logged.
 
 Like the HuggingFace adapters, ``transcribe`` returns ``None`` on failure
 rather than raising, so one bad clip or transient API error does not abort
@@ -444,3 +444,108 @@ class AssemblyAIAPIModel(ASRModel):
             raise RuntimeError(f"streaming session produced no transcript: {errors[-1]}")
         complete_s = round(time.perf_counter() - t0, 4)
         return text, ttft, complete_s
+
+
+ORUK_DEFAULT_BASE_URL = "https://speech-api.oruk.ai/v1"
+ORUK_DEFAULT_MODEL = "oruk-fourier-2b"
+
+
+class OrukAPIModel(ASRModel):
+    """Oruk Speech API transcription via OpenAI-compatible HTTP multipart REST.
+
+    Uses ``requests`` (a core dependency) so ``oruk_fourier_2b_api`` works
+    without the optional ``[apis]`` SDK extra. Reads ``ORUK_API_KEY`` from
+    the environment unless ``api_key`` is passed explicitly.
+
+    ``oruk-fourier-2b`` is an English-only model (``$0.0080/min`` on the
+    hosted API; open weights under CC BY-NC 4.0 at
+    ``huggingface.co/oruk/oruk-fourier-2b``).
+    """
+
+    provider = "oruk"
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = ORUK_DEFAULT_MODEL,
+        language: Optional[str] = None,
+        base_url: Optional[str] = None,
+        timeout: int = 120,
+    ):
+        key = (api_key or os.getenv("ORUK_API_KEY") or "").strip()
+        if not key:
+            raise ValueError(
+                "Oruk API key not found. Set ORUK_API_KEY in .env or as an environment variable "
+                "(sign up at https://oruk.ai/auth/signup)."
+            )
+        self._api_key = key
+        self.model = model
+        self.provider_model_id = model
+        self.model_revision: Optional[str] = None
+        self.language = language
+        if language and language.lower() not in ("en", "english"):
+            logger.warning(
+                "Oruk model '%s' is English-only; requested language='%s' may degrade accuracy.",
+                model,
+                language,
+            )
+        self._base_url = (base_url or os.getenv("ORUK_BASE_URL") or ORUK_DEFAULT_BASE_URL).rstrip("/")
+        self._timeout = timeout
+        self._session = requests.Session()
+        self._session.headers["Authorization"] = f"Bearer {self._api_key}"
+
+    @staticmethod
+    def _detect_content_type(audio_path: str) -> str:
+        lower = audio_path.lower()
+        if lower.endswith(".mp3"):
+            return "audio/mpeg"
+        if lower.endswith(".flac"):
+            return "audio/flac"
+        if lower.endswith(".ogg") or lower.endswith(".opus"):
+            return "audio/ogg"
+        if lower.endswith(".m4a"):
+            return "audio/mp4"
+        return "audio/wav"
+
+    def _handle_error(self, exc: Exception) -> None:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            try:
+                body = resp.json()
+                err = body.get("error")
+                if isinstance(err, dict):
+                    msg = err.get("message") or str(err)
+                elif err:
+                    msg = str(err)
+                else:
+                    detail = body.get("detail")
+                    msg = detail.get("message", str(detail)) if isinstance(detail, dict) else (detail or str(body))
+            except Exception:
+                msg = f"{resp.status_code} {resp.text[:200]}"
+        else:
+            msg = str(exc)
+        self.last_transcribe_error = str(msg)
+        logger.error("Oruk API error: %s", msg)
+
+    @_retry()
+    def transcribe(self, audio_path: str) -> Optional[str]:
+        try:
+            url = f"{self._base_url}/audio/transcriptions"
+            ctype = self._detect_content_type(audio_path)
+            data = {"model": self.model, "response_format": "json"}
+            if self.language:
+                data["language"] = self.language
+            with open(audio_path, "rb") as f:
+                files = {"file": (os.path.basename(audio_path), f, ctype)}
+                resp = self._session.post(url, files=files, data=data, timeout=self._timeout)
+            resp.raise_for_status()
+            out = resp.json()
+            rev = out.get("model_revision")
+            if isinstance(rev, str) and rev:
+                self.model_revision = rev
+            return (out.get("text") or "").strip()
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            raise
+        except Exception as exc:
+            self._handle_error(exc)
+            return None

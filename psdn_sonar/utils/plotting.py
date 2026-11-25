@@ -39,6 +39,7 @@ class ASRResultPlotter:
         "wav2vec2_bengali": "Wav2Vec2-Bengali",
         "whisper_api": "Whisper API",
         "assemblyai_api": "AssemblyAI API",
+        "oruk_fourier_2b_api": "Oruk Fourier 2B API",
         "banglaasr_v5": "BanglaASR v5",
         "tugstugi_bengali": "Tugstugi Bengali",
         "tugstugi_bengali_regional": "Tugstugi Regional",
