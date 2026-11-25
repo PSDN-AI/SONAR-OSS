@@ -11,6 +11,7 @@ _API_MODEL_NAMES = {
     "whisper_api": "Whisper API",
     "elevenlabs_api": "ElevenLabs API",
     "assemblyai_api": "AssemblyAI API",
+    "oruk_fourier_2b_api": "Oruk Fourier 2B API",
 }
 
 _NUMERIC_COLUMNS = ("snr_db", "wer", "cer", "clipping_ratio", "silence_ratio", "inference_latency_s")

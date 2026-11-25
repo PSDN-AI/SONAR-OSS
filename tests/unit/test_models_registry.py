@@ -26,6 +26,7 @@ class TestListModels:
         assert "whisper_api" in models
         assert "elevenlabs_api" in models
         assert "assemblyai_api" in models
+        assert "oruk_fourier_2b_api" in models
         assert "banglaasr_v5" in models
 
     def test_matches_config_keys(self):

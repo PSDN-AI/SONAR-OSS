@@ -33,6 +33,7 @@ _API_ENV_KEYS = {
     "elevenlabs_api": "ELEVENLABS_API_KEY",
     "whisper_api": "OPENAI_API_KEY",
     "assemblyai_api": "ASSEMBLYAI_API_KEY",
+    "oruk_fourier_2b_api": "ORUK_API_KEY",
 }
 
 ModelConfig = Tuple[str, Callable[[], ASRModel], Optional[str]]

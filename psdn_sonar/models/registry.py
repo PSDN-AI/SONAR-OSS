@@ -113,6 +113,9 @@ _MODEL_CONFIGS: Dict[str, Tuple[str, dict]] = {
     "elevenlabs_api": ("psdn_sonar.models.apis.ElevenLabsAPIModel", {}),
     "whisper_api": ("psdn_sonar.models.apis.WhisperAPIModel", {}),
     "assemblyai_api": ("psdn_sonar.models.apis.AssemblyAIAPIModel", {}),
+    # Opt-in English-only hosted API (not in LANGUAGE_DEFAULT_MODELS to keep
+    # existing default rosters unchanged; select via --models oruk_fourier_2b_api).
+    "oruk_fourier_2b_api": ("psdn_sonar.models.apis.OrukAPIModel", {"model": "oruk-fourier-2b"}),
     # Special-case models
     "banglaasr_v5": ("psdn_sonar.models.huggingface.BanglaASRV5Model", {}),
 }
